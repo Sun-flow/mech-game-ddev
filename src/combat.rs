@@ -91,13 +91,53 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32) 
 }
 
 /// Process attacks: melee does instant damage, ranged spawns projectiles.
+/// Interceptors prioritize destroying enemy rockets in range.
 pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt: f32) {
     // Update cooldowns
     for unit in units.iter_mut() {
         unit.update_cooldown(dt);
     }
 
-    // Collect attack events
+    // === Interceptor rocket interception ===
+    // Interceptors that can attack will try to destroy the nearest enemy rocket in range first.
+    let interceptor_actions: Vec<(u64, usize)> = {
+        let mut actions = Vec::new();
+        for unit in units.iter_mut() {
+            if !unit.alive || !unit.can_attack() || !unit.is_interceptor() {
+                continue;
+            }
+            // Find nearest enemy rocket in attack range
+            let mut best_rocket: Option<(usize, f32)> = None;
+            for (pi, proj) in projectiles.iter().enumerate() {
+                if !proj.alive || proj.team_id == unit.team_id || !proj.is_rocket() {
+                    continue;
+                }
+                let dist = unit.pos.distance(proj.pos);
+                if dist <= unit.stats.attack_range {
+                    if best_rocket.is_none() || dist < best_rocket.unwrap().1 {
+                        best_rocket = Some((pi, dist));
+                    }
+                }
+            }
+            if let Some((pi, _)) = best_rocket {
+                actions.push((unit.id, pi));
+                unit.reset_cooldown();
+            }
+        }
+        actions
+    };
+
+    // Apply interceptions (destroy rockets)
+    for (_unit_id, proj_idx) in &interceptor_actions {
+        if *proj_idx < projectiles.len() {
+            projectiles[*proj_idx].alive = false;
+        }
+    }
+
+    // Track which interceptors already acted (so they don't also fire at units)
+    let intercepted_unit_ids: Vec<u64> = interceptor_actions.iter().map(|(uid, _)| *uid).collect();
+
+    // === Normal attacks ===
     let mut events: Vec<AttackEvent> = Vec::new();
 
     {
@@ -108,6 +148,10 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
 
         for unit in units.iter_mut() {
             if !unit.alive || !unit.can_attack() {
+                continue;
+            }
+            // Skip interceptors that already intercepted a rocket this frame
+            if intercepted_unit_ids.contains(&unit.id) {
                 continue;
             }
 
@@ -144,6 +188,7 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
                     damage: unit.stats.damage,
                     team_id: unit.team_id,
                     splash_radius: unit.stats.splash_radius,
+                    proj_type: unit.stats.projectile_type,
                 });
             }
         }
@@ -181,6 +226,7 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
                 damage,
                 team_id,
                 splash_radius,
+                proj_type,
             } => {
                 projectiles.push(Projectile::new(
                     origin,
@@ -189,6 +235,7 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
                     damage,
                     team_id,
                     splash_radius,
+                    proj_type,
                 ));
             }
         }
@@ -196,14 +243,46 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
 }
 
 /// Update projectiles and check collisions with enemy units.
+/// Shield units intercept enemy projectiles that enter their barrier radius.
 pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32) {
+    // Collect shield unit info for interception checks
+    let shields: Vec<(u64, u8, Vec2, f32)> = units
+        .iter()
+        .filter(|u| u.is_shield())
+        .map(|u| (u.id, u.team_id, u.pos, u.stats.shield_radius))
+        .collect();
+
     for proj in projectiles.iter_mut() {
         if !proj.alive {
             continue;
         }
         proj.update(dt);
 
-        // Check collision with first enemy unit hit
+        // === Shield barrier interception ===
+        // Check if this projectile has entered any enemy shield's barrier radius.
+        // Shield units on a different team from the projectile can intercept it.
+        let mut intercepted_by_shield: Option<u64> = None;
+        for &(shield_id, shield_team, shield_pos, shield_radius) in &shields {
+            if shield_team == proj.team_id {
+                continue; // Shield doesn't block friendly projectiles
+            }
+            let dist = proj.pos.distance(shield_pos);
+            if dist < shield_radius {
+                intercepted_by_shield = Some(shield_id);
+                break;
+            }
+        }
+
+        if let Some(shield_id) = intercepted_by_shield {
+            // Deal projectile damage to the shield unit and destroy the projectile
+            if let Some(shield_unit) = units.iter_mut().find(|u| u.id == shield_id && u.alive) {
+                shield_unit.take_damage(proj.damage);
+            }
+            proj.alive = false;
+            continue;
+        }
+
+        // === Normal collision with enemy units ===
         let mut hit = false;
         let mut impact_pos = proj.pos;
         for unit in units.iter_mut() {
@@ -253,5 +332,6 @@ enum AttackEvent {
         damage: f32,
         team_id: u8,
         splash_radius: f32,
+        proj_type: crate::unit::ProjectileType,
     },
 }

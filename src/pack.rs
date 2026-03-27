@@ -26,6 +26,13 @@ pub fn all_packs() -> &'static [PackDef] {
             name: "Chaff",
         },
         PackDef {
+            kind: UnitKind::Skirmisher,
+            rows: 2,
+            cols: 6,
+            cost: 100,
+            name: "Skirmishers",
+        },
+        PackDef {
             kind: UnitKind::Scout,
             rows: 2,
             cols: 3,
@@ -61,6 +68,27 @@ pub fn all_packs() -> &'static [PackDef] {
             cost: 200,
             name: "Rangers",
         },
+        PackDef {
+            kind: UnitKind::Dragoon,
+            rows: 1,
+            cols: 5,
+            cost: 200,
+            name: "Dragoons",
+        },
+        PackDef {
+            kind: UnitKind::Berserker,
+            rows: 1,
+            cols: 3,
+            cost: 200,
+            name: "Berserkers",
+        },
+        PackDef {
+            kind: UnitKind::Interceptor,
+            rows: 1,
+            cols: 3,
+            cost: 200,
+            name: "Interceptors",
+        },
         // T3 - 300 gold
         PackDef {
             kind: UnitKind::Artillery,
@@ -68,6 +96,20 @@ pub fn all_packs() -> &'static [PackDef] {
             cols: 2,
             cost: 300,
             name: "Artillery",
+        },
+        PackDef {
+            kind: UnitKind::Sniper,
+            rows: 1,
+            cols: 1,
+            cost: 300,
+            name: "Sniper",
+        },
+        PackDef {
+            kind: UnitKind::Shield,
+            rows: 1,
+            cols: 2,
+            cost: 300,
+            name: "Shields",
         },
     ]
 }

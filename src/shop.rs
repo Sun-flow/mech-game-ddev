@@ -3,9 +3,9 @@ use macroquad::prelude::*;
 use crate::arena::SHOP_W;
 use crate::pack::all_packs;
 
-const BUTTON_H: f32 = 50.0;
-const BUTTON_MARGIN: f32 = 6.0;
-const SHOP_TOP: f32 = 40.0;
+const BUTTON_H: f32 = 42.0;
+const BUTTON_MARGIN: f32 = 4.0;
+const SHOP_TOP: f32 = 35.0;
 
 /// Draw the shop panel and return the index of a clicked pack (if any).
 pub fn draw_shop(gold_remaining: u32, mouse_pos: Vec2, clicked: bool) -> Option<usize> {
@@ -56,12 +56,12 @@ pub fn draw_shop(gold_remaining: u32, mouse_pos: Vec2, clicked: bool) -> Option<
 
         // Text
         let text_color = if affordable { WHITE } else { DARKGRAY };
-        draw_text(pack.name, 14.0, y + 20.0, 18.0, text_color);
+        draw_text(pack.name, 14.0, y + 17.0, 16.0, text_color);
         draw_text(
             &format!("x{} - {}g", pack.count(), pack.cost),
             14.0,
-            y + 38.0,
-            14.0,
+            y + 33.0,
+            13.0,
             if affordable {
                 LIGHTGRAY
             } else {
