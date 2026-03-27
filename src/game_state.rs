@@ -1,8 +1,9 @@
 use macroquad::prelude::*;
 
 use crate::arena::{MatchState, ARENA_H, HALF_W, SHOP_W};
-use crate::economy::{random_army, ArmyBuilder, STARTING_GOLD};
+use crate::economy::ArmyBuilder;
 use crate::pack::{all_packs, PackDef};
+use crate::tech::TechState;
 use crate::unit::Unit;
 
 pub const BUILD_TIMER: f32 = 60.0;
@@ -11,7 +12,12 @@ pub const BUILD_TIMER: f32 = 60.0;
 pub enum GamePhase {
     Build,
     Battle,
-    Result(MatchState),
+    RoundResult {
+        match_state: MatchState,
+        lp_damage: i32,
+        loser_team: Option<u8>, // None for draw
+    },
+    GameOver(u8), // 0 = player wins, 1 = AI wins
 }
 
 #[derive(Clone, Debug)]
@@ -20,11 +26,12 @@ pub struct PlacedPack {
     pub center: Vec2,
     pub unit_ids: Vec<u64>,
     pub pre_drag_center: Vec2,
-    pub rotated: bool, // if true, rows and cols are swapped
+    pub rotated: bool,
+    pub locked: bool,
+    pub round_placed: u32,
 }
 
 impl PlacedPack {
-    /// Get effective rows/cols accounting for rotation.
     pub fn effective_rows(&self, pack: &PackDef) -> u8 {
         if self.rotated { pack.cols } else { pack.rows }
     }
@@ -33,7 +40,6 @@ impl PlacedPack {
         if self.rotated { pack.rows } else { pack.cols }
     }
 
-    /// Compute bounding box half-sizes for a pack (rotation-aware).
     pub fn bbox_half_size_rotated(pack: &PackDef, rotated: bool) -> Vec2 {
         let stats = pack.kind.stats();
         let grid_gap = stats.size * 2.5;
@@ -51,7 +57,6 @@ impl PlacedPack {
         Self::bbox_half_size_rotated(pack, self.rotated)
     }
 
-    /// Check if a point is inside this pack's bounding box.
     pub fn contains(&self, point: Vec2, pack: &PackDef) -> bool {
         let half = self.bbox_half_size_for(pack);
         let min = self.center - half;
@@ -59,7 +64,6 @@ impl PlacedPack {
         point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y
     }
 
-    /// Check if two packs' bounding boxes overlap (AABB test).
     pub fn overlaps(&self, other: &PlacedPack, self_pack: &PackDef, other_pack: &PackDef) -> bool {
         let h1 = self.bbox_half_size_for(self_pack);
         let h2 = other.bbox_half_size_for(other_pack);
@@ -75,24 +79,46 @@ pub struct BuildState {
     pub builder: ArmyBuilder,
     pub placed_packs: Vec<PlacedPack>,
     pub dragging: Option<usize>,
+    pub selected_pack: Option<usize>,
     pub timer: f32,
     pub next_id: u64,
 }
 
 impl BuildState {
-    pub fn new() -> Self {
+    pub fn new(gold: u32) -> Self {
         Self {
-            builder: ArmyBuilder::new(STARTING_GOLD),
+            builder: ArmyBuilder::new(gold),
             placed_packs: Vec::new(),
             dragging: None,
+            selected_pack: None,
             timer: BUILD_TIMER,
             next_id: 1,
         }
     }
 
+    /// Create a new round's build state, carrying over locked packs from previous rounds.
+    pub fn new_round(
+        gold: u32,
+        locked_packs: Vec<PlacedPack>,
+        next_id: u64,
+    ) -> Self {
+        Self {
+            builder: ArmyBuilder::new(gold),
+            placed_packs: locked_packs,
+            dragging: None,
+            selected_pack: None,
+            timer: BUILD_TIMER,
+            next_id,
+        }
+    }
+
     /// Purchase a pack from the shop and place it on the board.
-    /// Returns the units spawned by this pack.
-    pub fn purchase_pack(&mut self, pack_index: usize) -> Option<Vec<Unit>> {
+    pub fn purchase_pack(
+        &mut self,
+        pack_index: usize,
+        round: u32,
+        tech_state: &TechState,
+    ) -> Option<Vec<Unit>> {
         let packs = all_packs();
         let pack = &packs[pack_index];
 
@@ -105,7 +131,6 @@ impl BuildState {
         let mut default_y = 80.0;
         let half = PlacedPack::bbox_half_size_rotated(pack, false);
 
-        // Try stacking vertically
         for existing in &self.placed_packs {
             let ep = &packs[existing.pack_index];
             let eh = existing.bbox_half_size_for(ep);
@@ -117,13 +142,12 @@ impl BuildState {
             }
         }
 
-        // Clamp to arena
         default_y = default_y.clamp(half.y, ARENA_H - half.y);
-
         let center = vec2(default_x, default_y);
 
-        // Spawn units in grid formation
-        let stats = pack.kind.stats();
+        // Spawn units with tech bonuses applied
+        let mut stats = pack.kind.stats();
+        tech_state.apply_to_stats(pack.kind, &mut stats);
         let grid_gap = stats.size * 2.5;
         let grid_w = (pack.cols as f32 - 1.0) * grid_gap;
         let grid_h = (pack.rows as f32 - 1.0) * grid_gap;
@@ -137,7 +161,10 @@ impl BuildState {
             for col in 0..pack.cols {
                 let x = start_x + col as f32 * grid_gap;
                 let y = start_y + row as f32 * grid_gap;
-                let unit = Unit::new(self.next_id, pack.kind, vec2(x, y), 0);
+                let mut unit = Unit::new(self.next_id, pack.kind, vec2(x, y), 0);
+                // Apply tech stat bonuses
+                tech_state.apply_to_stats(pack.kind, &mut unit.stats);
+                unit.hp = unit.stats.max_hp;
                 ids.push(self.next_id);
                 spawned.push(unit);
                 self.next_id += 1;
@@ -150,24 +177,35 @@ impl BuildState {
             unit_ids: ids,
             pre_drag_center: center,
             rotated: false,
+            locked: false,
+            round_placed: round,
         });
 
         Some(spawned)
     }
 
-    /// Sell a placed pack (by index in placed_packs). Returns the pack cost refunded.
-    pub fn sell_pack(&mut self, placed_index: usize) -> (u32, Vec<u64>) {
+    /// Sell a placed pack. Returns (refund, unit_ids_to_remove). Only works on unlocked packs.
+    pub fn sell_pack(&mut self, placed_index: usize) -> Option<(u32, Vec<u64>)> {
+        if self.placed_packs[placed_index].locked {
+            return None;
+        }
         let placed = self.placed_packs.remove(placed_index);
         let pack = &all_packs()[placed.pack_index];
         self.builder.gold_remaining += pack.cost;
-        // Remove from builder's packs list too
         if let Some(pos) = self.builder.packs.iter().position(|p| p.name == pack.name) {
             self.builder.packs.remove(pos);
         }
-        (pack.cost, placed.unit_ids)
+        // Fix selected_pack index if needed
+        if let Some(sel) = self.selected_pack {
+            if sel == placed_index {
+                self.selected_pack = None;
+            } else if sel > placed_index {
+                self.selected_pack = Some(sel - 1);
+            }
+        }
+        Some((pack.cost, placed.unit_ids))
     }
 
-    /// Move all units in a pack to match the pack's center position (rotation-aware).
     pub fn reposition_pack_units(&self, placed_index: usize, units: &mut [Unit]) {
         let placed = &self.placed_packs[placed_index];
         let pack = &all_packs()[placed.pack_index];
@@ -198,14 +236,15 @@ impl BuildState {
         }
     }
 
-    /// Rotate a placed pack 90 degrees (swap rows/cols). Returns false if rotation would cause overlap or go out of bounds.
     pub fn rotate_pack(&mut self, placed_index: usize, units: &mut [Unit]) -> bool {
+        if self.placed_packs[placed_index].locked {
+            return false;
+        }
         let packs = all_packs();
         let placed = &self.placed_packs[placed_index];
         let pack = &packs[placed.pack_index];
         let new_rotated = !placed.rotated;
 
-        // Check if rotated bbox fits in arena
         let new_half = PlacedPack::bbox_half_size_rotated(pack, new_rotated);
         let center = placed.center;
         let clamped = vec2(
@@ -213,13 +252,14 @@ impl BuildState {
             center.y.clamp(new_half.y, ARENA_H - new_half.y),
         );
 
-        // Check overlap with new rotation
         let test = PlacedPack {
             pack_index: placed.pack_index,
             center: clamped,
             unit_ids: Vec::new(),
             pre_drag_center: clamped,
             rotated: new_rotated,
+            locked: false,
+            round_placed: 0,
         };
 
         for (i, existing) in self.placed_packs.iter().enumerate() {
@@ -232,14 +272,12 @@ impl BuildState {
             }
         }
 
-        // Apply rotation
         self.placed_packs[placed_index].rotated = new_rotated;
         self.placed_packs[placed_index].center = clamped;
         self.reposition_pack_units(placed_index, units);
         true
     }
 
-    /// Check if a placement would overlap any other pack (excluding skip_index).
     pub fn would_overlap(&self, center: Vec2, pack_index: usize, skip_placed: Option<usize>, rotated: bool) -> bool {
         let packs = all_packs();
         let pack = &packs[pack_index];
@@ -250,6 +288,8 @@ impl BuildState {
             unit_ids: Vec::new(),
             pre_drag_center: center,
             rotated,
+            locked: false,
+            round_placed: 0,
         };
 
         for (i, existing) in self.placed_packs.iter().enumerate() {
@@ -264,7 +304,6 @@ impl BuildState {
         false
     }
 
-    /// Find which placed pack (if any) contains the given point.
     pub fn pack_at(&self, point: Vec2) -> Option<usize> {
         let packs = all_packs();
         let mut best: Option<(usize, f32)> = None;
@@ -280,11 +319,10 @@ impl BuildState {
         best.map(|(i, _)| i)
     }
 
-    /// Spawn the AI army on the right half.
-    pub fn spawn_ai_army(&mut self) -> (Vec<Unit>, ArmyBuilder) {
-        let ai_builder = random_army(STARTING_GOLD);
-        let ai_x = HALF_W + (HALF_W / 2.0);
-        let ai_units = ai_builder.spawn_army(1, ai_x, ARENA_H, &mut self.next_id);
-        (ai_units, ai_builder)
+    /// Lock all current-round (unlocked) packs for carry-over.
+    pub fn lock_current_packs(&mut self) {
+        for pack in &mut self.placed_packs {
+            pack.locked = true;
+        }
     }
 }

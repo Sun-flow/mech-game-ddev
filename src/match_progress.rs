@@ -1,0 +1,201 @@
+use macroquad::prelude::*;
+
+use crate::pack::all_packs;
+use crate::tech::{TechId, TechState};
+use crate::unit::{Unit, UnitKind};
+
+pub const STARTING_LP: i32 = 1000;
+
+/// Info about an AI-placed pack that persists across rounds.
+#[derive(Clone, Debug)]
+pub struct AiPlacedPack {
+    pub pack_index: usize,
+    pub center: Vec2,
+    pub unit_ids: Vec<u64>,
+    pub rotated: bool,
+    pub round_placed: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct MatchProgress {
+    pub round: u32,
+    pub player_lp: i32,
+    pub ai_lp: i32,
+    pub player_techs: TechState,
+    pub ai_techs: TechState,
+    pub ai_packs: Vec<AiPlacedPack>, // AI's accumulated packs from all rounds
+    pub ai_next_id: u64,             // ID counter for AI units
+}
+
+impl MatchProgress {
+    pub fn new() -> Self {
+        Self {
+            round: 1,
+            player_lp: STARTING_LP,
+            ai_lp: STARTING_LP,
+            player_techs: TechState::new(),
+            ai_techs: TechState::new(),
+            ai_packs: Vec::new(),
+            ai_next_id: 100_000, // start AI IDs high to avoid collision with player IDs
+        }
+    }
+
+    /// Gold for current round = 200 * round_number
+    pub fn round_gold(&self) -> u32 {
+        200 * self.round
+    }
+
+    /// Calculate LP damage from surviving enemy units.
+    pub fn calculate_lp_damage(surviving_units: &[Unit], team_id: u8) -> i32 {
+        let packs = all_packs();
+        let mut total = 0i32;
+
+        for unit in surviving_units {
+            if !unit.alive || unit.team_id != team_id {
+                continue;
+            }
+            if let Some(pack) = packs.iter().find(|p| p.kind == unit.kind) {
+                let per_unit_value = pack.cost as f32 / pack.count() as f32;
+                total += per_unit_value as i32;
+            }
+        }
+
+        total
+    }
+
+    pub fn advance_round(&mut self) {
+        self.round += 1;
+    }
+
+    pub fn is_game_over(&self) -> bool {
+        self.player_lp <= 0 || self.ai_lp <= 0
+    }
+
+    pub fn game_winner(&self) -> Option<u8> {
+        if self.ai_lp <= 0 {
+            Some(0)
+        } else if self.player_lp <= 0 {
+            Some(1)
+        } else {
+            None
+        }
+    }
+
+    /// Respawn all AI units from stored packs at full HP with current techs.
+    pub fn respawn_ai_units(&self) -> Vec<Unit> {
+        let packs = all_packs();
+        let mut units = Vec::new();
+
+        for ai_pack in &self.ai_packs {
+            let pack = &packs[ai_pack.pack_index];
+            let mut stats = pack.kind.stats();
+            self.ai_techs.apply_to_stats(pack.kind, &mut stats);
+            let grid_gap = stats.size * 2.5;
+
+            let (eff_rows, eff_cols) = if ai_pack.rotated {
+                (pack.cols, pack.rows)
+            } else {
+                (pack.rows, pack.cols)
+            };
+            let grid_w = (eff_cols as f32 - 1.0) * grid_gap;
+            let grid_h = (eff_rows as f32 - 1.0) * grid_gap;
+            let start_x = ai_pack.center.x - grid_w / 2.0;
+            let start_y = ai_pack.center.y - grid_h / 2.0;
+
+            let mut idx = 0;
+            for row in 0..eff_rows {
+                for col in 0..eff_cols {
+                    if idx < ai_pack.unit_ids.len() {
+                        let uid = ai_pack.unit_ids[idx];
+                        let x = start_x + col as f32 * grid_gap;
+                        let y = start_y + row as f32 * grid_gap;
+                        let mut unit = Unit::new(uid, pack.kind, vec2(x, y), 1);
+                        self.ai_techs.apply_to_stats(pack.kind, &mut unit.stats);
+                        unit.hp = unit.stats.max_hp;
+                        if unit.kind == UnitKind::Scout
+                            && self.ai_techs.has_tech(UnitKind::Scout, TechId::ScoutEvasion)
+                        {
+                            unit.evasion_chance = 0.25;
+                        }
+                        units.push(unit);
+                    }
+                    idx += 1;
+                }
+            }
+        }
+
+        units
+    }
+
+    /// Spawn new AI army for the current round. Adds packs to ai_packs and returns the new units.
+    pub fn spawn_new_ai_army(&mut self, gold: u32) -> Vec<Unit> {
+        let ai_builder = crate::economy::random_army(gold);
+        let packs = all_packs();
+        let mut new_units = Vec::new();
+
+        // Place new AI packs on the right half, spread vertically avoiding existing packs
+        let ai_center_x = crate::arena::HALF_W + (crate::arena::HALF_W / 2.0);
+        let total_new = ai_builder.packs.len();
+
+        if total_new == 0 {
+            return new_units;
+        }
+
+        // Find vertical space not occupied by existing packs
+        let arena_h = crate::arena::ARENA_H;
+        let spacing = arena_h / (total_new as f32 + 1.0);
+
+        for (pack_idx_in_build, pack_def) in ai_builder.packs.iter().enumerate() {
+            // Find the pack_index in all_packs
+            let pack_index = packs.iter().position(|p| p.name == pack_def.name).unwrap_or(0);
+            let pack = &packs[pack_index];
+
+            let mut stats = pack.kind.stats();
+            self.ai_techs.apply_to_stats(pack.kind, &mut stats);
+            let grid_gap = stats.size * 2.5;
+
+            let center_y = spacing * (pack_idx_in_build as f32 + 1.0);
+
+            // Offset x slightly for variety
+            let offset_x = macroquad::rand::gen_range(-50.0f32, 50.0);
+            let center = vec2(
+                (ai_center_x + offset_x).clamp(crate::arena::HALF_W + 50.0, crate::arena::ARENA_W - 50.0),
+                center_y,
+            );
+
+            let grid_w = (pack.cols as f32 - 1.0) * grid_gap;
+            let grid_h = (pack.rows as f32 - 1.0) * grid_gap;
+            let start_x = center.x - grid_w / 2.0;
+            let start_y = center.y - grid_h / 2.0;
+
+            let mut ids = Vec::new();
+            for row in 0..pack.rows {
+                for col in 0..pack.cols {
+                    let x = start_x + col as f32 * grid_gap;
+                    let y = start_y + row as f32 * grid_gap;
+                    let mut unit = Unit::new(self.ai_next_id, pack.kind, vec2(x, y), 1);
+                    self.ai_techs.apply_to_stats(pack.kind, &mut unit.stats);
+                    unit.hp = unit.stats.max_hp;
+                    if unit.kind == UnitKind::Scout
+                        && self.ai_techs.has_tech(UnitKind::Scout, TechId::ScoutEvasion)
+                    {
+                        unit.evasion_chance = 0.25;
+                    }
+                    ids.push(self.ai_next_id);
+                    new_units.push(unit);
+                    self.ai_next_id += 1;
+                }
+            }
+
+            self.ai_packs.push(AiPlacedPack {
+                pack_index,
+                center,
+                unit_ids: ids,
+                rotated: false,
+                round_placed: self.round,
+            });
+        }
+
+        new_units
+    }
+}

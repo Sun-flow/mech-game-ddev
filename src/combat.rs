@@ -1,7 +1,8 @@
 use macroquad::prelude::*;
 
 use crate::projectile::Projectile;
-use crate::unit::Unit;
+use crate::tech::{TechId, TechState};
+use crate::unit::{Unit, UnitKind};
 
 /// Find the nearest alive enemy for each unit and assign as target.
 pub fn update_targeting(units: &mut [Unit]) {
@@ -34,13 +35,13 @@ pub fn update_targeting(units: &mut [Unit]) {
 }
 
 /// Move units toward their targets. Apply separation to avoid stacking.
+/// Accounts for slow debuff.
 pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32) {
     let snapshot: Vec<(u64, Vec2, f32, bool)> = units
         .iter()
         .map(|u| (u.id, u.pos, u.stats.size, u.alive))
         .collect();
 
-    // Build a target position lookup
     let target_positions: Vec<(u64, Option<Vec2>)> = units
         .iter()
         .map(|u| {
@@ -59,12 +60,24 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32) 
             continue;
         }
 
+        // Decrement slow timer
+        if unit.slow_timer > 0.0 {
+            unit.slow_timer = (unit.slow_timer - dt).max(0.0);
+        }
+
+        // Effective move speed (halved if slowed)
+        let effective_speed = if unit.slow_timer > 0.0 {
+            unit.stats.move_speed * 0.5
+        } else {
+            unit.stats.move_speed
+        };
+
         // Move toward target if out of range
         if let Some(target_pos) = target_positions[i].1 {
             let dist = unit.pos.distance(target_pos);
             if dist > unit.stats.attack_range * 0.9 {
                 let dir = (target_pos - unit.pos).normalize_or_zero();
-                unit.pos += dir * unit.stats.move_speed * dt;
+                unit.pos += dir * effective_speed * dt;
             }
         }
 
@@ -76,37 +89,44 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32) 
             }
             let diff = unit.pos - opos;
             let dist = diff.length();
-            let min_dist = (unit.stats.size + osize) * 0.5;
+            let min_dist = (unit.stats.size + osize) * 1.05;
             if dist < min_dist && dist > 0.001 {
                 push += diff.normalize() * (min_dist - dist) * 0.5;
             }
         }
         unit.pos += push;
 
-        // Clamp to arena bounds
         let s = unit.stats.size;
         unit.pos.x = unit.pos.x.clamp(s, arena_w - s);
         unit.pos.y = unit.pos.y.clamp(s, arena_h - s);
     }
 }
 
-/// Process attacks: melee does instant damage, ranged spawns projectiles.
-/// Interceptors prioritize destroying enemy rockets in range.
-pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt: f32) {
+/// Process attacks with tech effects.
+pub fn update_attacks(
+    units: &mut [Unit],
+    projectiles: &mut Vec<Projectile>,
+    dt: f32,
+    player_techs: &TechState,
+    ai_techs: &TechState,
+) {
     // Update cooldowns
     for unit in units.iter_mut() {
         unit.update_cooldown(dt);
     }
 
+    // Helper to get the right tech state for a team
+    let tech_for_team = |team_id: u8| -> &TechState {
+        if team_id == 0 { player_techs } else { ai_techs }
+    };
+
     // === Interceptor rocket interception ===
-    // Interceptors that can attack will try to destroy the nearest enemy rocket in range first.
-    let interceptor_actions: Vec<(u64, usize)> = {
+    let interceptor_actions: Vec<(u64, usize, u8)> = {
         let mut actions = Vec::new();
         for unit in units.iter_mut() {
             if !unit.alive || !unit.can_attack() || !unit.is_interceptor() {
                 continue;
             }
-            // Find nearest enemy rocket in attack range
             let mut best_rocket: Option<(usize, f32)> = None;
             for (pi, proj) in projectiles.iter().enumerate() {
                 if !proj.alive || proj.team_id == unit.team_id || !proj.is_rocket() {
@@ -120,22 +140,35 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
                 }
             }
             if let Some((pi, _)) = best_rocket {
-                actions.push((unit.id, pi));
+                actions.push((unit.id, pi, unit.team_id));
                 unit.reset_cooldown();
             }
         }
         actions
     };
 
-    // Apply interceptions (destroy rockets)
-    for (_unit_id, proj_idx) in &interceptor_actions {
+    for (_unit_id, proj_idx, _team) in &interceptor_actions {
         if *proj_idx < projectiles.len() {
             projectiles[*proj_idx].alive = false;
         }
     }
 
-    // Track which interceptors already acted (so they don't also fire at units)
-    let intercepted_unit_ids: Vec<u64> = interceptor_actions.iter().map(|(uid, _)| *uid).collect();
+    // Interceptors with DualWeapon tech can ALSO attack units this frame
+    let intercepted_unit_ids: Vec<u64> = interceptor_actions
+        .iter()
+        .filter(|(_uid, _, team)| {
+            let techs = tech_for_team(*team);
+            !techs.has_tech(UnitKind::Interceptor, TechId::InterceptorDualWeapon)
+        })
+        .map(|(uid, _, _)| *uid)
+        .collect();
+
+    // === Chaff Overwhelm: precompute bonus damage ===
+    let chaff_positions: Vec<(Vec2, u8)> = units
+        .iter()
+        .filter(|u| u.alive && u.kind == UnitKind::Chaff)
+        .map(|u| (u.pos, u.team_id))
+        .collect();
 
     // === Normal attacks ===
     let mut events: Vec<AttackEvent> = Vec::new();
@@ -150,7 +183,6 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
             if !unit.alive || !unit.can_attack() {
                 continue;
             }
-            // Skip interceptors that already intercepted a rocket this frame
             if intercepted_unit_ids.contains(&unit.id) {
                 continue;
             }
@@ -171,24 +203,58 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
             }
 
             unit.reset_cooldown();
+            let techs = tech_for_team(unit.team_id);
+
+            // Calculate bonus damage from Chaff Overwhelm tech
+            let mut bonus_damage = 0.0;
+            if unit.kind == UnitKind::Chaff && techs.has_tech(UnitKind::Chaff, TechId::ChaffOverwhelm) {
+                for &(cpos, cteam) in &chaff_positions {
+                    if cteam == unit.team_id && cpos.distance(unit.pos) < 50.0 && cpos != unit.pos {
+                        bonus_damage += 2.0;
+                    }
+                }
+            }
+
+            let total_damage = unit.stats.damage + bonus_damage;
 
             if unit.is_melee() {
+                let has_lifesteal = unit.kind == UnitKind::Berserker
+                    && techs.has_tech(UnitKind::Berserker, TechId::BerserkerLifesteal);
+                let cleave_ignores_armor = unit.kind == UnitKind::Bruiser
+                    && techs.has_tech(UnitKind::Bruiser, TechId::BruiserCleave);
+
                 events.push(AttackEvent::Melee {
+                    attacker_id: unit.id,
                     target_id,
                     target_pos: target.1,
-                    damage: unit.stats.damage,
+                    damage: total_damage,
                     splash_radius: unit.stats.splash_radius,
                     attacker_team: unit.team_id,
+                    lifesteal: has_lifesteal,
+                    attacker_hp_frac: unit.hp / unit.stats.max_hp,
+                    cleave_ignores_armor,
                 });
             } else {
+                let armor_pierce = unit.kind == UnitKind::Sniper
+                    && techs.has_tech(UnitKind::Sniper, TechId::SniperArmorPierce);
+                let pierce = unit.kind == UnitKind::Ranger
+                    && techs.has_tech(UnitKind::Ranger, TechId::RangerPierce);
+                let slow = unit.kind == UnitKind::Artillery
+                    && techs.has_tech(UnitKind::Artillery, TechId::ArtillerySlow);
+
                 events.push(AttackEvent::Ranged {
+                    attacker_id: unit.id,
                     origin: unit.pos,
                     target_pos: target.1,
                     speed: unit.stats.projectile_speed,
-                    damage: unit.stats.damage,
+                    damage: total_damage,
                     team_id: unit.team_id,
                     splash_radius: unit.stats.splash_radius,
                     proj_type: unit.stats.projectile_type,
+                    attack_range: unit.stats.attack_range,
+                    armor_pierce,
+                    pierce_count: if pierce { 1 } else { 0 },
+                    applies_slow: slow,
                 });
             }
         }
@@ -198,28 +264,61 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
     for event in events {
         match event {
             AttackEvent::Melee {
+                attacker_id,
                 target_id,
                 target_pos,
                 damage,
                 splash_radius,
                 attacker_team,
+                lifesteal,
+                attacker_hp_frac,
+                cleave_ignores_armor,
             } => {
+                let mut total_damage_dealt = 0.0;
+                let mut kills = 0u32;
+                // Primary target
                 if let Some(target) = units.iter_mut().find(|u| u.id == target_id && u.alive) {
+                    let before_hp = target.hp;
+                    let was_alive = target.alive;
                     target.take_damage(damage);
+                    total_damage_dealt += before_hp - target.hp;
+                    if was_alive && !target.alive { kills += 1; }
                 }
-                // Splash damage to nearby enemies
+                // Splash damage
                 if splash_radius > 0.0 {
                     for unit in units.iter_mut() {
                         if !unit.alive || unit.id == target_id || unit.team_id == attacker_team {
                             continue;
                         }
                         if unit.pos.distance(target_pos) < splash_radius {
-                            unit.take_damage(damage);
+                            let before_hp = unit.hp;
+                            let was_alive = unit.alive;
+                            if cleave_ignores_armor {
+                                unit.take_raw_damage(damage);
+                            } else {
+                                unit.take_damage(damage);
+                            }
+                            total_damage_dealt += before_hp - unit.hp;
+                            if was_alive && !unit.alive { kills += 1; }
                         }
+                    }
+                }
+                // Record stats on attacker
+                if let Some(attacker) = units.iter_mut().find(|u| u.id == attacker_id) {
+                    attacker.damage_dealt_round += total_damage_dealt;
+                    attacker.damage_dealt_total += total_damage_dealt;
+                    attacker.kills_total += kills;
+                }
+                // Lifesteal
+                if lifesteal && total_damage_dealt > 0.0 {
+                    let heal = total_damage_dealt * 0.3 * (1.0 - attacker_hp_frac);
+                    if let Some(attacker) = units.iter_mut().find(|u| u.id == attacker_id && u.alive) {
+                        attacker.hp = (attacker.hp + heal).min(attacker.stats.max_hp);
                     }
                 }
             }
             AttackEvent::Ranged {
+                attacker_id,
                 origin,
                 target_pos,
                 speed,
@@ -227,8 +326,12 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
                 team_id,
                 splash_radius,
                 proj_type,
+                attack_range,
+                armor_pierce,
+                pierce_count,
+                applies_slow,
             } => {
-                projectiles.push(Projectile::new(
+                let mut proj = Projectile::new(
                     origin,
                     target_pos,
                     speed,
@@ -236,16 +339,20 @@ pub fn update_attacks(units: &mut [Unit], projectiles: &mut Vec<Projectile>, dt:
                     team_id,
                     splash_radius,
                     proj_type,
-                ));
+                    attack_range,
+                );
+                proj.armor_pierce = armor_pierce;
+                proj.pierce_remaining = pierce_count;
+                proj.applies_slow = applies_slow;
+                proj.attacker_id = attacker_id;
+                projectiles.push(proj);
             }
         }
     }
 }
 
-/// Update projectiles and check collisions with enemy units.
-/// Shield units intercept enemy projectiles that enter their barrier radius.
+/// Update projectiles with shield interception, evasion, pierce, and slow.
 pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32) {
-    // Collect shield unit info for interception checks
     let shields: Vec<(u64, u8, Vec2, f32)> = units
         .iter()
         .filter(|u| u.is_shield())
@@ -258,13 +365,11 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         }
         proj.update(dt);
 
-        // === Shield barrier interception ===
-        // Check if this projectile has entered any enemy shield's barrier radius.
-        // Shield units on a different team from the projectile can intercept it.
+        // Shield barrier interception
         let mut intercepted_by_shield: Option<u64> = None;
         for &(shield_id, shield_team, shield_pos, shield_radius) in &shields {
             if shield_team == proj.team_id {
-                continue; // Shield doesn't block friendly projectiles
+                continue;
             }
             let dist = proj.pos.distance(shield_pos);
             if dist < shield_radius {
@@ -274,7 +379,6 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         }
 
         if let Some(shield_id) = intercepted_by_shield {
-            // Deal projectile damage to the shield unit and destroy the projectile
             if let Some(shield_unit) = units.iter_mut().find(|u| u.id == shield_id && u.alive) {
                 shield_unit.take_damage(proj.damage);
             }
@@ -282,34 +386,84 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
             continue;
         }
 
-        // === Normal collision with enemy units ===
+        // Normal collision with enemy units
         let mut hit = false;
         let mut impact_pos = proj.pos;
+        let mut proj_damage_dealt = 0.0f32;
+        let mut proj_kills = 0u32;
+        let attacker_id = proj.attacker_id;
+
         for unit in units.iter_mut() {
             if !unit.alive || unit.team_id == proj.team_id {
                 continue;
             }
             let dist = proj.pos.distance(unit.pos);
             if dist < unit.stats.size + crate::projectile::PROJECTILE_RADIUS {
-                unit.take_damage(proj.damage);
+                // Evasion check
+                if unit.evasion_chance > 0.0 {
+                    let roll = macroquad::rand::gen_range(0.0f32, 1.0);
+                    if roll < unit.evasion_chance {
+                        continue;
+                    }
+                }
+
+                let before_hp = unit.hp;
+                let was_alive = unit.alive;
+                if proj.armor_pierce {
+                    unit.take_raw_damage(proj.damage);
+                } else {
+                    unit.take_damage(proj.damage);
+                }
+                proj_damage_dealt += before_hp - unit.hp;
+                if was_alive && !unit.alive { proj_kills += 1; }
+
+                if proj.applies_slow {
+                    unit.slow_timer = 2.0;
+                }
+
                 impact_pos = proj.pos;
                 hit = true;
+
+                if proj.pierce_remaining > 0 {
+                    proj.pierce_remaining -= 1;
+                    continue;
+                }
+
                 proj.alive = false;
                 break;
             }
         }
 
-        // Apply splash damage to nearby enemies
+        // Splash damage
         if hit && proj.splash_radius > 0.0 {
             for unit in units.iter_mut() {
                 if !unit.alive || unit.team_id == proj.team_id {
                     continue;
                 }
                 let dist = unit.pos.distance(impact_pos);
-                // Skip the primary target (already damaged), hit others in splash range
                 if dist < proj.splash_radius && dist > 0.001 {
-                    unit.take_damage(proj.damage);
+                    let before_hp = unit.hp;
+                    let was_alive = unit.alive;
+                    if proj.armor_pierce {
+                        unit.take_raw_damage(proj.damage);
+                    } else {
+                        unit.take_damage(proj.damage);
+                    }
+                    proj_damage_dealt += before_hp - unit.hp;
+                    if was_alive && !unit.alive { proj_kills += 1; }
+                    if proj.applies_slow {
+                        unit.slow_timer = 2.0;
+                    }
                 }
+            }
+        }
+
+        // Record stats on the attacker
+        if proj_damage_dealt > 0.0 || proj_kills > 0 {
+            if let Some(attacker) = units.iter_mut().find(|u| u.id == attacker_id) {
+                attacker.damage_dealt_round += proj_damage_dealt;
+                attacker.damage_dealt_total += proj_damage_dealt;
+                attacker.kills_total += proj_kills;
             }
         }
     }
@@ -319,13 +473,18 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
 
 enum AttackEvent {
     Melee {
+        attacker_id: u64,
         target_id: u64,
         target_pos: Vec2,
         damage: f32,
         splash_radius: f32,
         attacker_team: u8,
+        lifesteal: bool,
+        attacker_hp_frac: f32,
+        cleave_ignores_armor: bool,
     },
     Ranged {
+        attacker_id: u64,
         origin: Vec2,
         target_pos: Vec2,
         speed: f32,
@@ -333,5 +492,9 @@ enum AttackEvent {
         team_id: u8,
         splash_radius: f32,
         proj_type: crate::unit::ProjectileType,
+        attack_range: f32,
+        armor_pierce: bool,
+        pierce_count: u8,
+        applies_slow: bool,
     },
 }

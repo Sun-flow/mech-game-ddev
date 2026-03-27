@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 
 use crate::pack::{all_packs, PackDef};
+use crate::tech::TechState;
 use crate::unit::Unit;
 
 pub const STARTING_GOLD: u32 = 1000;
@@ -34,7 +35,6 @@ impl ArmyBuilder {
     }
 
     /// Spawn all purchased packs as units on one side of the arena.
-    /// `side_x` is the horizontal center for this team's deployment zone.
     pub fn spawn_army(&self, team_id: u8, side_x: f32, arena_h: f32, next_id: &mut u64) -> Vec<Unit> {
         let mut units = Vec::new();
         let total_packs = self.packs.len();
@@ -42,7 +42,6 @@ impl ArmyBuilder {
             return units;
         }
 
-        // Distribute packs vertically across the arena
         let spacing_y = arena_h / (total_packs as f32 + 1.0);
 
         for (pack_idx, pack) in self.packs.iter().enumerate() {
@@ -50,7 +49,6 @@ impl ArmyBuilder {
             let unit_stats = pack.kind.stats();
             let grid_gap = unit_stats.size * 2.5;
 
-            // Center the grid around (side_x, center_y)
             let grid_w = (pack.cols as f32 - 1.0) * grid_gap;
             let grid_h = (pack.rows as f32 - 1.0) * grid_gap;
             let start_x = side_x - grid_w / 2.0;
@@ -75,7 +73,6 @@ pub fn random_army(gold: u32) -> ArmyBuilder {
     let mut builder = ArmyBuilder::new(gold);
     let packs = all_packs();
 
-    // Keep buying random affordable packs until we can't afford anything
     loop {
         let affordable: Vec<&PackDef> = packs
             .iter()
@@ -91,4 +88,44 @@ pub fn random_army(gold: u32) -> ArmyBuilder {
     }
 
     builder
+}
+
+/// AI buys random techs, spending up to ~30% of available gold.
+pub fn ai_buy_techs(gold: &mut u32, tech_state: &mut TechState) {
+    use crate::unit::UnitKind;
+
+    let tech_budget = *gold / 3; // spend up to 1/3 of gold on techs
+    let mut spent = 0u32;
+
+    let all_kinds = [
+        UnitKind::Striker, UnitKind::Sentinel, UnitKind::Ranger, UnitKind::Scout,
+        UnitKind::Bruiser, UnitKind::Artillery, UnitKind::Chaff, UnitKind::Sniper,
+        UnitKind::Skirmisher, UnitKind::Dragoon, UnitKind::Berserker,
+        UnitKind::Shield, UnitKind::Interceptor,
+    ];
+
+    // Try a few random tech purchases
+    for _ in 0..5 {
+        if spent >= tech_budget {
+            break;
+        }
+        let kind_idx = macroquad::rand::gen_range(0, all_kinds.len());
+        let kind = all_kinds[kind_idx];
+
+        let available = tech_state.available_techs(kind);
+        if available.is_empty() {
+            continue;
+        }
+
+        let cost = tech_state.effective_cost(kind);
+        if cost > *gold || spent + cost > tech_budget {
+            continue;
+        }
+
+        let tech_idx = macroquad::rand::gen_range(0, available.len());
+        let tech_id = available[tech_idx].id;
+        tech_state.purchase(kind, tech_id);
+        *gold -= cost;
+        spent += cost;
+    }
 }

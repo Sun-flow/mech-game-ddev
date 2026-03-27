@@ -6,15 +6,20 @@ use crate::unit::ProjectileType;
 pub struct Projectile {
     pub pos: Vec2,
     pub vel: Vec2,
+    pub origin: Vec2,
+    pub max_range: f32,
     pub damage: f32,
     pub team_id: u8,
     pub splash_radius: f32,
-    pub lifetime: f32,
     pub alive: bool,
     pub proj_type: ProjectileType,
+    // Tech effect flags
+    pub armor_pierce: bool,
+    pub pierce_remaining: u8,
+    pub applies_slow: bool,
+    pub attacker_id: u64,
 }
 
-const MAX_LIFETIME: f32 = 3.0;
 pub const PROJECTILE_RADIUS: f32 = 3.0;
 
 /// Visual radius varies by projectile type.
@@ -35,24 +40,30 @@ impl Projectile {
         team_id: u8,
         splash_radius: f32,
         proj_type: ProjectileType,
+        attack_range: f32,
     ) -> Self {
         let dir = (target_pos - origin).normalize_or_zero();
         Self {
             pos: origin,
             vel: dir * speed,
+            origin,
+            max_range: attack_range * 1.1, // expire at 110% of attack range
             damage,
             team_id,
             splash_radius,
-            lifetime: MAX_LIFETIME,
             alive: true,
             proj_type,
+            armor_pierce: false,
+            pierce_remaining: 0,
+            applies_slow: false,
+            attacker_id: 0,
         }
     }
 
     pub fn update(&mut self, dt: f32) {
         self.pos += self.vel * dt;
-        self.lifetime -= dt;
-        if self.lifetime <= 0.0 {
+        // Kill projectile if it has traveled beyond max range
+        if self.pos.distance(self.origin) > self.max_range {
             self.alive = false;
         }
     }
