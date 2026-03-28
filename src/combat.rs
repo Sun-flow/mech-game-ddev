@@ -36,9 +36,9 @@ pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
     }
 }
 
-/// Move units toward their targets. Apply separation to avoid stacking.
-/// Accounts for slow debuff.
-pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, obstacles: &[Obstacle]) {
+/// Move units toward their targets using A* pathfinding.
+/// Falls back to direct movement when no nav grid is provided or no path is found.
+pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, obstacles: &[Obstacle], nav_grid: Option<&crate::terrain::NavGrid>) {
     let snapshot: Vec<(u64, Vec2, f32, bool)> = units
         .iter()
         .map(|u| (u.id, u.pos, u.stats.size, u.alive))
@@ -74,55 +74,57 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
             unit.stats.move_speed
         };
 
-        // Move toward target if out of range, or retreat if too close (min range)
+        // Increment path age
+        unit.path_age += dt;
+
         if let Some(target_pos) = target_positions[i].1 {
             let dist = unit.pos.distance(target_pos);
-            let mut move_dir = Vec2::ZERO;
 
-            if unit.stats.min_attack_range > 0.0 && dist < unit.stats.min_attack_range * 0.8 {
-                // Too close — retreat away from target
-                move_dir = (unit.pos - target_pos).normalize_or_zero();
-            } else if dist > unit.stats.attack_range * 0.9 {
-                // Too far — move toward target
-                move_dir = (target_pos - unit.pos).normalize_or_zero();
-            }
+            let needs_retreat = unit.stats.min_attack_range > 0.0 && dist < unit.stats.min_attack_range * 0.8;
+            let needs_advance = dist > unit.stats.attack_range * 0.9;
 
-            if move_dir.length_squared() > 0.0 {
-                let next_pos = unit.pos + move_dir * effective_speed * dt;
-
-                // Check if movement would collide with a wall
-                let mut blocked = false;
-                for obs in obstacles.iter() {
-                    if !obs.blocks_movement() { continue; }
-                    if obs.intersects_circle(next_pos, unit.stats.size * 1.2) {
-                        blocked = true;
-                        // Steer around: try perpendicular directions
-                        let perp1 = vec2(-move_dir.y, move_dir.x);
-                        let perp2 = vec2(move_dir.y, -move_dir.x);
-
-                        // Pick the perpendicular that moves us closer to target
-                        let test1 = unit.pos + perp1 * effective_speed * dt;
-                        let test2 = unit.pos + perp2 * effective_speed * dt;
-                        let d1 = test1.distance(target_pos);
-                        let d2 = test2.distance(target_pos);
-
-                        let steer = if d1 < d2 { perp1 } else { perp2 };
-                        let steer_pos = unit.pos + steer * effective_speed * dt;
-
-                        // Only apply if steer position doesn't also collide
-                        let steer_blocked = obstacles.iter().any(|o| {
-                            o.blocks_movement() && o.intersects_circle(steer_pos, unit.stats.size * 1.2)
-                        });
-                        if !steer_blocked {
-                            unit.pos = steer_pos;
+            if needs_retreat {
+                // Retreat: move directly away from target (simple, no pathfinding needed)
+                let dir = (unit.pos - target_pos).normalize_or_zero();
+                unit.pos += dir * effective_speed * dt;
+                unit.path.clear();
+            } else if needs_advance {
+                // Advance: use A* pathfinding if available
+                if let Some(grid) = nav_grid {
+                    // Repath if path is stale, empty, or target moved significantly
+                    if unit.path.is_empty() || unit.path_age > 0.5 {
+                        if let Some(new_path) = crate::terrain::find_path(grid, unit.pos, target_pos) {
+                            unit.path = new_path;
+                        } else {
+                            // No path found — direct movement fallback
+                            unit.path = vec![target_pos];
                         }
-                        break;
+                        unit.path_age = 0.0;
                     }
-                }
 
-                if !blocked {
-                    unit.pos = next_pos;
+                    // Follow waypoints
+                    if !unit.path.is_empty() {
+                        let waypoint = unit.path[0];
+                        let to_waypoint = waypoint - unit.pos;
+                        let wp_dist = to_waypoint.length();
+
+                        if wp_dist < crate::terrain::GRID_CELL {
+                            // Reached waypoint, advance to next
+                            unit.path.remove(0);
+                        } else {
+                            // Move toward waypoint
+                            let dir = to_waypoint.normalize_or_zero();
+                            unit.pos += dir * effective_speed * dt;
+                        }
+                    }
+                } else {
+                    // No nav grid — direct movement
+                    let dir = (target_pos - unit.pos).normalize_or_zero();
+                    unit.pos += dir * effective_speed * dt;
                 }
+            } else {
+                // In range — clear path, hold position
+                unit.path.clear();
             }
         }
 
@@ -141,11 +143,10 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
         }
         unit.pos += push;
 
-        // Wall collision — push units out of wall obstacles
+        // Wall collision — push units out of wall obstacles (safety net)
         for obs in obstacles {
             if !obs.blocks_movement() { continue; }
             if obs.intersects_circle(unit.pos, unit.stats.size) {
-                // Push unit out of obstacle
                 let obs_min = obs.pos - obs.half_size;
                 let obs_max = obs.pos + obs.half_size;
                 let closest = vec2(
@@ -157,7 +158,6 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
                 if dist > 0.001 && dist < unit.stats.size {
                     unit.pos += diff.normalize() * (unit.stats.size - dist);
                 } else if dist <= 0.001 {
-                    // Unit center is inside obstacle, push in nearest direction
                     let dx_left = unit.pos.x - obs_min.x;
                     let dx_right = obs_max.x - unit.pos.x;
                     let dy_top = unit.pos.y - obs_min.y;

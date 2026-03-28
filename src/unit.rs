@@ -70,6 +70,9 @@ pub struct Unit {
     pub attack_cooldown: f32,
     pub alive: bool,
     pub death_timer: f32,
+    // Pathfinding
+    pub path: Vec<Vec2>,
+    pub path_age: f32,
     // Behavioral tech fields
     pub slow_timer: f32,
     pub evasion_chance: f32,
@@ -96,6 +99,8 @@ impl Unit {
             attack_cooldown: 0.0,
             alive: true,
             death_timer: 0.0,
+            path: Vec::new(),
+            path_age: 0.0,
             slow_timer: 0.0,
             evasion_chance: 0.0,
             damage_dealt_round: 0.0,

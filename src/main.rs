@@ -58,6 +58,7 @@ async fn main() {
     let mut chat_input = String::new();
     let mut chat_open = false;
     let mut show_grid = false;
+    let mut nav_grid: Option<terrain::NavGrid> = None;
     let mut camera_zoom: f32 = 1.0;
     let mut camera_target = vec2(ARENA_W / 2.0, ARENA_H / 2.0);
 
@@ -325,6 +326,7 @@ async fn main() {
                             &mut projectiles,
                             &mut progress,
                             &mut obstacles,
+                            &mut nav_grid,
                             &game_settings,
                         );
                         battle_accumulator = 0.0;
@@ -500,6 +502,7 @@ async fn main() {
                             &mut projectiles,
                             &mut progress,
                             &mut obstacles,
+                            &mut nav_grid,
                             &game_settings,
                         );
                         battle_accumulator = 0.0;
@@ -535,6 +538,7 @@ async fn main() {
                         if game_settings.terrain_enabled {
                             obstacles = terrain::generate_terrain(progress.round, game_settings.terrain_destructible);
                         }
+                        nav_grid = Some(terrain::NavGrid::from_obstacles(&obstacles, ARENA_W, ARENA_H, 15.0));
 
                         // Seed RNG for deterministic battle
                         macroquad::rand::srand(progress.round as u64);
@@ -587,7 +591,7 @@ async fn main() {
                     while battle_accumulator >= FIXED_DT {
                         battle_accumulator -= FIXED_DT;
                         update_targeting(&mut units, &obstacles);
-                        update_movement(&mut units, FIXED_DT, ARENA_W, ARENA_H, &obstacles);
+                        update_movement(&mut units, FIXED_DT, ARENA_W, ARENA_H, &obstacles, nav_grid.as_ref());
                         update_attacks(
                             &mut units,
                             &mut projectiles,
@@ -606,7 +610,7 @@ async fn main() {
                 } else {
                     // Single-player: variable timestep (original behavior)
                     update_targeting(&mut units, &obstacles);
-                    update_movement(&mut units, dt, ARENA_W, ARENA_H, &obstacles);
+                    update_movement(&mut units, dt, ARENA_W, ARENA_H, &obstacles, nav_grid.as_ref());
                     update_attacks(
                         &mut units,
                         &mut projectiles,
@@ -1522,6 +1526,7 @@ fn start_battle_ai(
     projectiles: &mut Vec<Projectile>,
     progress: &mut MatchProgress,
     obstacles: &mut Vec<terrain::Obstacle>,
+    nav_grid: &mut Option<terrain::NavGrid>,
     game_settings: &settings::GameSettings,
 ) -> GamePhase {
     projectiles.clear();
@@ -1531,6 +1536,7 @@ fn start_battle_ai(
     if game_settings.terrain_enabled {
         *obstacles = terrain::generate_terrain(progress.round, game_settings.terrain_destructible);
     }
+    *nav_grid = Some(terrain::NavGrid::from_obstacles(obstacles, ARENA_W, ARENA_H, 15.0));
 
     // Remove old opponent units (they'll be respawned fresh from stored packs)
     units.retain(|u| u.team_id == 0);
