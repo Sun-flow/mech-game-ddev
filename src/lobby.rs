@@ -88,7 +88,7 @@ impl LobbyState {
         match self.mode {
             LobbyMode::Menu => {
                 // Name field editing
-                let name_y = ARENA_H / 2.0 - 110.0;
+                let name_y = ARENA_H / 2.0 - 80.0;
                 let name_w = 200.0;
                 let name_x = ARENA_W / 2.0 - name_w / 2.0;
                 let name_h = 30.0;
@@ -107,7 +107,7 @@ impl LobbyState {
                     }
                 }
 
-                let create_y = ARENA_H / 2.0 - 50.0;
+                let create_y = ARENA_H / 2.0 - 25.0;
 
                 // "Create Room" → go to Match Settings
                 if left_click
@@ -153,21 +153,7 @@ impl LobbyState {
             }
 
             LobbyMode::MatchSettings { .. } => {
-                let next = match_settings_next.unwrap();
-                if crate::settings::draw_settings_panel(game_settings, mouse, left_click) {
-                    // "Start" clicked — proceed based on next_action
-                    match next {
-                        MatchSettingsNext::CreateRoom => {
-                            self.room_code = Self::generate_room_code();
-                            self.net = Some(NetState::new(&self.room_code));
-                            self.status = format!("Room: {}  --  Share this code!", self.room_code);
-                            self.mode = LobbyMode::WaitingForPeer;
-                        }
-                        MatchSettingsNext::VsAi => {
-                            return LobbyResult::StartVsAi;
-                        }
-                    }
-                }
+                // Drawing and click handling done in draw() method
                 if is_key_pressed(KeyCode::Escape) {
                     self.mode = LobbyMode::Menu;
                 }
@@ -249,7 +235,7 @@ impl LobbyState {
         LobbyResult::Waiting
     }
 
-    pub fn draw(&self) {
+    pub fn draw(&mut self, game_settings: &mut crate::settings::GameSettings) -> LobbyResult {
         clear_background(Color::new(0.08, 0.08, 0.1, 1.0));
 
         let title = "RTS Unit Arena";
@@ -268,7 +254,7 @@ impl LobbyState {
         match self.mode {
             LobbyMode::Menu => {
                 // Player name field
-                let name_y = ARENA_H / 2.0 - 110.0;
+                let name_y = ARENA_H / 2.0 - 80.0;
                 let name_w = 200.0;
                 let name_x = ARENA_W / 2.0 - name_w / 2.0;
                 let name_h = 30.0;
@@ -280,7 +266,7 @@ impl LobbyState {
                 let cursor = if self.name_editing && (get_time() * 2.0) as u32 % 2 == 0 { "|" } else { "" };
                 draw_text(&format!("{}{}", self.player_name, cursor), name_x + 6.0, name_y + 20.0, 16.0, WHITE);
 
-                let create_y = ARENA_H / 2.0 - 50.0;
+                let create_y = ARENA_H / 2.0 - 25.0;
 
                 // Create Room
                 let hover = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= create_y && mouse.y <= create_y + btn_h;
@@ -329,8 +315,23 @@ impl LobbyState {
                 draw_text("Press Escape to go back", ARENA_W / 2.0 - 100.0, ARENA_H / 2.0 + 40.0, 14.0, DARKGRAY);
             }
 
-            LobbyMode::MatchSettings { .. } => {
-                // Settings panel is drawn via update method
+            LobbyMode::MatchSettings { ref next_action } => {
+                let next = next_action.clone();
+                let left_click = is_mouse_button_pressed(MouseButton::Left);
+                if crate::settings::draw_settings_panel(game_settings, mouse, left_click) {
+                    match next {
+                        MatchSettingsNext::CreateRoom => {
+                            self.room_code = Self::generate_room_code();
+                            self.net = Some(NetState::new(&self.room_code));
+                            self.status = format!("Room: {}  --  Share this code!", self.room_code);
+                            self.mode = LobbyMode::WaitingForPeer;
+                        }
+                        MatchSettingsNext::VsAi => {
+                            return LobbyResult::StartVsAi;
+                        }
+                    }
+                }
+                draw_text("Press Escape to go back", ARENA_W / 2.0 - 90.0, ARENA_H - 30.0, 14.0, DARKGRAY);
             }
 
             LobbyMode::EnteringCode => {
@@ -383,5 +384,7 @@ impl LobbyState {
                 draw_text("Press Escape to cancel", ARENA_W / 2.0 - 90.0, ARENA_H / 2.0 + 100.0, 14.0, DARKGRAY);
             }
         }
+
+        LobbyResult::Waiting
     }
 }

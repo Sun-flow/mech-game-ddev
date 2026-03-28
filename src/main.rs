@@ -93,19 +93,17 @@ async fn main() {
                     lobby::LobbyResult::Waiting => {}
                 }
 
-                lobby.draw();
-
-                // No longer need the S-key hint since we have a button
-                if false {
-                    let hint = "";
-                    let hdims = measure_text(hint, None, 16, 1.0);
-                    draw_text(
-                        hint,
-                        ARENA_W / 2.0 - hdims.width / 2.0,
-                        ARENA_H / 2.0 + 100.0,
-                        16.0,
-                        Color::new(0.6, 0.6, 0.4, 0.8),
-                    );
+                match lobby.draw(&mut game_settings) {
+                    lobby::LobbyResult::StartVsAi => {
+                        net = None;
+                        if game_settings.draft_ban_enabled {
+                            phase = GamePhase::DraftBan { bans: Vec::new() };
+                        } else {
+                            phase = GamePhase::Build;
+                        }
+                        continue;
+                    }
+                    _ => {}
                 }
 
                 next_frame().await;
