@@ -10,14 +10,16 @@ pub const BUILD_TIMER: f32 = 60.0;
 
 #[derive(Clone, Debug)]
 pub enum GamePhase {
+    Lobby,
     Build,
+    WaitingForOpponent,
     Battle,
     RoundResult {
         match_state: MatchState,
         lp_damage: i32,
-        loser_team: Option<u8>, // None for draw
+        loser_team: Option<u8>,
     },
-    GameOver(u8), // 0 = player wins, 1 = AI wins
+    GameOver(u8),
 }
 
 #[derive(Clone, Debug)]
@@ -82,6 +84,7 @@ pub struct BuildState {
     pub selected_pack: Option<usize>,
     pub timer: f32,
     pub next_id: u64,
+    pub round_tech_purchases: Vec<(crate::unit::UnitKind, crate::tech::TechId)>,
 }
 
 impl BuildState {
@@ -93,6 +96,7 @@ impl BuildState {
             selected_pack: None,
             timer: BUILD_TIMER,
             next_id: 1,
+            round_tech_purchases: Vec::new(),
         }
     }
 
@@ -109,6 +113,7 @@ impl BuildState {
             selected_pack: None,
             timer: BUILD_TIMER,
             next_id,
+            round_tech_purchases: Vec::new(),
         }
     }
 
