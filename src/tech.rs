@@ -194,6 +194,13 @@ impl TechState {
         true
     }
 
+    /// Remove a purchased tech (for undo).
+    pub fn unpurchase(&mut self, kind: UnitKind, tech_id: TechId) {
+        if let Some(techs) = self.purchased.get_mut(&kind) {
+            techs.retain(|t| *t != tech_id);
+        }
+    }
+
     /// Get available (not yet purchased) techs for a given unit kind.
     pub fn available_techs(&self, kind: UnitKind) -> Vec<&'static TechDef> {
         all_techs()

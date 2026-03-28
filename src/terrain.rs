@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 
 use crate::arena::{ARENA_H, ARENA_W, HALF_W};
 
-pub const GRID_CELL: f32 = 20.0;
+pub const GRID_CELL: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ObstacleType {

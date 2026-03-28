@@ -85,6 +85,7 @@ pub enum UndoEntry {
     Place { placed_index: usize },
     Move { placed_index: usize, old_center: Vec2 },
     Rotate { placed_index: usize, was_rotated: bool, old_center: Vec2 },
+    Tech { kind: crate::unit::UnitKind, tech_id: crate::tech::TechId },
 }
 
 pub struct BuildState {

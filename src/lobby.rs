@@ -6,10 +6,16 @@ use crate::net::NetState;
 #[derive(PartialEq)]
 pub enum LobbyMode {
     Menu,
-    Settings,
+    MatchSettings { next_action: MatchSettingsNext },
     EnteringCode,
     WaitingForPeer,
     Connected,
+}
+
+#[derive(Clone, PartialEq)]
+pub enum MatchSettingsNext {
+    CreateRoom,
+    VsAi,
 }
 
 /// Result of lobby update - what should the game do next?
@@ -28,6 +34,8 @@ pub struct LobbyState {
     pub input_code: String,
     pub status: String,
     pub net: Option<NetState>,
+    pub player_name: String,
+    pub name_editing: bool,
 }
 
 impl LobbyState {
@@ -38,6 +46,8 @@ impl LobbyState {
             input_code: String::new(),
             status: String::new(),
             net: None,
+            player_name: "Player".to_string(),
+            name_editing: false,
         }
     }
 
@@ -67,19 +77,43 @@ impl LobbyState {
         let btn_h = 45.0;
         let btn_x = ARENA_W / 2.0 - btn_w / 2.0;
 
+        // Clone next_action if in MatchSettings to avoid borrow issues
+        let match_settings_next = if let LobbyMode::MatchSettings { ref next_action } = self.mode {
+            Some(next_action.clone())
+        } else {
+            None
+        };
+
         match self.mode {
             LobbyMode::Menu => {
+                // Name field editing
+                let name_y = ARENA_H / 2.0 - 110.0;
+                let name_w = 200.0;
+                let name_x = ARENA_W / 2.0 - name_w / 2.0;
+                let name_h = 30.0;
+                if left_click && mouse.x >= name_x && mouse.x <= name_x + name_w
+                    && mouse.y >= name_y && mouse.y <= name_y + name_h {
+                    self.name_editing = true;
+                } else if left_click {
+                    self.name_editing = false;
+                }
+                if self.name_editing {
+                    while let Some(ch) = get_char_pressed() {
+                        if ch == '\u{8}' { self.player_name.pop(); }
+                        else if self.player_name.len() < 16 && (ch.is_alphanumeric() || ch == '_' || ch == '-' || ch == ' ') {
+                            self.player_name.push(ch);
+                        }
+                    }
+                }
+
                 let create_y = ARENA_H / 2.0 - 50.0;
 
-                // "Create Room" button
+                // "Create Room" → go to Match Settings
                 if left_click
                     && mouse.x >= btn_x && mouse.x <= btn_x + btn_w
                     && mouse.y >= create_y && mouse.y <= create_y + btn_h
                 {
-                    self.room_code = Self::generate_room_code();
-                    self.net = Some(NetState::new(&self.room_code));
-                    self.status = format!("Room: {}  --  Share this code!", self.room_code);
-                    self.mode = LobbyMode::WaitingForPeer;
+                    self.mode = LobbyMode::MatchSettings { next_action: MatchSettingsNext::CreateRoom };
                 }
 
                 // "Join Room" button
@@ -92,28 +126,31 @@ impl LobbyState {
                     self.mode = LobbyMode::EnteringCode;
                 }
 
-                // "Play vs AI" button
+                // "Play vs AI" → go to Match Settings
                 let ai_y = join_y + 55.0;
                 if left_click
                     && mouse.x >= btn_x && mouse.x <= btn_x + btn_w
                     && mouse.y >= ai_y && mouse.y <= ai_y + btn_h
                 {
-                    return LobbyResult::StartVsAi;
-                }
-
-                // "Settings" button
-                let settings_y = ai_y + 55.0;
-                if left_click
-                    && mouse.x >= btn_x && mouse.x <= btn_x + btn_w
-                    && mouse.y >= settings_y && mouse.y <= settings_y + btn_h
-                {
-                    self.mode = LobbyMode::Settings;
+                    self.mode = LobbyMode::MatchSettings { next_action: MatchSettingsNext::VsAi };
                 }
             }
 
-            LobbyMode::Settings => {
+            LobbyMode::MatchSettings { .. } => {
+                let next = match_settings_next.unwrap();
                 if crate::settings::draw_settings_panel(game_settings, mouse, left_click) {
-                    self.mode = LobbyMode::Menu;
+                    // "Start" clicked — proceed based on next_action
+                    match next {
+                        MatchSettingsNext::CreateRoom => {
+                            self.room_code = Self::generate_room_code();
+                            self.net = Some(NetState::new(&self.room_code));
+                            self.status = format!("Room: {}  --  Share this code!", self.room_code);
+                            self.mode = LobbyMode::WaitingForPeer;
+                        }
+                        MatchSettingsNext::VsAi => {
+                            return LobbyResult::StartVsAi;
+                        }
+                    }
                 }
                 if is_key_pressed(KeyCode::Escape) {
                     self.mode = LobbyMode::Menu;
@@ -214,6 +251,19 @@ impl LobbyState {
 
         match self.mode {
             LobbyMode::Menu => {
+                // Player name field
+                let name_y = ARENA_H / 2.0 - 110.0;
+                let name_w = 200.0;
+                let name_x = ARENA_W / 2.0 - name_w / 2.0;
+                let name_h = 30.0;
+                draw_text("Name:", name_x - 50.0, name_y + 20.0, 16.0, LIGHTGRAY);
+                let name_bg = if self.name_editing { Color::new(0.15, 0.15, 0.22, 0.95) } else { Color::new(0.1, 0.1, 0.15, 0.8) };
+                draw_rectangle(name_x, name_y, name_w, name_h, name_bg);
+                let border_color = if self.name_editing { Color::new(0.4, 0.7, 1.0, 1.0) } else { Color::new(0.3, 0.3, 0.4, 0.8) };
+                draw_rectangle_lines(name_x, name_y, name_w, name_h, 1.0, border_color);
+                let cursor = if self.name_editing && (get_time() * 2.0) as u32 % 2 == 0 { "|" } else { "" };
+                draw_text(&format!("{}{}", self.player_name, cursor), name_x + 6.0, name_y + 20.0, 16.0, WHITE);
+
                 let create_y = ARENA_H / 2.0 - 50.0;
 
                 // Create Room
@@ -244,19 +294,9 @@ impl LobbyState {
                 let t3 = "Play vs AI";
                 let d3 = measure_text(t3, None, 22, 1.0);
                 draw_text(t3, btn_x + btn_w / 2.0 - d3.width / 2.0, ai_y + btn_h / 2.0 + 7.0, 22.0, WHITE);
-
-                // Settings
-                let settings_y = ai_y + 55.0;
-                let hover4 = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= settings_y && mouse.y <= settings_y + btn_h;
-                let bg4 = if hover4 { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
-                draw_rectangle(btn_x, settings_y, btn_w, btn_h, bg4);
-                draw_rectangle_lines(btn_x, settings_y, btn_w, btn_h, 2.0, Color::new(0.6, 0.6, 0.7, 1.0));
-                let t4 = "Settings";
-                let d4 = measure_text(t4, None, 22, 1.0);
-                draw_text(t4, btn_x + btn_w / 2.0 - d4.width / 2.0, settings_y + btn_h / 2.0 + 7.0, 22.0, WHITE);
             }
 
-            LobbyMode::Settings => {
+            LobbyMode::MatchSettings { .. } => {
                 // Settings panel is drawn via update method
             }
 

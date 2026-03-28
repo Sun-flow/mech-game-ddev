@@ -39,7 +39,7 @@ pub const TEAM_COLOR_OPTIONS: &[(&str, (f32, f32, f32))] = &[
     ("Orange", (0.9, 0.5, 0.1)),
 ];
 
-/// Draw the settings panel overlay. Returns true if "Back" was clicked.
+/// Draw the match settings panel overlay. Returns true if "Start" was clicked.
 pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bool) -> bool {
     let arena_w = crate::arena::ARENA_W;
     let arena_h = crate::arena::ARENA_H;
@@ -56,7 +56,7 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
     draw_rectangle_lines(px, py, panel_w, panel_h, 2.0, Color::new(0.4, 0.4, 0.5, 1.0));
 
     // Title
-    let title = "Game Settings";
+    let title = "Match Settings";
     let tdims = measure_text(title, None, 24, 1.0);
     draw_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
 
@@ -160,7 +160,7 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
     let back_bg = if back_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
     draw_rectangle(back_x, back_y, back_w, back_h, back_bg);
     draw_rectangle_lines(back_x, back_y, back_w, back_h, 1.0, GRAY);
-    let bt = "Back";
+    let bt = "Start Game";
     let bdims = measure_text(bt, None, 20, 1.0);
     draw_text(bt, back_x + back_w / 2.0 - bdims.width / 2.0, back_y + back_h / 2.0 + 6.0, 20.0, WHITE);
 

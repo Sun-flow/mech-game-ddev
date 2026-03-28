@@ -54,7 +54,7 @@ async fn main() {
     let mut game_settings = settings::GameSettings::default();
     let mut obstacles: Vec<terrain::Obstacle> = Vec::new();
     let mut show_surrender_confirm = false;
-    let mut chat_messages: Vec<(String, u8, f32)> = Vec::new(); // (text, team_id, lifetime)
+    let mut chat_messages: Vec<(String, String, u8, f32)> = Vec::new(); // (name, text, team_id, lifetime)
     let mut chat_input = String::new();
     let mut chat_open = false;
     let mut show_grid = false;
@@ -241,6 +241,21 @@ async fn main() {
                                     build.reposition_pack_units(placed_index, &mut units);
                                 }
                             }
+                            game_state::UndoEntry::Tech { kind, tech_id } => {
+                                // Refund tech cost
+                                let cost = progress.player_techs.effective_cost(kind);
+                                // unpurchase first so effective_cost returns the right amount next time
+                                progress.player_techs.unpurchase(kind, tech_id);
+                                // Refund: cost was (100 + N*100) where N was count before purchase
+                                // After unpurchase, effective_cost gives the old cost, so just refund that
+                                build.builder.gold_remaining += cost;
+                                // Remove from round tech purchases
+                                if let Some(pos) = build.round_tech_purchases.iter().rposition(|(k, t)| *k == kind && *t == tech_id) {
+                                    build.round_tech_purchases.remove(pos);
+                                }
+                                // Refresh units to remove tech effect
+                                refresh_units_of_kind(&mut units, kind, &progress.player_techs);
+                            }
                         }
                     }
                 }
@@ -283,11 +298,18 @@ async fn main() {
                 }
 
                 // Tech panel interaction (when a pack is selected)
+                let mut click_consumed = false;
                 if left_click && build.selected_pack.is_some() {
                     let sel_idx = build.selected_pack.unwrap();
                     let placed = &build.placed_packs[sel_idx];
                     let kind = all_packs()[placed.pack_index].kind;
                     let cs = tech_ui::PackCombatStats::from_units(&units, &placed.unit_ids);
+
+                    // Check if mouse is in the tech panel area (consume click to prevent drag)
+                    if mouse.x >= 490.0 && mouse.x <= 700.0 && mouse.y >= 30.0 {
+                        click_consumed = true;
+                    }
+
                     if let Some(tech_id) = tech_ui::draw_tech_panel(
                         kind,
                         &progress.player_techs,
@@ -300,8 +322,9 @@ async fn main() {
                         if build.builder.gold_remaining >= cost {
                             build.builder.gold_remaining -= cost;
                             progress.player_techs.purchase(kind, tech_id);
-                            // Track tech purchase for network sync
+                            // Track tech purchase for network sync and undo
                             build.round_tech_purchases.push((kind, tech_id));
+                            build.undo_history.push(game_state::UndoEntry::Tech { kind, tech_id });
                             // Refresh ALL units of this kind with new tech stats
                             refresh_units_of_kind(&mut units, kind, &progress.player_techs);
                         }
@@ -376,7 +399,7 @@ async fn main() {
                         build.reposition_pack_units(drag_idx, &mut units);
                         build.dragging = None;
                     }
-                } else if left_click && mouse.x > SHOP_W {
+                } else if left_click && mouse.x > SHOP_W && !click_consumed {
                     // Not holding — selection logic
                     if let Some(placed_idx) = build.pack_at(mouse) {
                         if build.selected_pack == Some(placed_idx) {
@@ -523,6 +546,12 @@ async fn main() {
                             &progress.opponent_techs,
                         );
                         update_projectiles(&mut projectiles, &mut units, FIXED_DT, &mut obstacles);
+                        // Death animation timers (inside fixed timestep for determinism)
+                        for unit in units.iter_mut() {
+                            if !unit.alive && unit.death_timer > 0.0 {
+                                unit.death_timer -= FIXED_DT;
+                            }
+                        }
                     }
                 } else {
                     // Single-player: variable timestep (original behavior)
@@ -536,6 +565,12 @@ async fn main() {
                         &progress.opponent_techs,
                     );
                     update_projectiles(&mut projectiles, &mut units, dt, &mut obstacles);
+                    // Death animation timers
+                    for unit in units.iter_mut() {
+                        if !unit.alive && unit.death_timer > 0.0 {
+                            unit.death_timer -= dt;
+                        }
+                    }
                 }
 
                 // Surrender confirmation handling
@@ -558,13 +593,6 @@ async fn main() {
                     let no_y = cy + 10.0;
                     if mouse.x >= no_x && mouse.x <= no_x + btn_w && mouse.y >= no_y && mouse.y <= no_y + btn_h {
                         show_surrender_confirm = false;
-                    }
-                }
-
-                // Update death animation timers
-                for unit in units.iter_mut() {
-                    if !unit.alive && unit.death_timer > 0.0 {
-                        unit.death_timer -= dt;
                     }
                 }
 
@@ -1023,7 +1051,7 @@ async fn main() {
 
                 // Hint text
                 draw_text(
-                    "Click to select | Double-click to move | Middle-click rotate | Right-click sell",
+                    "Click to select | Double-click to move | Middle-click rotate | Right-click sell | G: Grid | Ctrl+Z: Undo",
                     SHOP_W + 10.0,
                     ARENA_H - 10.0,
                     13.0,
@@ -1308,10 +1336,13 @@ async fn main() {
         }
 
         // === Chat System ===
+        let player_name = lobby.player_name.clone();
+
         // Receive chat messages from network
         if let Some(ref mut n) = net {
             for msg in n.received_chats.drain(..) {
-                chat_messages.push((msg, 1, 5.0)); // opponent = team 1
+                // Opponent messages come as "name: text"
+                chat_messages.push(("Opponent".to_string(), msg, 1, 5.0));
             }
         }
 
@@ -1323,7 +1354,7 @@ async fn main() {
                     // Send message
                     if !chat_input.is_empty() {
                         let text = if chat_input.len() > 100 { chat_input[..100].to_string() } else { chat_input.clone() };
-                        chat_messages.push((text.clone(), 0, 5.0));
+                        chat_messages.push((player_name.clone(), text.clone(), 0, 5.0));
                         if let Some(ref mut n) = net {
                             n.send(net::NetMessage::ChatMessage(text));
                         }
@@ -1343,7 +1374,7 @@ async fn main() {
                     if ch == '\r' || ch == '\n' { continue; }
                     if ch == '\u{8}' { // backspace
                         chat_input.pop();
-                    } else if chat_input.len() < 100 && ch.is_ascii_graphic() || ch == ' ' {
+                    } else if chat_input.len() < 100 && (ch.is_ascii_graphic() || ch == ' ') {
                         chat_input.push(ch);
                     }
                 }
@@ -1351,15 +1382,15 @@ async fn main() {
         }
 
         // Update chat lifetimes
-        for (_, _, lifetime) in chat_messages.iter_mut() {
+        for (_, _, _, lifetime) in chat_messages.iter_mut() {
             *lifetime -= dt;
         }
-        chat_messages.retain(|(_, _, lt)| *lt > 0.0);
+        chat_messages.retain(|(_, _, _, lt)| *lt > 0.0);
 
         // Render chat messages (floating at top of arena)
         let chat_x = ARENA_W / 2.0;
         let mut chat_y = 45.0;
-        for (text, team_id, lifetime) in chat_messages.iter().rev().take(5).collect::<Vec<_>>().into_iter().rev() {
+        for (name, text, team_id, lifetime) in chat_messages.iter().rev().take(5).collect::<Vec<_>>().into_iter().rev() {
             let alpha = (*lifetime / 5.0).min(1.0);
             let color = if *team_id == 0 {
                 team::team_color(0)
@@ -1369,29 +1400,38 @@ async fn main() {
             let display_color = Color::new(color.r, color.g, color.b, alpha);
 
             // Check for emotes
-            let display = match text.as_str() {
-                "/gg" => "GG",
-                "/gl" => "Good Luck!",
-                "/nice" => "Nice!",
-                "/wow" => "Wow!",
-                _ => text.as_str(),
-            };
             let is_emote = text.starts_with('/');
-            let font_size = if is_emote { 22.0 } else { 16.0 };
-            let dims = measure_text(display, None, font_size as u16, 1.0);
-            draw_text(display, chat_x - dims.width / 2.0, chat_y, font_size, display_color);
+            let display_text = match text.as_str() {
+                "/gg" => "GG".to_string(),
+                "/gl" => "Good Luck!".to_string(),
+                "/nice" => "Nice!".to_string(),
+                "/wow" => "Wow!".to_string(),
+                _ => text.clone(),
+            };
+            let full_display = if is_emote {
+                format!("{}: {}", name, display_text)
+            } else {
+                format!("{}: {}", name, display_text)
+            };
+            let font_size = if is_emote { 20.0 } else { 15.0 };
+            let dims = measure_text(&full_display, None, font_size as u16, 1.0);
+            draw_text(&full_display, chat_x - dims.width / 2.0, chat_y, font_size, display_color);
             chat_y += font_size + 4.0;
         }
 
         // Render chat input box
         if chat_open {
-            let input_y = ARENA_H - 40.0;
-            let input_w = 400.0;
+            let input_y = ARENA_H - 45.0;
+            let input_w = 450.0;
             let input_x = ARENA_W / 2.0 - input_w / 2.0;
-            draw_rectangle(input_x, input_y, input_w, 28.0, Color::new(0.05, 0.05, 0.1, 0.9));
-            draw_rectangle_lines(input_x, input_y, input_w, 28.0, 1.0, Color::new(0.4, 0.5, 0.6, 0.8));
+            let input_h = 30.0;
+            draw_rectangle(input_x, input_y, input_w, input_h, Color::new(0.05, 0.05, 0.1, 0.92));
+            draw_rectangle_lines(input_x, input_y, input_w, input_h, 1.5, Color::new(0.4, 0.5, 0.6, 0.9));
+            let name_prefix = format!("{}: ", player_name);
+            let name_w = measure_text(&name_prefix, None, 15, 1.0).width;
+            draw_text(&name_prefix, input_x + 8.0, input_y + 20.0, 15.0, Color::new(0.6, 0.8, 1.0, 0.9));
             let cursor = if (get_time() * 2.0) as u32 % 2 == 0 { "|" } else { "" };
-            draw_text(&format!("{}{}", chat_input, cursor), input_x + 6.0, input_y + 19.0, 16.0, WHITE);
+            draw_text(&format!("{}{}", chat_input, cursor), input_x + 8.0 + name_w, input_y + 20.0, 15.0, WHITE);
         } else if chat_allowed {
             draw_text("Enter: Chat", ARENA_W - 100.0, ARENA_H - 5.0, 12.0, Color::new(0.4, 0.4, 0.4, 0.6));
         }
