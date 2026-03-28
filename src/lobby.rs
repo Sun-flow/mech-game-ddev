@@ -14,7 +14,7 @@ pub enum LobbyMode {
     ColorPick,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MatchSettingsNext {
     CreateRoom,
     VsAi,
@@ -39,6 +39,7 @@ pub struct LobbyState {
     pub player_name: String,
     pub name_editing: bool,
     pub host_color_index: Option<u8>,
+    pub is_room_creator: bool,
 }
 
 impl LobbyState {
@@ -52,6 +53,7 @@ impl LobbyState {
             player_name: "Player".to_string(),
             name_editing: false,
             host_color_index: None,
+            is_room_creator: false,
         }
     }
 
@@ -208,8 +210,8 @@ impl LobbyState {
                     }
 
                     if net.is_peer_connected() {
-                        // Only the host sends match settings to the guest
-                        if net.is_host {
+                        // Only the room creator sends match settings to the joiner
+                        if self.is_room_creator {
                             net.send(crate::net::NetMessage::SettingsSync(game_settings.clone()));
                         }
                         net.send(crate::net::NetMessage::ReadyToStart);
@@ -232,27 +234,32 @@ impl LobbyState {
                         return LobbyResult::Waiting;
                     }
 
-                    // Apply host's match settings and go to color pick
-                    if let Some(settings) = net.received_settings.take() {
-                        self.host_color_index = Some(settings.player_color_index);
-                        let my_color = game_settings.player_color_index;
-                        *game_settings = settings;
-                        game_settings.player_color_index = my_color;
-                        // If host color matches ours, pick a different one
-                        if my_color == self.host_color_index.unwrap_or(255) {
-                            // Pick next available color
-                            for i in 0..6u8 {
-                                if i != self.host_color_index.unwrap_or(255) {
-                                    game_settings.player_color_index = i;
-                                    break;
+                    // Joiner: apply host's match settings and go to color pick
+                    if !self.is_room_creator {
+                        if let Some(settings) = net.received_settings.take() {
+                            self.host_color_index = Some(settings.player_color_index);
+                            let my_color = game_settings.player_color_index;
+                            *game_settings = settings;
+                            game_settings.player_color_index = my_color;
+                            // If host color matches ours, pick a different one
+                            if my_color == self.host_color_index.unwrap_or(255) {
+                                for i in 0..6u8 {
+                                    if i != self.host_color_index.unwrap_or(255) {
+                                        game_settings.player_color_index = i;
+                                        break;
+                                    }
                                 }
                             }
+                            self.mode = LobbyMode::ColorPick;
+                            return LobbyResult::Waiting;
                         }
-                        self.mode = LobbyMode::ColorPick;
+                    } else {
+                        // Creator: discard any settings received (guest may have sent defaults)
+                        net.received_settings.take();
                     }
 
                     if net.peer_ready {
-                        // If we're still in Connected (host didn't send settings), start directly
+                        eprintln!("[update] Connected: peer_ready, returning StartMultiplayer");
                         return LobbyResult::StartMultiplayer;
                     }
                 }
@@ -353,8 +360,10 @@ impl LobbyState {
                 let next = next_action.clone();
                 let left_click = is_mouse_button_pressed(MouseButton::Left);
                 if crate::settings::draw_settings_panel(game_settings, mouse, left_click) {
+                    eprintln!("[draw] MatchSettings Start clicked: draft_ban={} terrain={} next={:?}", game_settings.draft_ban_enabled, game_settings.terrain_enabled, next);
                     match next {
                         MatchSettingsNext::CreateRoom => {
+                            self.is_room_creator = true;
                             self.room_code = Self::generate_room_code();
                             self.net = Some(NetState::new(&self.room_code));
                             self.status = format!("Room: {}  --  Share this code!", self.room_code);
