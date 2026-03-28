@@ -10,17 +10,32 @@ pub const TEAM_COLORS: &[Color] = &[
 
 /// Player color override index (255 = no override, use default).
 static PLAYER_COLOR_OVERRIDE: AtomicU8 = AtomicU8::new(255);
+/// Opponent color override index (255 = no override, use default).
+static OPPONENT_COLOR_OVERRIDE: AtomicU8 = AtomicU8::new(255);
 
 /// Set the player's custom team color index (from settings).
 pub fn set_player_color(index: u8) {
     PLAYER_COLOR_OVERRIDE.store(index, Ordering::Relaxed);
 }
 
+/// Set the opponent's color index (received over network).
+pub fn set_opponent_color(index: u8) {
+    OPPONENT_COLOR_OVERRIDE.store(index, Ordering::Relaxed);
+}
+
 pub fn team_color(team_id: u8) -> Color {
+    let options = crate::settings::TEAM_COLOR_OPTIONS;
     if team_id == 0 {
         let idx = PLAYER_COLOR_OVERRIDE.load(Ordering::Relaxed);
-        if idx < crate::settings::TEAM_COLOR_OPTIONS.len() as u8 {
-            let (_, (r, g, b)) = crate::settings::TEAM_COLOR_OPTIONS[idx as usize];
+        if (idx as usize) < options.len() {
+            let (_, (r, g, b)) = options[idx as usize];
+            return Color::new(r, g, b, 1.0);
+        }
+    }
+    if team_id == 1 {
+        let idx = OPPONENT_COLOR_OVERRIDE.load(Ordering::Relaxed);
+        if (idx as usize) < options.len() {
+            let (_, (r, g, b)) = options[idx as usize];
             return Color::new(r, g, b, 1.0);
         }
     }

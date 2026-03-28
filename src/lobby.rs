@@ -214,6 +214,7 @@ impl LobbyState {
                         if self.is_room_creator {
                             net.send(crate::net::NetMessage::SettingsSync(game_settings.clone()));
                         }
+                        net.send(crate::net::NetMessage::ColorChoice(game_settings.player_color_index));
                         net.send(crate::net::NetMessage::ReadyToStart);
                         self.status = "Peer connected! Waiting for ready...".to_string();
                         self.mode = LobbyMode::Connected;
@@ -259,7 +260,6 @@ impl LobbyState {
                     }
 
                     if net.peer_ready {
-                        eprintln!("[update] Connected: peer_ready, returning StartMultiplayer");
                         return LobbyResult::StartMultiplayer;
                     }
                 }
@@ -360,7 +360,6 @@ impl LobbyState {
                 let next = next_action.clone();
                 let left_click = is_mouse_button_pressed(MouseButton::Left);
                 if crate::settings::draw_settings_panel(game_settings, mouse, left_click) {
-                    eprintln!("[draw] MatchSettings Start clicked: draft_ban={} terrain={} next={:?}", game_settings.draft_ban_enabled, game_settings.terrain_enabled, next);
                     match next {
                         MatchSettingsNext::CreateRoom => {
                             self.is_room_creator = true;
@@ -485,6 +484,10 @@ impl LobbyState {
                 draw_text(rt, rbtn_x + rbtn_w / 2.0 - rdims.width / 2.0, rbtn_y + rbtn_h / 2.0 + 7.0, 22.0, WHITE);
 
                 if left_click && rbtn_hover {
+                    // Send our color choice to the host
+                    if let Some(ref mut net) = self.net {
+                        net.send(crate::net::NetMessage::ColorChoice(game_settings.player_color_index));
+                    }
                     return LobbyResult::StartMultiplayer;
                 }
             }

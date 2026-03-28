@@ -77,14 +77,52 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
         // Move toward target if out of range, or retreat if too close (min range)
         if let Some(target_pos) = target_positions[i].1 {
             let dist = unit.pos.distance(target_pos);
+            let mut move_dir = Vec2::ZERO;
+
             if unit.stats.min_attack_range > 0.0 && dist < unit.stats.min_attack_range * 0.8 {
                 // Too close — retreat away from target
-                let dir = (unit.pos - target_pos).normalize_or_zero();
-                unit.pos += dir * effective_speed * dt;
+                move_dir = (unit.pos - target_pos).normalize_or_zero();
             } else if dist > unit.stats.attack_range * 0.9 {
                 // Too far — move toward target
-                let dir = (target_pos - unit.pos).normalize_or_zero();
-                unit.pos += dir * effective_speed * dt;
+                move_dir = (target_pos - unit.pos).normalize_or_zero();
+            }
+
+            if move_dir.length_squared() > 0.0 {
+                let next_pos = unit.pos + move_dir * effective_speed * dt;
+
+                // Check if movement would collide with a wall
+                let mut blocked = false;
+                for obs in obstacles.iter() {
+                    if !obs.blocks_movement() { continue; }
+                    if obs.intersects_circle(next_pos, unit.stats.size * 1.2) {
+                        blocked = true;
+                        // Steer around: try perpendicular directions
+                        let perp1 = vec2(-move_dir.y, move_dir.x);
+                        let perp2 = vec2(move_dir.y, -move_dir.x);
+
+                        // Pick the perpendicular that moves us closer to target
+                        let test1 = unit.pos + perp1 * effective_speed * dt;
+                        let test2 = unit.pos + perp2 * effective_speed * dt;
+                        let d1 = test1.distance(target_pos);
+                        let d2 = test2.distance(target_pos);
+
+                        let steer = if d1 < d2 { perp1 } else { perp2 };
+                        let steer_pos = unit.pos + steer * effective_speed * dt;
+
+                        // Only apply if steer position doesn't also collide
+                        let steer_blocked = obstacles.iter().any(|o| {
+                            o.blocks_movement() && o.intersects_circle(steer_pos, unit.stats.size * 1.2)
+                        });
+                        if !steer_blocked {
+                            unit.pos = steer_pos;
+                        }
+                        break;
+                    }
+                }
+
+                if !blocked {
+                    unit.pos = next_pos;
+                }
             }
         }
 

@@ -20,6 +20,7 @@ pub enum NetMessage {
     Surrender,
     RematchRequest,
     BanSelection(Vec<u8>),
+    ColorChoice(u8),
 }
 
 #[derive(Clone, Debug)]
@@ -43,6 +44,7 @@ pub struct NetState {
     pub opponent_rematch: bool,
     pub opponent_bans: Option<Vec<u8>>,
     pub received_settings: Option<crate::settings::GameSettings>,
+    pub opponent_color: Option<u8>,
 }
 
 impl NetState {
@@ -66,6 +68,7 @@ impl NetState {
             opponent_rematch: false,
             opponent_bans: None,
             received_settings: None,
+            opponent_color: None,
         }
     }
 
@@ -128,6 +131,9 @@ impl NetState {
                         }
                         NetMessage::SettingsSync(settings) => {
                             self.received_settings = Some(settings);
+                        }
+                        NetMessage::ColorChoice(idx) => {
+                            self.opponent_color = Some(idx);
                         }
                     }
                 }

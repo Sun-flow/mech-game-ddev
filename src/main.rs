@@ -68,6 +68,12 @@ async fn main() {
         let right_click = is_mouse_button_pressed(MouseButton::Right);
         let middle_click = is_mouse_button_pressed(MouseButton::Middle);
         team::set_player_color(game_settings.player_color_index);
+        // Apply opponent color if received
+        if let Some(ref n) = net {
+            if let Some(opp_color) = n.opponent_color {
+                team::set_opponent_color(opp_color);
+            }
+        }
 
         match &mut phase {
             GamePhase::Lobby => {
