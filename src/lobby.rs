@@ -11,6 +11,7 @@ pub enum LobbyMode {
     EnteringCode,
     WaitingForPeer,
     Connected,
+    ColorPick,
 }
 
 #[derive(Clone, PartialEq)]
@@ -37,6 +38,7 @@ pub struct LobbyState {
     pub net: Option<NetState>,
     pub player_name: String,
     pub name_editing: bool,
+    pub host_color_index: Option<u8>,
 }
 
 impl LobbyState {
@@ -49,6 +51,7 @@ impl LobbyState {
             net: None,
             player_name: "Player".to_string(),
             name_editing: false,
+            host_color_index: None,
         }
     }
 
@@ -229,16 +232,36 @@ impl LobbyState {
                         return LobbyResult::Waiting;
                     }
 
-                    // Apply host's match settings (preserve local player color)
+                    // Apply host's match settings and go to color pick
                     if let Some(settings) = net.received_settings.take() {
+                        self.host_color_index = Some(settings.player_color_index);
                         let my_color = game_settings.player_color_index;
                         *game_settings = settings;
                         game_settings.player_color_index = my_color;
+                        // If host color matches ours, pick a different one
+                        if my_color == self.host_color_index.unwrap_or(255) {
+                            // Pick next available color
+                            for i in 0..6u8 {
+                                if i != self.host_color_index.unwrap_or(255) {
+                                    game_settings.player_color_index = i;
+                                    break;
+                                }
+                            }
+                        }
+                        self.mode = LobbyMode::ColorPick;
                     }
 
                     if net.peer_ready {
+                        // If we're still in Connected (host didn't send settings), start directly
                         return LobbyResult::StartMultiplayer;
                     }
+                }
+            }
+
+            LobbyMode::ColorPick => {
+                // Handled in draw()
+                if let Some(ref mut net) = self.net {
+                    net.poll();
                 }
             }
         }
@@ -393,6 +416,68 @@ impl LobbyState {
                 }
 
                 draw_text("Press Escape to cancel", ARENA_W / 2.0 - 90.0, ARENA_H / 2.0 + 100.0, 14.0, DARKGRAY);
+            }
+
+            LobbyMode::ColorPick => {
+                let left_click = is_mouse_button_pressed(MouseButton::Left);
+                let host_color = self.host_color_index.unwrap_or(255);
+
+                let pick_title = "Choose Your Team Color";
+                let ptdims = measure_text(pick_title, None, 28, 1.0);
+                draw_text(pick_title, ARENA_W / 2.0 - ptdims.width / 2.0, ARENA_H / 2.0 - 60.0, 28.0, WHITE);
+
+                let swatch_size = 50.0;
+                let swatch_gap = 16.0;
+                let colors = crate::settings::TEAM_COLOR_OPTIONS;
+                let total_w = colors.len() as f32 * swatch_size + (colors.len() - 1) as f32 * swatch_gap;
+                let sx_start = ARENA_W / 2.0 - total_w / 2.0;
+                let sy = ARENA_H / 2.0 - 20.0;
+
+                for (i, (name, (r, g, b))) in colors.iter().enumerate() {
+                    let sx = sx_start + i as f32 * (swatch_size + swatch_gap);
+                    let is_host_color = i as u8 == host_color;
+                    let is_selected = i as u8 == game_settings.player_color_index;
+                    let is_hovered = mouse.x >= sx && mouse.x <= sx + swatch_size && mouse.y >= sy && mouse.y <= sy + swatch_size;
+
+                    if is_host_color {
+                        // Dimmed and crossed out — host already picked this
+                        draw_rectangle(sx, sy, swatch_size, swatch_size, Color::new(*r * 0.3, *g * 0.3, *b * 0.3, 0.5));
+                        draw_line(sx, sy, sx + swatch_size, sy + swatch_size, 2.0, Color::new(1.0, 0.3, 0.3, 0.7));
+                        draw_line(sx + swatch_size, sy, sx, sy + swatch_size, 2.0, Color::new(1.0, 0.3, 0.3, 0.7));
+                    } else {
+                        draw_rectangle(sx, sy, swatch_size, swatch_size, Color::new(*r, *g, *b, 1.0));
+                        if is_selected {
+                            draw_rectangle_lines(sx - 3.0, sy - 3.0, swatch_size + 6.0, swatch_size + 6.0, 3.0, WHITE);
+                        } else if is_hovered {
+                            draw_rectangle_lines(sx - 1.0, sy - 1.0, swatch_size + 2.0, swatch_size + 2.0, 2.0, Color::new(0.7, 0.7, 0.7, 0.8));
+                        }
+
+                        if left_click && is_hovered {
+                            game_settings.player_color_index = i as u8;
+                        }
+                    }
+
+                    let ndims = measure_text(name, None, 12, 1.0);
+                    let label_color = if is_host_color { Color::new(0.4, 0.4, 0.4, 0.5) } else { LIGHTGRAY };
+                    draw_text(name, sx + swatch_size / 2.0 - ndims.width / 2.0, sy + swatch_size + 16.0, 12.0, label_color);
+                }
+
+                // Ready button
+                let rbtn_w = 200.0;
+                let rbtn_h = 45.0;
+                let rbtn_x = ARENA_W / 2.0 - rbtn_w / 2.0;
+                let rbtn_y = sy + swatch_size + 45.0;
+                let rbtn_hover = mouse.x >= rbtn_x && mouse.x <= rbtn_x + rbtn_w && mouse.y >= rbtn_y && mouse.y <= rbtn_y + rbtn_h;
+                let rbtn_bg = if rbtn_hover { Color::new(0.2, 0.6, 0.3, 0.9) } else { Color::new(0.15, 0.45, 0.2, 0.8) };
+                draw_rectangle(rbtn_x, rbtn_y, rbtn_w, rbtn_h, rbtn_bg);
+                draw_rectangle_lines(rbtn_x, rbtn_y, rbtn_w, rbtn_h, 2.0, Color::new(0.3, 0.8, 0.4, 1.0));
+                let rt = "Ready";
+                let rdims = measure_text(rt, None, 22, 1.0);
+                draw_text(rt, rbtn_x + rbtn_w / 2.0 - rdims.width / 2.0, rbtn_y + rbtn_h / 2.0 + 7.0, 22.0, WHITE);
+
+                if left_click && rbtn_hover {
+                    return LobbyResult::StartMultiplayer;
+                }
             }
         }
 
