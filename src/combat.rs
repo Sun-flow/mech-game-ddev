@@ -6,7 +6,8 @@ use crate::terrain::Obstacle;
 use crate::unit::{Unit, UnitKind};
 
 /// Find the nearest alive enemy for each unit and assign as target.
-/// Walls block line of sight — units cannot target through them.
+/// Prefers targets with line of sight, but falls back to nearest enemy
+/// without LOS so units will path toward hidden enemies.
 pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
     let positions: Vec<(u64, u8, Vec2, bool)> = units
         .iter()
@@ -18,21 +19,30 @@ pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
             continue;
         }
 
-        let mut best_dist = f32::MAX;
-        let mut best_id = None;
+        let mut best_los_dist = f32::MAX;
+        let mut best_los_id = None;
+        let mut best_any_dist = f32::MAX;
+        let mut best_any_id = None;
 
         for &(eid, eteam, epos, ealive) in &positions {
             if !ealive || eteam == unit.team_id {
                 continue;
             }
             let d = unit.pos.distance(epos);
-            if d < best_dist && crate::terrain::has_line_of_sight(unit.pos, epos, obstacles) {
-                best_dist = d;
-                best_id = Some(eid);
+            // Track nearest enemy regardless of LOS (for pathfinding)
+            if d < best_any_dist {
+                best_any_dist = d;
+                best_any_id = Some(eid);
+            }
+            // Track nearest enemy with LOS (preferred for attacking)
+            if d < best_los_dist && crate::terrain::has_line_of_sight(unit.pos, epos, obstacles) {
+                best_los_dist = d;
+                best_los_id = Some(eid);
             }
         }
 
-        unit.target_id = best_id;
+        // Prefer LOS target, fall back to nearest enemy for pathing
+        unit.target_id = best_los_id.or(best_any_id);
     }
 }
 
@@ -79,9 +89,11 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
 
         if let Some(target_pos) = target_positions[i].1 {
             let dist = unit.pos.distance(target_pos);
+            let has_los = crate::terrain::has_line_of_sight(unit.pos, target_pos, obstacles);
 
             let needs_retreat = unit.stats.min_attack_range > 0.0 && dist < unit.stats.min_attack_range * 0.8;
-            let needs_advance = dist > unit.stats.attack_range * 0.9;
+            // Advance if out of range OR in range but can't see target (path around wall)
+            let needs_advance = dist > unit.stats.attack_range * 0.9 || !has_los;
 
             if needs_retreat {
                 // Retreat: move directly away from target (simple, no pathfinding needed)
