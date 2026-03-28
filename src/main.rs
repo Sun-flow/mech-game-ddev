@@ -94,6 +94,15 @@ async fn main() {
                 }
 
                 match lobby.draw(&mut game_settings) {
+                    lobby::LobbyResult::StartMultiplayer => {
+                        net = lobby.net.take();
+                        if game_settings.draft_ban_enabled {
+                            phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
+                        } else {
+                            phase = GamePhase::Build;
+                        }
+                        continue;
+                    }
                     lobby::LobbyResult::StartVsAi => {
                         net = None;
                         if game_settings.draft_ban_enabled {
