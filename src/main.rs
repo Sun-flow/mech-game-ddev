@@ -75,7 +75,7 @@ async fn main() {
                     lobby::LobbyResult::StartMultiplayer => {
                         net = lobby.net.take();
                         if game_settings.draft_ban_enabled {
-                            phase = GamePhase::DraftBan { bans: Vec::new() };
+                            phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
                             phase = GamePhase::Build;
                         }
@@ -84,7 +84,7 @@ async fn main() {
                     lobby::LobbyResult::StartVsAi => {
                         net = None;
                         if game_settings.draft_ban_enabled {
-                            phase = GamePhase::DraftBan { bans: Vec::new() };
+                            phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
                             phase = GamePhase::Build;
                         }
@@ -97,7 +97,7 @@ async fn main() {
                     lobby::LobbyResult::StartVsAi => {
                         net = None;
                         if game_settings.draft_ban_enabled {
-                            phase = GamePhase::DraftBan { bans: Vec::new() };
+                            phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
                             phase = GamePhase::Build;
                         }
@@ -110,7 +110,7 @@ async fn main() {
                 continue;
             }
 
-            GamePhase::DraftBan { ref mut bans } => {
+            GamePhase::DraftBan { ref mut bans, ref mut confirmed, ref mut opponent_bans } => {
                 // Draft/Ban phase: each player bans up to 2 unit types
                 use crate::unit::UnitKind;
                 let all_kinds = [
@@ -195,8 +195,45 @@ async fn main() {
                 let cdims = measure_text(&confirm_text, None, 20, 1.0);
                 draw_text(&confirm_text, btn_x + btn_w / 2.0 - cdims.width / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
 
-                if left_click && btn_hover {
-                    progress.banned_kinds = bans.clone();
+                // Poll network for opponent bans
+                if let Some(ref mut n) = net {
+                    n.poll();
+                    if let Some(ob) = n.opponent_bans.take() {
+                        let opp: Vec<UnitKind> = ob.iter().filter_map(|&idx| {
+                            all_kinds.get(idx as usize).copied()
+                        }).collect();
+                        *opponent_bans = Some(opp);
+                    }
+                }
+
+                // Confirm button click: lock in our bans and send to opponent
+                if left_click && btn_hover && !*confirmed {
+                    *confirmed = true;
+                    if let Some(ref mut n) = net {
+                        let ban_indices: Vec<u8> = bans.iter().map(|k| {
+                            all_kinds.iter().position(|ak| ak == k).unwrap_or(0) as u8
+                        }).collect();
+                        n.send(net::NetMessage::BanSelection(ban_indices));
+                    }
+                }
+
+                // Show waiting indicator
+                if *confirmed && net.is_some() && opponent_bans.is_none() {
+                    let wait_y = btn_y + btn_h + 15.0;
+                    let dots = ".".repeat((get_time() * 2.0) as usize % 4);
+                    let wait_text = format!("Waiting for opponent bans{}", dots);
+                    let wdims = measure_text(&wait_text, None, 16, 1.0);
+                    draw_text(&wait_text, ARENA_W / 2.0 - wdims.width / 2.0, wait_y, 16.0, LIGHTGRAY);
+                }
+
+                // Transition when ready
+                let ready = *confirmed && (net.is_none() || opponent_bans.is_some());
+                if ready {
+                    let mut all_bans = bans.clone();
+                    if let Some(ref ob) = opponent_bans {
+                        all_bans.extend(ob.iter());
+                    }
+                    progress.banned_kinds = all_bans;
                     phase = GamePhase::Build;
                 }
 
@@ -734,7 +771,7 @@ async fn main() {
                     projectiles.clear();
                     obstacles.clear();
                     phase = if game_settings.draft_ban_enabled {
-                        GamePhase::DraftBan { bans: Vec::new() }
+                        GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None }
                     } else {
                         GamePhase::Build
                     };

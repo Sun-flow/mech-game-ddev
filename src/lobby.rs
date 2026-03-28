@@ -205,8 +205,10 @@ impl LobbyState {
                     }
 
                     if net.is_peer_connected() {
-                        // Send settings to peer so both clients use identical config
-                        net.send(crate::net::NetMessage::SettingsSync(game_settings.clone()));
+                        // Only the host sends match settings to the guest
+                        if net.is_host {
+                            net.send(crate::net::NetMessage::SettingsSync(game_settings.clone()));
+                        }
                         net.send(crate::net::NetMessage::ReadyToStart);
                         self.status = "Peer connected! Waiting for ready...".to_string();
                         self.mode = LobbyMode::Connected;
@@ -227,9 +229,11 @@ impl LobbyState {
                         return LobbyResult::Waiting;
                     }
 
-                    // Apply host settings if received
+                    // Apply host's match settings (preserve local player color)
                     if let Some(settings) = net.received_settings.take() {
+                        let my_color = game_settings.player_color_index;
                         *game_settings = settings;
+                        game_settings.player_color_index = my_color;
                     }
 
                     if net.peer_ready {
