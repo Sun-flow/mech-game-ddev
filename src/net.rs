@@ -10,6 +10,7 @@ use crate::unit::UnitKind;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NetMessage {
     ReadyToStart,
+    SettingsSync(crate::settings::GameSettings),
     BuildComplete {
         new_packs: Vec<(usize, (f32, f32), bool)>,
         tech_purchases: Vec<(UnitKind, TechId)>,
@@ -41,6 +42,7 @@ pub struct NetState {
     pub opponent_surrendered: bool,
     pub opponent_rematch: bool,
     pub opponent_bans: Option<Vec<u8>>,
+    pub received_settings: Option<crate::settings::GameSettings>,
 }
 
 impl NetState {
@@ -63,6 +65,7 @@ impl NetState {
             opponent_surrendered: false,
             opponent_rematch: false,
             opponent_bans: None,
+            received_settings: None,
         }
     }
 
@@ -122,6 +125,9 @@ impl NetState {
                         }
                         NetMessage::BanSelection(bans) => {
                             self.opponent_bans = Some(bans);
+                        }
+                        NetMessage::SettingsSync(settings) => {
+                            self.received_settings = Some(settings);
                         }
                     }
                 }
