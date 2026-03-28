@@ -250,6 +250,9 @@ async fn main() {
                     if progress.is_game_over() {
                         phase = GamePhase::GameOver(progress.game_winner().unwrap_or(0));
                     } else {
+                        // Save leftover gold for next round
+                        progress.player_saved_gold = build.builder.gold_remaining;
+
                         // Advance to next round
                         progress.advance_round();
 

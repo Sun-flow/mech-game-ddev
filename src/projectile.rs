@@ -40,14 +40,15 @@ impl Projectile {
         team_id: u8,
         splash_radius: f32,
         proj_type: ProjectileType,
-        attack_range: f32,
+        _attack_range: f32,
     ) -> Self {
         let dir = (target_pos - origin).normalize_or_zero();
+        let target_dist = origin.distance(target_pos);
         Self {
             pos: origin,
             vel: dir * speed,
             origin,
-            max_range: attack_range * 1.1, // expire at 110% of attack range
+            max_range: target_dist * 1.1, // expire at 110% of targeting distance
             damage,
             team_id,
             splash_radius,

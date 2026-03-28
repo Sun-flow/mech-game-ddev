@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+use serde::{Serialize, Deserialize};
+
 use crate::unit::{UnitKind, UnitStats};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TechId {
     // Universal techs
     RangeBoost,

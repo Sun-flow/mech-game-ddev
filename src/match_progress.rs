@@ -23,8 +23,9 @@ pub struct MatchProgress {
     pub ai_lp: i32,
     pub player_techs: TechState,
     pub ai_techs: TechState,
-    pub ai_packs: Vec<AiPlacedPack>, // AI's accumulated packs from all rounds
-    pub ai_next_id: u64,             // ID counter for AI units
+    pub ai_packs: Vec<AiPlacedPack>,
+    pub ai_next_id: u64,
+    pub player_saved_gold: u32, // gold carried over from previous round
 }
 
 impl MatchProgress {
@@ -36,13 +37,19 @@ impl MatchProgress {
             player_techs: TechState::new(),
             ai_techs: TechState::new(),
             ai_packs: Vec::new(),
-            ai_next_id: 100_000, // start AI IDs high to avoid collision with player IDs
+            ai_next_id: 100_000,
+            player_saved_gold: 0,
         }
     }
 
-    /// Gold for current round = 200 * round_number
-    pub fn round_gold(&self) -> u32 {
+    /// Base gold allowance for this round = 200 * round_number
+    pub fn round_allowance(&self) -> u32 {
         200 * self.round
+    }
+
+    /// Total gold for current round = saved gold + round allowance
+    pub fn round_gold(&self) -> u32 {
+        self.player_saved_gold + self.round_allowance()
     }
 
     /// Calculate LP damage from surviving enemy units.
