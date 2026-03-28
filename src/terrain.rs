@@ -138,6 +138,60 @@ pub fn has_line_of_sight(from: Vec2, to: Vec2, obstacles: &[Obstacle]) -> bool {
     true
 }
 
+/// Check LOS using two parallel rays offset by `half_width` perpendicular to the aim direction.
+/// Both rays must be clear for LOS to return true, preventing bullets from clipping wall corners.
+pub fn has_line_of_sight_wide(from: Vec2, to: Vec2, half_width: f32, obstacles: &[Obstacle]) -> bool {
+    let dir = to - from;
+    let len = dir.length();
+    if len < 0.001 {
+        return true;
+    }
+    let norm = dir / len;
+    let perp = vec2(-norm.y, norm.x);
+    let offset = perp * half_width;
+
+    has_line_of_sight(from + offset, to + offset, obstacles)
+        && has_line_of_sight(from - offset, to - offset, obstacles)
+}
+
+/// Check if a ray segment from `from` to `to` hits any obstacle that blocks projectiles for the given team.
+/// Used for swept projectile collision to prevent tunneling.
+pub fn ray_hits_blocking_obstacle(from: Vec2, to: Vec2, team_id: u8, obstacles: &[Obstacle]) -> bool {
+    let dir = to - from;
+    let len = dir.length();
+    if len < 0.001 {
+        return false;
+    }
+
+    for obs in obstacles {
+        if !obs.alive || !obs.blocks_projectile(team_id) {
+            continue;
+        }
+
+        let obs_min = obs.pos - obs.half_size;
+        let obs_max = obs.pos + obs.half_size;
+
+        let inv_dir = vec2(
+            if dir.x.abs() < 0.0001 { f32::MAX.copysign(dir.x) } else { 1.0 / dir.x },
+            if dir.y.abs() < 0.0001 { f32::MAX.copysign(dir.y) } else { 1.0 / dir.y },
+        );
+
+        let t1x = (obs_min.x - from.x) * inv_dir.x;
+        let t2x = (obs_max.x - from.x) * inv_dir.x;
+        let t1y = (obs_min.y - from.y) * inv_dir.y;
+        let t2y = (obs_max.y - from.y) * inv_dir.y;
+
+        let t_enter = t1x.min(t2x).max(t1y.min(t2y));
+        let t_exit = t1x.max(t2x).min(t1y.max(t2y));
+
+        if t_enter <= t_exit && t_enter < 1.0 && t_exit > 0.0 {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Generate terrain layout for a round, seeded deterministically.
 /// Places obstacles symmetrically (mirrored across center line).
 pub fn generate_terrain(round: u32, destructible: bool) -> Vec<Obstacle> {
@@ -184,6 +238,16 @@ pub fn generate_terrain(round: u32, destructible: bool) -> Vec<Obstacle> {
     }
 
     obstacles
+}
+
+/// Reset destructible cover to full HP (call between rounds to preserve layout).
+pub fn reset_cover_hp(obstacles: &mut [Obstacle]) {
+    for obs in obstacles.iter_mut() {
+        if obs.obstacle_type == ObstacleType::Cover {
+            obs.hp = obs.max_hp;
+            obs.alive = true;
+        }
+    }
 }
 
 /// Draw all obstacles.

@@ -35,7 +35,7 @@ pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
                 best_any_id = Some(eid);
             }
             // Track nearest enemy with LOS (preferred for attacking)
-            if d < best_los_dist && crate::terrain::has_line_of_sight(unit.pos, epos, obstacles) {
+            if d < best_los_dist && crate::terrain::has_line_of_sight_wide(unit.pos, epos, crate::projectile::PROJECTILE_RADIUS, obstacles) {
                 best_los_dist = d;
                 best_los_id = Some(eid);
             }
@@ -89,7 +89,7 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
 
         if let Some(target_pos) = target_positions[i].1 {
             let dist = unit.pos.distance(target_pos);
-            let has_los = crate::terrain::has_line_of_sight(unit.pos, target_pos, obstacles);
+            let has_los = crate::terrain::has_line_of_sight_wide(unit.pos, target_pos, crate::projectile::PROJECTILE_RADIUS, obstacles);
 
             let needs_retreat = unit.stats.min_attack_range > 0.0 && dist < unit.stats.min_attack_range * 0.8;
             // Advance if out of range OR in range but can't see target (path around wall)
@@ -196,6 +196,7 @@ pub fn update_attacks(
     dt: f32,
     player_techs: &TechState,
     ai_techs: &TechState,
+    splash_effects: &mut Vec<crate::SplashEffect>,
 ) {
     // Update cooldowns
     for unit in units.iter_mut() {
@@ -377,6 +378,13 @@ pub fn update_attacks(
                 }
                 // Splash damage
                 if splash_radius > 0.0 {
+                    splash_effects.push(crate::SplashEffect {
+                        pos: target_pos,
+                        radius: splash_radius,
+                        timer: 0.3,
+                        max_timer: 0.3,
+                        team_id: attacker_team,
+                    });
                     for unit in units.iter_mut() {
                         if !unit.alive || unit.id == target_id || unit.team_id == attacker_team {
                             continue;
@@ -443,7 +451,7 @@ pub fn update_attacks(
 }
 
 /// Update projectiles with shield interception, evasion, pierce, and slow.
-pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32, obstacles: &mut [Obstacle]) {
+pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32, obstacles: &mut [Obstacle], splash_effects: &mut Vec<crate::SplashEffect>) {
     let shields: Vec<(u64, u8, Vec2, f32)> = units
         .iter()
         .filter(|u| u.is_shield())
@@ -454,9 +462,16 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         if !proj.alive {
             continue;
         }
+        let old_pos = proj.pos;
         proj.update(dt);
 
-        // Obstacle collision — check if projectile hit a wall or enemy cover
+        // Swept collision — check if the ray from old_pos to new pos crosses any blocking obstacle
+        if crate::terrain::ray_hits_blocking_obstacle(old_pos, proj.pos, proj.team_id, obstacles) {
+            proj.alive = false;
+            continue;
+        }
+
+        // Obstacle collision — check if projectile currently overlaps a wall or enemy cover
         let mut hit_obstacle = false;
         for obs in obstacles.iter_mut() {
             if !obs.alive { continue; }
@@ -542,6 +557,13 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
 
         // Splash damage
         if hit && proj.splash_radius > 0.0 {
+            splash_effects.push(crate::SplashEffect {
+                pos: impact_pos,
+                radius: proj.splash_radius,
+                timer: 0.3,
+                max_timer: 0.3,
+                team_id: proj.team_id,
+            });
             for unit in units.iter_mut() {
                 if !unit.alive || unit.team_id == proj.team_id {
                     continue;

@@ -21,6 +21,16 @@ pub enum NetMessage {
     RematchRequest,
     BanSelection(Vec<u8>),
     ColorChoice(u8),
+    RoundEnd {
+        winner: Option<u8>,
+        lp_damage: i32,
+        loser_team: Option<u8>,
+        // Debug checksums for desync detection
+        alive_0: u16,
+        alive_1: u16,
+        total_hp_0: i32,
+        total_hp_1: i32,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -45,6 +55,18 @@ pub struct NetState {
     pub opponent_bans: Option<Vec<u8>>,
     pub received_settings: Option<crate::settings::GameSettings>,
     pub opponent_color: Option<u8>,
+    pub received_round_end: Option<RoundEndData>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RoundEndData {
+    pub winner: Option<u8>,
+    pub lp_damage: i32,
+    pub loser_team: Option<u8>,
+    pub alive_0: u16,
+    pub alive_1: u16,
+    pub total_hp_0: i32,
+    pub total_hp_1: i32,
 }
 
 impl NetState {
@@ -69,6 +91,7 @@ impl NetState {
             opponent_bans: None,
             received_settings: None,
             opponent_color: None,
+            received_round_end: None,
         }
     }
 
@@ -134,6 +157,11 @@ impl NetState {
                         }
                         NetMessage::ColorChoice(idx) => {
                             self.opponent_color = Some(idx);
+                        }
+                        NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0, total_hp_1 } => {
+                            self.received_round_end = Some(RoundEndData {
+                                winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0, total_hp_1,
+                            });
                         }
                     }
                 }

@@ -1,6 +1,57 @@
 use macroquad::prelude::*;
 use serde::{Serialize, Deserialize};
 
+/// Persistent settings (across matches) — not synced with opponent.
+#[derive(Clone, Debug)]
+pub struct MainSettings {
+    /// UI text/element scale (0.75 to 2.0, default 1.0)
+    pub ui_scale: f32,
+}
+
+impl MainSettings {
+    pub fn default() -> Self {
+        Self { ui_scale: 1.0 }
+    }
+}
+
+/// Draw a slider for UI scale in the lobby settings screen. Returns true if value changed.
+pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, clicked: bool, dragging: bool, panel_x: f32, y: f32) {
+    let label = "UI Scale";
+    draw_text(label, panel_x + 20.0, y + 17.0, 18.0, WHITE);
+
+    let slider_x = panel_x + 140.0;
+    let slider_w = 200.0;
+    let slider_y = y + 6.0;
+    let slider_h = 12.0;
+
+    // Track
+    draw_rectangle(slider_x, slider_y, slider_w, slider_h, Color::new(0.2, 0.2, 0.25, 0.8));
+    draw_rectangle_lines(slider_x, slider_y, slider_w, slider_h, 1.0, Color::new(0.4, 0.4, 0.5, 0.8));
+
+    // Knob position
+    let frac = (main_settings.ui_scale - 0.75) / (2.0 - 0.75);
+    let knob_x = slider_x + frac * slider_w;
+    let knob_r = 8.0;
+    draw_circle(knob_x, slider_y + slider_h / 2.0, knob_r, Color::new(0.9, 0.9, 0.95, 1.0));
+
+    // Value label
+    let val_text = format!("{:.2}x", main_settings.ui_scale);
+    draw_text(&val_text, slider_x + slider_w + 12.0, y + 17.0, 16.0, LIGHTGRAY);
+
+    // Drag interaction
+    if dragging || (clicked && mouse.x >= slider_x - knob_r && mouse.x <= slider_x + slider_w + knob_r
+        && mouse.y >= slider_y - knob_r && mouse.y <= slider_y + slider_h + knob_r)
+    {
+        if is_mouse_button_down(MouseButton::Left) {
+            let t = ((mouse.x - slider_x) / slider_w).clamp(0.0, 1.0);
+            // Snap to 0.05 increments
+            let raw = 0.75 + t * (2.0 - 0.75);
+            main_settings.ui_scale = (raw / 0.05).round() * 0.05;
+            main_settings.ui_scale = main_settings.ui_scale.clamp(0.75, 2.0);
+        }
+    }
+}
+
 /// Game settings configurable in the lobby before starting a match.
 /// Gameplay-changing settings are toggleable; visual/UX features are always on.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -41,17 +92,17 @@ pub const TEAM_COLOR_OPTIONS: &[(&str, (f32, f32, f32))] = &[
 
 /// Draw the match settings panel overlay. Returns true if "Start" was clicked.
 pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bool) -> bool {
-    let arena_w = crate::arena::ARENA_W;
-    let arena_h = crate::arena::ARENA_H;
+    let sw = screen_width();
+    let sh = screen_height();
 
     // Dark overlay
-    draw_rectangle(0.0, 0.0, arena_w, arena_h, Color::new(0.0, 0.0, 0.0, 0.5));
+    draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.5));
 
     // Panel
     let panel_w = 400.0;
     let panel_h = 420.0;
-    let px = arena_w / 2.0 - panel_w / 2.0;
-    let py = arena_h / 2.0 - panel_h / 2.0;
+    let px = sw / 2.0 - panel_w / 2.0;
+    let py = sh / 2.0 - panel_h / 2.0;
     draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
     draw_rectangle_lines(px, py, panel_w, panel_h, 2.0, Color::new(0.4, 0.4, 0.5, 1.0));
 

@@ -1,7 +1,10 @@
 use macroquad::prelude::*;
 
-use crate::arena::{ARENA_H, ARENA_W};
 use crate::net::NetState;
+
+// Helper to get current screen dimensions for UI layout
+fn sw() -> f32 { screen_width() }
+fn sh() -> f32 { screen_height() }
 
 #[derive(PartialEq)]
 pub enum LobbyMode {
@@ -75,13 +78,13 @@ impl LobbyState {
             .collect()
     }
 
-    pub fn update(&mut self, game_settings: &mut crate::settings::GameSettings) -> LobbyResult {
+    pub fn update(&mut self, game_settings: &mut crate::settings::GameSettings, main_settings: &mut crate::settings::MainSettings) -> LobbyResult {
         let mouse = vec2(mouse_position().0, mouse_position().1);
         let left_click = is_mouse_button_pressed(MouseButton::Left);
 
         let btn_w = 240.0;
         let btn_h = 45.0;
-        let btn_x = ARENA_W / 2.0 - btn_w / 2.0;
+        let btn_x = sw() / 2.0 - btn_w / 2.0;
 
         // Clone next_action if in MatchSettings to avoid borrow issues
         let match_settings_next = if let LobbyMode::MatchSettings { ref next_action } = self.mode {
@@ -93,9 +96,9 @@ impl LobbyState {
         match self.mode {
             LobbyMode::Menu => {
                 // Name field editing
-                let name_y = ARENA_H / 2.0 - 80.0;
+                let name_y = sh() / 2.0 - 80.0;
                 let name_w = 200.0;
-                let name_x = ARENA_W / 2.0 - name_w / 2.0;
+                let name_x = sw() / 2.0 - name_w / 2.0;
                 let name_h = 30.0;
                 if left_click && mouse.x >= name_x && mouse.x <= name_x + name_w
                     && mouse.y >= name_y && mouse.y <= name_y + name_h {
@@ -112,7 +115,7 @@ impl LobbyState {
                     }
                 }
 
-                let create_y = ARENA_H / 2.0 - 25.0;
+                let create_y = sh() / 2.0 - 25.0;
 
                 // "Create Room" → go to Match Settings
                 if left_click
@@ -178,8 +181,8 @@ impl LobbyState {
                 }
 
                 if self.input_code.len() == 4 {
-                    let connect_x = ARENA_W / 2.0 - 80.0;
-                    let connect_y = ARENA_H / 2.0 + 50.0;
+                    let connect_x = sw() / 2.0 - 80.0;
+                    let connect_y = sh() / 2.0 + 50.0;
                     let cbw = 160.0;
                     let cbh = 40.0;
 
@@ -276,28 +279,28 @@ impl LobbyState {
         LobbyResult::Waiting
     }
 
-    pub fn draw(&mut self, game_settings: &mut crate::settings::GameSettings) -> LobbyResult {
+    pub fn draw(&mut self, game_settings: &mut crate::settings::GameSettings, main_settings: &mut crate::settings::MainSettings) -> LobbyResult {
         clear_background(Color::new(0.08, 0.08, 0.1, 1.0));
 
         let title = "RTS Unit Arena";
         let tdims = measure_text(title, None, 40, 1.0);
-        draw_text(title, ARENA_W / 2.0 - tdims.width / 2.0, ARENA_H / 2.0 - 140.0, 40.0, WHITE);
+        draw_text(title, sw() / 2.0 - tdims.width / 2.0, sh() / 2.0 - 140.0, 40.0, WHITE);
 
         let subtitle = "Multiplayer";
         let sdims = measure_text(subtitle, None, 24, 1.0);
-        draw_text(subtitle, ARENA_W / 2.0 - sdims.width / 2.0, ARENA_H / 2.0 - 105.0, 24.0, Color::new(0.5, 0.7, 1.0, 1.0));
+        draw_text(subtitle, sw() / 2.0 - sdims.width / 2.0, sh() / 2.0 - 105.0, 24.0, Color::new(0.5, 0.7, 1.0, 1.0));
 
         let mouse = vec2(mouse_position().0, mouse_position().1);
         let btn_w = 240.0;
         let btn_h = 45.0;
-        let btn_x = ARENA_W / 2.0 - btn_w / 2.0;
+        let btn_x = sw() / 2.0 - btn_w / 2.0;
 
         match self.mode {
             LobbyMode::Menu => {
                 // Player name field
-                let name_y = ARENA_H / 2.0 - 80.0;
+                let name_y = sh() / 2.0 - 80.0;
                 let name_w = 200.0;
-                let name_x = ARENA_W / 2.0 - name_w / 2.0;
+                let name_x = sw() / 2.0 - name_w / 2.0;
                 let name_h = 30.0;
                 draw_text("Name:", name_x - 50.0, name_y + 20.0, 16.0, LIGHTGRAY);
                 let name_bg = if self.name_editing { Color::new(0.15, 0.15, 0.22, 0.95) } else { Color::new(0.1, 0.1, 0.15, 0.8) };
@@ -307,7 +310,7 @@ impl LobbyState {
                 let cursor = if self.name_editing && (get_time() * 2.0) as u32 % 2 == 0 { "|" } else { "" };
                 draw_text(&format!("{}{}", self.player_name, cursor), name_x + 6.0, name_y + 20.0, 16.0, WHITE);
 
-                let create_y = ARENA_H / 2.0 - 25.0;
+                let create_y = sh() / 2.0 - 25.0;
 
                 // Create Room
                 let hover = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= create_y && mouse.y <= create_y + btn_h;
@@ -350,10 +353,23 @@ impl LobbyState {
             }
 
             LobbyMode::Settings => {
-                let text = "Settings (Coming Soon)";
-                let dims = measure_text(text, None, 28, 1.0);
-                draw_text(text, ARENA_W / 2.0 - dims.width / 2.0, ARENA_H / 2.0, 28.0, LIGHTGRAY);
-                draw_text("Press Escape to go back", ARENA_W / 2.0 - 100.0, ARENA_H / 2.0 + 40.0, 14.0, DARKGRAY);
+                let panel_w = 400.0;
+                let panel_h = 150.0;
+                let px = sw() / 2.0 - panel_w / 2.0;
+                let py = sh() / 2.0 - panel_h / 2.0;
+                draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
+                draw_rectangle_lines(px, py, panel_w, panel_h, 2.0, Color::new(0.4, 0.4, 0.5, 1.0));
+
+                let title = "Settings";
+                let tdims = measure_text(title, None, 24, 1.0);
+                draw_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
+
+                let mouse = vec2(mouse_position().0, mouse_position().1);
+                let clicked = is_mouse_button_pressed(MouseButton::Left);
+                let dragging = is_mouse_button_down(MouseButton::Left);
+                crate::settings::draw_ui_scale_slider(main_settings, mouse, clicked, dragging, px, py + 55.0);
+
+                draw_text("Press Escape to go back", sw() / 2.0 - 100.0, py + panel_h + 20.0, 14.0, DARKGRAY);
             }
 
             LobbyMode::MatchSettings { ref next_action } => {
@@ -373,13 +389,13 @@ impl LobbyState {
                         }
                     }
                 }
-                draw_text("Press Escape to go back", ARENA_W / 2.0 - 90.0, ARENA_H - 30.0, 14.0, DARKGRAY);
+                draw_text("Press Escape to go back", sw() / 2.0 - 90.0, sh() - 30.0, 14.0, DARKGRAY);
             }
 
             LobbyMode::EnteringCode => {
                 let label = "Enter Room Code:";
                 let ldims = measure_text(label, None, 22, 1.0);
-                draw_text(label, ARENA_W / 2.0 - ldims.width / 2.0, ARENA_H / 2.0 - 20.0, 22.0, LIGHTGRAY);
+                draw_text(label, sw() / 2.0 - ldims.width / 2.0, sh() / 2.0 - 20.0, 22.0, LIGHTGRAY);
 
                 let code_display = if self.input_code.is_empty() {
                     "____".to_string()
@@ -389,11 +405,11 @@ impl LobbyState {
                     s
                 };
                 let cdims = measure_text(&code_display, None, 48, 1.0);
-                draw_text(&code_display, ARENA_W / 2.0 - cdims.width / 2.0, ARENA_H / 2.0 + 30.0, 48.0, Color::new(0.3, 0.8, 1.0, 1.0));
+                draw_text(&code_display, sw() / 2.0 - cdims.width / 2.0, sh() / 2.0 + 30.0, 48.0, Color::new(0.3, 0.8, 1.0, 1.0));
 
                 if self.input_code.len() == 4 {
-                    let connect_x = ARENA_W / 2.0 - 80.0;
-                    let connect_y = ARENA_H / 2.0 + 55.0;
+                    let connect_x = sw() / 2.0 - 80.0;
+                    let connect_y = sh() / 2.0 + 55.0;
                     let cbw = 160.0;
                     let cbh = 40.0;
                     let hover = mouse.x >= connect_x && mouse.x <= connect_x + cbw && mouse.y >= connect_y && mouse.y <= connect_y + cbh;
@@ -405,25 +421,25 @@ impl LobbyState {
                     draw_text(ct, connect_x + cbw / 2.0 - cd.width / 2.0, connect_y + cbh / 2.0 + 6.0, 20.0, WHITE);
                 }
 
-                draw_text("Press Escape to go back", ARENA_W / 2.0 - 100.0, ARENA_H / 2.0 + 120.0, 14.0, DARKGRAY);
+                draw_text("Press Escape to go back", sw() / 2.0 - 100.0, sh() / 2.0 + 120.0, 14.0, DARKGRAY);
             }
 
             LobbyMode::WaitingForPeer | LobbyMode::Connected => {
                 let code_text = format!("Room: {}", self.room_code);
                 let cdims = measure_text(&code_text, None, 36, 1.0);
-                draw_text(&code_text, ARENA_W / 2.0 - cdims.width / 2.0, ARENA_H / 2.0 - 10.0, 36.0, Color::new(0.3, 0.8, 1.0, 1.0));
+                draw_text(&code_text, sw() / 2.0 - cdims.width / 2.0, sh() / 2.0 - 10.0, 36.0, Color::new(0.3, 0.8, 1.0, 1.0));
 
                 let sdims = measure_text(&self.status, None, 20, 1.0);
-                draw_text(&self.status, ARENA_W / 2.0 - sdims.width / 2.0, ARENA_H / 2.0 + 25.0, 20.0, LIGHTGRAY);
+                draw_text(&self.status, sw() / 2.0 - sdims.width / 2.0, sh() / 2.0 + 25.0, 20.0, LIGHTGRAY);
 
                 if self.mode == LobbyMode::WaitingForPeer {
                     let dots = ".".repeat(((get_time() * 2.0) as usize % 4));
                     let wait_text = format!("Waiting for opponent{}", dots);
                     let wdims = measure_text(&wait_text, None, 18, 1.0);
-                    draw_text(&wait_text, ARENA_W / 2.0 - wdims.width / 2.0, ARENA_H / 2.0 + 55.0, 18.0, Color::new(0.6, 0.6, 0.6, 1.0));
+                    draw_text(&wait_text, sw() / 2.0 - wdims.width / 2.0, sh() / 2.0 + 55.0, 18.0, Color::new(0.6, 0.6, 0.6, 1.0));
                 }
 
-                draw_text("Press Escape to cancel", ARENA_W / 2.0 - 90.0, ARENA_H / 2.0 + 100.0, 14.0, DARKGRAY);
+                draw_text("Press Escape to cancel", sw() / 2.0 - 90.0, sh() / 2.0 + 100.0, 14.0, DARKGRAY);
             }
 
             LobbyMode::ColorPick => {
@@ -432,14 +448,14 @@ impl LobbyState {
 
                 let pick_title = "Choose Your Team Color";
                 let ptdims = measure_text(pick_title, None, 28, 1.0);
-                draw_text(pick_title, ARENA_W / 2.0 - ptdims.width / 2.0, ARENA_H / 2.0 - 60.0, 28.0, WHITE);
+                draw_text(pick_title, sw() / 2.0 - ptdims.width / 2.0, sh() / 2.0 - 60.0, 28.0, WHITE);
 
                 let swatch_size = 50.0;
                 let swatch_gap = 16.0;
                 let colors = crate::settings::TEAM_COLOR_OPTIONS;
                 let total_w = colors.len() as f32 * swatch_size + (colors.len() - 1) as f32 * swatch_gap;
-                let sx_start = ARENA_W / 2.0 - total_w / 2.0;
-                let sy = ARENA_H / 2.0 - 20.0;
+                let sx_start = sw() / 2.0 - total_w / 2.0;
+                let sy = sh() / 2.0 - 20.0;
 
                 for (i, (name, (r, g, b))) in colors.iter().enumerate() {
                     let sx = sx_start + i as f32 * (swatch_size + swatch_gap);
@@ -473,7 +489,7 @@ impl LobbyState {
                 // Ready button
                 let rbtn_w = 200.0;
                 let rbtn_h = 45.0;
-                let rbtn_x = ARENA_W / 2.0 - rbtn_w / 2.0;
+                let rbtn_x = sw() / 2.0 - rbtn_w / 2.0;
                 let rbtn_y = sy + swatch_size + 45.0;
                 let rbtn_hover = mouse.x >= rbtn_x && mouse.x <= rbtn_x + rbtn_w && mouse.y >= rbtn_y && mouse.y <= rbtn_y + rbtn_h;
                 let rbtn_bg = if rbtn_hover { Color::new(0.2, 0.6, 0.3, 0.9) } else { Color::new(0.15, 0.45, 0.2, 0.8) };
