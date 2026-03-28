@@ -70,13 +70,18 @@ impl ArmyBuilder {
 
 /// Build a random army within budget by picking random packs.
 pub fn random_army(gold: u32) -> ArmyBuilder {
+    random_army_filtered(gold, &[])
+}
+
+/// Build a random army, excluding banned kinds.
+pub fn random_army_filtered(gold: u32, banned: &[crate::unit::UnitKind]) -> ArmyBuilder {
     let mut builder = ArmyBuilder::new(gold);
     let packs = all_packs();
 
     loop {
         let affordable: Vec<&PackDef> = packs
             .iter()
-            .filter(|p| p.cost <= builder.gold_remaining)
+            .filter(|p| p.cost <= builder.gold_remaining && !banned.contains(&p.kind))
             .collect();
 
         if affordable.is_empty() {
@@ -85,6 +90,140 @@ pub fn random_army(gold: u32) -> ArmyBuilder {
 
         let idx = macroquad::rand::gen_range(0, affordable.len());
         builder.buy_pack(affordable[idx]);
+    }
+
+    builder
+}
+
+/// Build a smart army that balances categories and counter-picks based on AI memory.
+pub fn smart_army(gold: u32, memory: &crate::match_progress::AiMemory, banned: &[crate::unit::UnitKind]) -> ArmyBuilder {
+    use crate::unit::UnitKind;
+
+    let mut builder = ArmyBuilder::new(gold);
+    let packs = all_packs();
+
+    // Filter out banned packs
+    let available_packs: Vec<&PackDef> = packs.iter()
+        .filter(|p| !banned.contains(&p.kind))
+        .collect();
+
+    if available_packs.is_empty() {
+        return builder;
+    }
+
+    // Categorize packs
+    let frontline = [UnitKind::Sentinel, UnitKind::Bruiser, UnitKind::Dragoon];
+    let ranged = [UnitKind::Striker, UnitKind::Ranger, UnitKind::Artillery, UnitKind::Sniper];
+    let support = [UnitKind::Shield, UnitKind::Interceptor];
+    let swarm = [UnitKind::Chaff, UnitKind::Skirmisher, UnitKind::Scout, UnitKind::Berserker];
+
+    // Base budget percentages (adjusted by counter-picking)
+    let mut front_pct: f32 = 0.35;
+    let mut range_pct: f32 = 0.35;
+    let mut support_pct: f32 = 0.15;
+    let mut swarm_pct: f32 = 0.15;
+
+    // Counter-pick adjustments based on memory
+    if !memory.last_enemy_kinds.is_empty() && !memory.last_result {
+        let total_enemy: u32 = memory.last_enemy_kinds.iter().map(|(_, c)| c).sum();
+        if total_enemy > 0 {
+            let enemy_ranged: u32 = memory.last_enemy_kinds.iter()
+                .filter(|(k, _)| ranged.contains(k))
+                .map(|(_, c)| c).sum();
+            let enemy_front: u32 = memory.last_enemy_kinds.iter()
+                .filter(|(k, _)| frontline.contains(k))
+                .map(|(_, c)| c).sum();
+            let enemy_swarm: u32 = memory.last_enemy_kinds.iter()
+                .filter(|(k, _)| swarm.contains(k))
+                .map(|(_, c)| c).sum();
+
+            let r_frac = enemy_ranged as f32 / total_enemy as f32;
+            let f_frac = enemy_front as f32 / total_enemy as f32;
+            let s_frac = enemy_swarm as f32 / total_enemy as f32;
+
+            // Heavy ranged → more support (shields/interceptors) and swarm
+            if r_frac > 0.4 {
+                support_pct += 0.15;
+                swarm_pct += 0.10;
+                range_pct -= 0.15;
+                front_pct -= 0.10;
+            }
+            // Heavy frontline → more ranged
+            if f_frac > 0.4 {
+                range_pct += 0.15;
+                front_pct -= 0.15;
+            }
+            // Heavy swarm → more splash (artillery, bruiser = frontline)
+            if s_frac > 0.4 {
+                front_pct += 0.10;
+                range_pct += 0.05;
+                swarm_pct -= 0.15;
+            }
+        }
+    }
+
+    // Normalize
+    let total = front_pct + range_pct + support_pct + swarm_pct;
+    front_pct /= total;
+    range_pct /= total;
+    support_pct /= total;
+    swarm_pct /= total;
+
+    let budget = gold as f32;
+    let mut spent_front: f32 = 0.0;
+    let mut spent_range: f32 = 0.0;
+    let mut spent_support: f32 = 0.0;
+    let mut spent_swarm: f32 = 0.0;
+
+    // Purchase loop: pick the most under-budget category, buy a random pack from it
+    loop {
+        let affordable: Vec<&&PackDef> = available_packs.iter()
+            .filter(|p| p.cost <= builder.gold_remaining)
+            .collect();
+        if affordable.is_empty() {
+            break;
+        }
+
+        // Find most under-budget category
+        let front_deficit = front_pct - spent_front / budget;
+        let range_deficit = range_pct - spent_range / budget;
+        let support_deficit = support_pct - spent_support / budget;
+        let swarm_deficit = swarm_pct - spent_swarm / budget;
+
+        let max_deficit = front_deficit.max(range_deficit).max(support_deficit).max(swarm_deficit);
+
+        let target_cats: &[UnitKind] = if max_deficit == front_deficit {
+            &frontline
+        } else if max_deficit == range_deficit {
+            &ranged
+        } else if max_deficit == support_deficit {
+            &support
+        } else {
+            &swarm
+        };
+
+        // Try to buy from target category
+        let cat_affordable: Vec<&&PackDef> = affordable.iter()
+            .filter(|p| target_cats.contains(&p.kind))
+            .copied()
+            .collect();
+
+        let chosen = if cat_affordable.is_empty() {
+            // Fall back to any affordable pack
+            let idx = macroquad::rand::gen_range(0, affordable.len());
+            affordable[idx]
+        } else {
+            let idx = macroquad::rand::gen_range(0, cat_affordable.len());
+            cat_affordable[idx]
+        };
+
+        let cost = chosen.cost as f32;
+        if frontline.contains(&chosen.kind) { spent_front += cost; }
+        else if ranged.contains(&chosen.kind) { spent_range += cost; }
+        else if support.contains(&chosen.kind) { spent_support += cost; }
+        else { spent_swarm += cost; }
+
+        builder.buy_pack(chosen);
     }
 
     builder

@@ -6,6 +6,7 @@ use crate::net::NetState;
 #[derive(PartialEq)]
 pub enum LobbyMode {
     Menu,
+    Settings,
     EnteringCode,
     WaitingForPeer,
     Connected,
@@ -58,7 +59,7 @@ impl LobbyState {
             .collect()
     }
 
-    pub fn update(&mut self) -> LobbyResult {
+    pub fn update(&mut self, game_settings: &mut crate::settings::GameSettings) -> LobbyResult {
         let mouse = vec2(mouse_position().0, mouse_position().1);
         let left_click = is_mouse_button_pressed(MouseButton::Left);
 
@@ -98,6 +99,24 @@ impl LobbyState {
                     && mouse.y >= ai_y && mouse.y <= ai_y + btn_h
                 {
                     return LobbyResult::StartVsAi;
+                }
+
+                // "Settings" button
+                let settings_y = ai_y + 55.0;
+                if left_click
+                    && mouse.x >= btn_x && mouse.x <= btn_x + btn_w
+                    && mouse.y >= settings_y && mouse.y <= settings_y + btn_h
+                {
+                    self.mode = LobbyMode::Settings;
+                }
+            }
+
+            LobbyMode::Settings => {
+                if crate::settings::draw_settings_panel(game_settings, mouse, left_click) {
+                    self.mode = LobbyMode::Menu;
+                }
+                if is_key_pressed(KeyCode::Escape) {
+                    self.mode = LobbyMode::Menu;
                 }
             }
 
@@ -225,6 +244,20 @@ impl LobbyState {
                 let t3 = "Play vs AI";
                 let d3 = measure_text(t3, None, 22, 1.0);
                 draw_text(t3, btn_x + btn_w / 2.0 - d3.width / 2.0, ai_y + btn_h / 2.0 + 7.0, 22.0, WHITE);
+
+                // Settings
+                let settings_y = ai_y + 55.0;
+                let hover4 = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= settings_y && mouse.y <= settings_y + btn_h;
+                let bg4 = if hover4 { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
+                draw_rectangle(btn_x, settings_y, btn_w, btn_h, bg4);
+                draw_rectangle_lines(btn_x, settings_y, btn_w, btn_h, 2.0, Color::new(0.6, 0.6, 0.7, 1.0));
+                let t4 = "Settings";
+                let d4 = measure_text(t4, None, 22, 1.0);
+                draw_text(t4, btn_x + btn_w / 2.0 - d4.width / 2.0, settings_y + btn_h / 2.0 + 7.0, 22.0, WHITE);
+            }
+
+            LobbyMode::Settings => {
+                // Settings panel is drawn via update method
             }
 
             LobbyMode::EnteringCode => {

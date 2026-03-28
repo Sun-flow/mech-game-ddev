@@ -1,11 +1,34 @@
 use macroquad::prelude::*;
+use std::collections::HashMap;
 
+use crate::economy::ArmyBuilder;
 use crate::net::OpponentBuildData;
 use crate::pack::all_packs;
 use crate::tech::{TechId, TechState};
 use crate::unit::{Unit, UnitKind};
 
 pub const STARTING_LP: i32 = 1000;
+
+/// Tracks what the AI observed in previous rounds for counter-picking.
+#[derive(Clone, Debug, Default)]
+pub struct AiMemory {
+    /// What unit kinds the player had last round (kind → count).
+    pub last_enemy_kinds: Vec<(UnitKind, u32)>,
+    /// Whether the AI won the last round.
+    pub last_result: bool,
+}
+
+impl AiMemory {
+    /// Record the player's army composition and the round outcome.
+    pub fn record_round(&mut self, player_units: &[Unit], ai_won: bool) {
+        let mut counts: HashMap<UnitKind, u32> = HashMap::new();
+        for u in player_units.iter().filter(|u| u.team_id == 0) {
+            *counts.entry(u.kind).or_insert(0) += 1;
+        }
+        self.last_enemy_kinds = counts.into_iter().collect();
+        self.last_result = ai_won;
+    }
+}
 
 /// Info about an opponent-placed pack that persists across rounds.
 #[derive(Clone, Debug)]
@@ -27,6 +50,8 @@ pub struct MatchProgress {
     pub opponent_packs: Vec<OpponentPlacedPack>,
     pub opponent_next_id: u64,
     pub player_saved_gold: u32,
+    pub ai_memory: AiMemory,
+    pub banned_kinds: Vec<UnitKind>,
 }
 
 impl MatchProgress {
@@ -40,6 +65,8 @@ impl MatchProgress {
             opponent_packs: Vec::new(),
             opponent_next_id: 100_000,
             player_saved_gold: 0,
+            ai_memory: AiMemory::default(),
+            banned_kinds: Vec::new(),
         }
     }
 
@@ -198,9 +225,8 @@ impl MatchProgress {
         new_units
     }
 
-    /// Spawn new AI army (for single-player mode). Adds packs and returns units.
-    pub fn spawn_new_ai_army(&mut self, gold: u32) -> Vec<Unit> {
-        let ai_builder = crate::economy::random_army(gold);
+    /// Spawn new AI army from a pre-built ArmyBuilder. Adds packs and returns units.
+    pub fn spawn_ai_army_from_builder(&mut self, ai_builder: &ArmyBuilder) -> Vec<Unit> {
         let packs = all_packs();
         let mut new_units = Vec::new();
 

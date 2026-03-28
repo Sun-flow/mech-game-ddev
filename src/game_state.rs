@@ -11,6 +11,9 @@ pub const BUILD_TIMER: f32 = 60.0;
 #[derive(Clone, Debug)]
 pub enum GamePhase {
     Lobby,
+    DraftBan {
+        bans: Vec<crate::unit::UnitKind>,
+    },
     Build,
     WaitingForOpponent,
     Battle,
@@ -77,6 +80,13 @@ impl PlacedPack {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum UndoEntry {
+    Place { placed_index: usize },
+    Move { placed_index: usize, old_center: Vec2 },
+    Rotate { placed_index: usize, was_rotated: bool, old_center: Vec2 },
+}
+
 pub struct BuildState {
     pub builder: ArmyBuilder,
     pub placed_packs: Vec<PlacedPack>,
@@ -85,6 +95,7 @@ pub struct BuildState {
     pub timer: f32,
     pub next_id: u64,
     pub round_tech_purchases: Vec<(crate::unit::UnitKind, crate::tech::TechId)>,
+    pub undo_history: Vec<UndoEntry>,
 }
 
 impl BuildState {
@@ -97,6 +108,7 @@ impl BuildState {
             timer: BUILD_TIMER,
             next_id: 1,
             round_tech_purchases: Vec::new(),
+            undo_history: Vec::new(),
         }
     }
 
@@ -114,6 +126,7 @@ impl BuildState {
             timer: BUILD_TIMER,
             next_id,
             round_tech_purchases: Vec::new(),
+            undo_history: Vec::new(),
         }
     }
 
@@ -185,6 +198,9 @@ impl BuildState {
             locked: false,
             round_placed: round,
         });
+
+        let placed_index = self.placed_packs.len() - 1;
+        self.undo_history.push(UndoEntry::Place { placed_index });
 
         Some(spawned)
     }
@@ -276,6 +292,10 @@ impl BuildState {
                 return false;
             }
         }
+
+        let old_rotated = self.placed_packs[placed_index].rotated;
+        let old_center = self.placed_packs[placed_index].center;
+        self.undo_history.push(UndoEntry::Rotate { placed_index, was_rotated: old_rotated, old_center });
 
         self.placed_packs[placed_index].rotated = new_rotated;
         self.placed_packs[placed_index].center = clamped;

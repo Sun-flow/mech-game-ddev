@@ -54,6 +54,12 @@ async fn main() {
     let mut game_settings = settings::GameSettings::default();
     let mut obstacles: Vec<terrain::Obstacle> = Vec::new();
     let mut show_surrender_confirm = false;
+    let mut chat_messages: Vec<(String, u8, f32)> = Vec::new(); // (text, team_id, lifetime)
+    let mut chat_input = String::new();
+    let mut chat_open = false;
+    let mut show_grid = false;
+    let mut camera_zoom: f32 = 1.0;
+    let mut camera_target = vec2(ARENA_W / 2.0, ARENA_H / 2.0);
 
     loop {
         let dt = get_frame_time().min(0.05);
@@ -61,18 +67,27 @@ async fn main() {
         let left_click = is_mouse_button_pressed(MouseButton::Left);
         let right_click = is_mouse_button_pressed(MouseButton::Right);
         let middle_click = is_mouse_button_pressed(MouseButton::Middle);
+        team::set_player_color(game_settings.player_color_index);
 
         match &mut phase {
             GamePhase::Lobby => {
-                match lobby.update() {
+                match lobby.update(&mut game_settings) {
                     lobby::LobbyResult::StartMultiplayer => {
                         net = lobby.net.take();
-                        phase = GamePhase::Build;
+                        if game_settings.draft_ban_enabled {
+                            phase = GamePhase::DraftBan { bans: Vec::new() };
+                        } else {
+                            phase = GamePhase::Build;
+                        }
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
                         net = None;
-                        phase = GamePhase::Build;
+                        if game_settings.draft_ban_enabled {
+                            phase = GamePhase::DraftBan { bans: Vec::new() };
+                        } else {
+                            phase = GamePhase::Build;
+                        }
                         continue;
                     }
                     lobby::LobbyResult::Waiting => {}
@@ -97,10 +112,137 @@ async fn main() {
                 continue;
             }
 
+            GamePhase::DraftBan { ref mut bans } => {
+                // Draft/Ban phase: each player bans up to 2 unit types
+                use crate::unit::UnitKind;
+                let all_kinds = [
+                    UnitKind::Striker, UnitKind::Sentinel, UnitKind::Ranger, UnitKind::Scout,
+                    UnitKind::Bruiser, UnitKind::Artillery, UnitKind::Chaff, UnitKind::Sniper,
+                    UnitKind::Skirmisher, UnitKind::Dragoon, UnitKind::Berserker,
+                    UnitKind::Shield, UnitKind::Interceptor,
+                ];
+
+                // Draw background
+                clear_background(Color::new(0.08, 0.08, 0.12, 1.0));
+                draw_rectangle_lines(0.0, 0.0, ARENA_W, ARENA_H, 2.0, GRAY);
+
+                // Title
+                let title = "Ban Phase — Select up to 2 unit types to ban";
+                let tdims = measure_text(title, None, 24, 1.0);
+                draw_text(title, ARENA_W / 2.0 - tdims.width / 2.0, 50.0, 24.0, WHITE);
+
+                // Draw unit cards in a grid (4 cols)
+                let cols = 4;
+                let card_w = 160.0;
+                let card_h = 50.0;
+                let gap = 12.0;
+                let grid_w = cols as f32 * card_w + (cols - 1) as f32 * gap;
+                let start_x = ARENA_W / 2.0 - grid_w / 2.0;
+                let start_y = 90.0;
+
+                for (i, kind) in all_kinds.iter().enumerate() {
+                    let col = (i % cols) as f32;
+                    let row = (i / cols) as f32;
+                    let x = start_x + col * (card_w + gap);
+                    let y = start_y + row * (card_h + gap);
+
+                    let is_banned = bans.contains(kind);
+                    let is_hovered = mouse.x >= x && mouse.x <= x + card_w && mouse.y >= y && mouse.y <= y + card_h;
+
+                    let bg = if is_banned {
+                        Color::new(0.6, 0.15, 0.15, 0.9)
+                    } else if is_hovered {
+                        Color::new(0.2, 0.25, 0.35, 0.9)
+                    } else {
+                        Color::new(0.12, 0.12, 0.18, 0.9)
+                    };
+
+                    draw_rectangle(x, y, card_w, card_h, bg);
+                    draw_rectangle_lines(x, y, card_w, card_h, 1.0, if is_banned { RED } else { GRAY });
+
+                    let name = format!("{:?}", kind);
+                    let stats = kind.stats();
+                    let info = format!("{} HP:{:.0} DMG:{:.0}", name, stats.max_hp, stats.damage);
+                    draw_text(&info, x + 8.0, y + 20.0, 14.0, if is_banned { Color::new(1.0, 0.5, 0.5, 1.0) } else { WHITE });
+
+                    if is_banned {
+                        let ban_text = "BANNED";
+                        let bdims = measure_text(ban_text, None, 16, 1.0);
+                        draw_text(ban_text, x + card_w / 2.0 - bdims.width / 2.0, y + 40.0, 16.0, RED);
+                    } else {
+                        let detail = format!("RNG:{:.0} SPD:{:.0} AS:{:.1}", stats.attack_range, stats.move_speed, stats.attack_speed);
+                        draw_text(&detail, x + 8.0, y + 38.0, 12.0, LIGHTGRAY);
+                    }
+
+                    // Click to toggle ban
+                    if left_click && is_hovered {
+                        if is_banned {
+                            bans.retain(|k| k != kind);
+                        } else if bans.len() < 2 {
+                            bans.push(*kind);
+                        }
+                    }
+                }
+
+                // Confirm button
+                let btn_w = 200.0;
+                let btn_h = 45.0;
+                let btn_x = ARENA_W / 2.0 - btn_w / 2.0;
+                let btn_y = start_y + 4.0 * (card_h + gap) + 20.0;
+                let btn_hover = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= btn_y && mouse.y <= btn_y + btn_h;
+                let btn_color = if btn_hover { Color::new(0.2, 0.6, 0.3, 0.9) } else { Color::new(0.15, 0.45, 0.2, 0.8) };
+                draw_rectangle(btn_x, btn_y, btn_w, btn_h, btn_color);
+                draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 1.0, WHITE);
+                let confirm_text = format!("Confirm Bans ({}/ 2)", bans.len());
+                let cdims = measure_text(&confirm_text, None, 20, 1.0);
+                draw_text(&confirm_text, btn_x + btn_w / 2.0 - cdims.width / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+
+                if left_click && btn_hover {
+                    progress.banned_kinds = bans.clone();
+                    phase = GamePhase::Build;
+                }
+
+                next_frame().await;
+                continue;
+            }
+
             GamePhase::Build => {
                 // Poll network
                 if let Some(ref mut n) = net {
                     n.poll();
+                }
+
+                // Grid toggle
+                if is_key_pressed(KeyCode::G) {
+                    show_grid = !show_grid;
+                }
+
+                // Undo (Ctrl+Z)
+                if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::Z) && build.dragging.is_none() {
+                    if let Some(entry) = build.undo_history.pop() {
+                        match entry {
+                            game_state::UndoEntry::Place { placed_index } => {
+                                if placed_index < build.placed_packs.len() {
+                                    if let Some((_refund, removed_ids)) = build.sell_pack(placed_index) {
+                                        units.retain(|u| !removed_ids.contains(&u.id));
+                                    }
+                                }
+                            }
+                            game_state::UndoEntry::Move { placed_index, old_center } => {
+                                if placed_index < build.placed_packs.len() {
+                                    build.placed_packs[placed_index].center = old_center;
+                                    build.reposition_pack_units(placed_index, &mut units);
+                                }
+                            }
+                            game_state::UndoEntry::Rotate { placed_index, was_rotated, old_center } => {
+                                if placed_index < build.placed_packs.len() {
+                                    build.placed_packs[placed_index].rotated = was_rotated;
+                                    build.placed_packs[placed_index].center = old_center;
+                                    build.reposition_pack_units(placed_index, &mut units);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Timer countdown
@@ -128,7 +270,7 @@ async fn main() {
                 // Shop interaction (left click in shop area, only when not holding a pack)
                 if left_click && mouse.x < SHOP_W && build.dragging.is_none() {
                     if let Some(pack_idx) =
-                        shop::draw_shop(build.builder.gold_remaining, mouse, true)
+                        shop::draw_shop(build.builder.gold_remaining, mouse, true, &progress.banned_kinds)
                     {
                         if let Some(new_units) = build.purchase_pack(
                             pack_idx,
@@ -205,17 +347,25 @@ async fn main() {
                         mouse.x.clamp(half.x, HALF_W - half.x),
                         mouse.y.clamp(half.y, ARENA_H - half.y),
                     );
-                    build.placed_packs[drag_idx].center = clamped;
+                    // Snap to grid
+                    let grid = terrain::GRID_CELL;
+                    let snapped = vec2(
+                        (clamped.x / grid).round() * grid,
+                        (clamped.y / grid).round() * grid,
+                    );
+                    build.placed_packs[drag_idx].center = snapped;
                     build.reposition_pack_units(drag_idx, &mut units);
 
                     if left_click {
                         let placed = &build.placed_packs[drag_idx];
                         let pack_index = placed.pack_index;
                         let rotated = placed.rotated;
+                        let old_center = placed.pre_drag_center;
                         if build.would_overlap(placed.center, pack_index, Some(drag_idx), rotated) {
-                            let prev = build.placed_packs[drag_idx].pre_drag_center;
-                            build.placed_packs[drag_idx].center = prev;
+                            build.placed_packs[drag_idx].center = old_center;
                             build.reposition_pack_units(drag_idx, &mut units);
+                        } else if build.placed_packs[drag_idx].center != old_center {
+                            build.undo_history.push(game_state::UndoEntry::Move { placed_index: drag_idx, old_center });
                         }
                         build.dragging = None;
                     }
@@ -330,17 +480,40 @@ async fn main() {
             }
 
             GamePhase::Battle => {
+                // Zoom control (scroll wheel)
+                let wheel = mouse_wheel().1;
+                if wheel != 0.0 && !show_surrender_confirm {
+                    camera_zoom = (camera_zoom + wheel * 0.1).clamp(0.5, 2.0);
+                }
+                // Pan with middle-click drag
+                if is_mouse_button_down(MouseButton::Middle) && !show_surrender_confirm {
+                    let delta = vec2(
+                        mouse_delta_position().x * -ARENA_W / camera_zoom,
+                        mouse_delta_position().y * -ARENA_H / camera_zoom,
+                    );
+                    camera_target += delta;
+                    camera_target.x = camera_target.x.clamp(0.0, ARENA_W);
+                    camera_target.y = camera_target.y.clamp(0.0, ARENA_H);
+                }
+
+                // Surrender toggle
+                if is_key_pressed(KeyCode::Escape) {
+                    show_surrender_confirm = !show_surrender_confirm;
+                }
+
                 // Poll network
                 if let Some(ref mut n) = net {
                     n.poll();
                 }
 
-                if net.is_some() {
+                if show_surrender_confirm {
+                    // Battle paused while surrender overlay is shown
+                } else if net.is_some() {
                     // Multiplayer: fixed timestep for determinism
                     battle_accumulator += dt;
                     while battle_accumulator >= FIXED_DT {
                         battle_accumulator -= FIXED_DT;
-                        update_targeting(&mut units);
+                        update_targeting(&mut units, &obstacles);
                         update_movement(&mut units, FIXED_DT, ARENA_W, ARENA_H, &obstacles);
                         update_attacks(
                             &mut units,
@@ -353,7 +526,7 @@ async fn main() {
                     }
                 } else {
                     // Single-player: variable timestep (original behavior)
-                    update_targeting(&mut units);
+                    update_targeting(&mut units, &obstacles);
                     update_movement(&mut units, dt, ARENA_W, ARENA_H, &obstacles);
                     update_attacks(
                         &mut units,
@@ -365,9 +538,46 @@ async fn main() {
                     update_projectiles(&mut projectiles, &mut units, dt, &mut obstacles);
                 }
 
+                // Surrender confirmation handling
+                if show_surrender_confirm && is_mouse_button_pressed(MouseButton::Left) {
+                    let mouse = Vec2::from(mouse_position());
+                    let btn_w = 120.0;
+                    let btn_h = 40.0;
+                    let cx = ARENA_W / 2.0;
+                    let cy = ARENA_H / 2.0;
+                    // "Yes" button
+                    let yes_x = cx - btn_w - 10.0;
+                    let yes_y = cy + 10.0;
+                    if mouse.x >= yes_x && mouse.x <= yes_x + btn_w && mouse.y >= yes_y && mouse.y <= yes_y + btn_h {
+                        progress.player_lp = 0;
+                        show_surrender_confirm = false;
+                        phase = GamePhase::GameOver(1);
+                    }
+                    // "Cancel" button
+                    let no_x = cx + 10.0;
+                    let no_y = cy + 10.0;
+                    if mouse.x >= no_x && mouse.x <= no_x + btn_w && mouse.y >= no_y && mouse.y <= no_y + btn_h {
+                        show_surrender_confirm = false;
+                    }
+                }
+
+                // Update death animation timers
+                for unit in units.iter_mut() {
+                    if !unit.alive && unit.death_timer > 0.0 {
+                        unit.death_timer -= dt;
+                    }
+                }
+
                 let state = check_match_state(&units);
                 if state != MatchState::InProgress && projectiles.is_empty() {
                     let final_state = check_match_state(&units);
+
+                    // Record AI memory for counter-picking
+                    let ai_won = match &final_state {
+                        MatchState::Winner(w) => *w == 1,
+                        _ => false,
+                    };
+                    progress.ai_memory.record_round(&units, ai_won);
 
                     // Calculate LP damage
                     let (lp_damage, loser_team) = match &final_state {
@@ -389,6 +599,7 @@ async fn main() {
                         }
                     }
 
+                    show_surrender_confirm = false;
                     phase = GamePhase::RoundResult {
                         match_state: final_state,
                         lp_damage,
@@ -481,6 +692,27 @@ async fn main() {
                     net = None;
                     lobby.reset();
                 }
+
+                // Rematch button click
+                let rmatch_w = 160.0;
+                let rmatch_h = 40.0;
+                let rmatch_x = ARENA_W / 2.0 - rmatch_w / 2.0;
+                let rmatch_y = ARENA_H / 2.0 + 65.0;
+                if left_click && mouse.x >= rmatch_x && mouse.x <= rmatch_x + rmatch_w
+                    && mouse.y >= rmatch_y && mouse.y <= rmatch_y + rmatch_h
+                {
+                    // Reset for rematch (skip lobby, go straight to Build)
+                    progress = MatchProgress::new();
+                    build = BuildState::new(progress.round_gold());
+                    units.clear();
+                    projectiles.clear();
+                    obstacles.clear();
+                    phase = if game_settings.draft_ban_enabled {
+                        GamePhase::DraftBan { bans: Vec::new() }
+                    } else {
+                        GamePhase::Build
+                    };
+                }
             }
         }
 
@@ -493,8 +725,41 @@ async fn main() {
             continue;
         }
 
+        // Apply camera zoom during Battle
+        if matches!(phase, GamePhase::Battle) && (camera_zoom - 1.0).abs() > 0.01 {
+            set_camera(&Camera2D {
+                target: camera_target,
+                zoom: vec2(camera_zoom * 2.0 / screen_width(), camera_zoom * 2.0 / screen_height()),
+                ..Default::default()
+            });
+        } else {
+            // Reset camera for non-battle or default zoom
+            if !matches!(phase, GamePhase::Battle) {
+                camera_zoom = 1.0;
+                camera_target = vec2(ARENA_W / 2.0, ARENA_H / 2.0);
+            }
+            set_default_camera();
+        }
+
         draw_rectangle_lines(0.0, 0.0, ARENA_W, ARENA_H, 2.0, GRAY);
         draw_center_divider();
+        terrain::draw_obstacles(&obstacles);
+
+        // Grid overlay during Build phase
+        if show_grid && matches!(phase, GamePhase::Build) {
+            let grid = terrain::GRID_CELL;
+            let line_color = Color::new(0.3, 0.3, 0.35, 0.15);
+            let mut gx = 0.0;
+            while gx <= ARENA_W {
+                draw_line(gx, 0.0, gx, ARENA_H, 1.0, line_color);
+                gx += grid;
+            }
+            let mut gy = 0.0;
+            while gy <= ARENA_H {
+                draw_line(0.0, gy, ARENA_W, gy, 1.0, line_color);
+                gy += grid;
+            }
+        }
 
         // Draw shield barrier circles
         for unit in &units {
@@ -519,11 +784,23 @@ async fn main() {
             );
         }
 
-        // Draw units
+        // Draw units (including death animations)
         for unit in &units {
-            if !unit.alive {
+            if !unit.alive && unit.death_timer <= 0.0 {
                 continue;
             }
+
+            // Death animation: shrink and fade
+            if !unit.alive && unit.death_timer > 0.0 {
+                let frac = unit.death_timer / 0.5;
+                let alpha = frac * 0.8;
+                let draw_size = unit.stats.size * frac;
+                let mut color = team_color(unit.team_id);
+                color.a = alpha;
+                draw_unit_shape(unit.pos, draw_size, unit.stats.shape, color);
+                continue;
+            }
+
             let mut color = team_color(unit.team_id);
             if unit.kind == UnitKind::Berserker {
                 let hp_frac = unit.hp / unit.stats.max_hp;
@@ -594,14 +871,17 @@ async fn main() {
             }
         }
 
+        // Reset camera for UI overlays (screen-space)
+        set_default_camera();
+
         // === Phase-specific UI ===
         match &phase {
-            GamePhase::Lobby => {
+            GamePhase::Lobby | GamePhase::DraftBan { .. } => {
                 // Handled above with early continue
             }
 
             GamePhase::Build => {
-                shop::draw_shop(build.builder.gold_remaining, mouse, false);
+                shop::draw_shop(build.builder.gold_remaining, mouse, false, &progress.banned_kinds);
 
                 // Pack bounding boxes
                 let packs = all_packs();
@@ -702,7 +982,11 @@ async fn main() {
                 }
 
                 // Top HUD
-                draw_hud(&progress, build.builder.gold_remaining, build.timer);
+                let army_value: u32 = {
+                    let packs = all_packs();
+                    build.placed_packs.iter().map(|p| packs[p.pack_index].cost).sum()
+                };
+                draw_hud(&progress, build.builder.gold_remaining, build.timer, army_value);
 
                 // Begin Round button
                 let btn_w = 160.0;
@@ -748,7 +1032,7 @@ async fn main() {
             }
 
             GamePhase::WaitingForOpponent => {
-                draw_hud(&progress, build.builder.gold_remaining, 0.0);
+                draw_hud(&progress, build.builder.gold_remaining, 0.0, 0);
 
                 let dots = ".".repeat(((get_time() * 2.0) as usize % 4));
                 let wait_text = format!("Waiting for opponent{}", dots);
@@ -763,7 +1047,7 @@ async fn main() {
             }
 
             GamePhase::Battle => {
-                draw_hud(&progress, 0, 0.0);
+                draw_hud(&progress, 0, 0.0, 0);
                 let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count();
                 let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count();
                 draw_text(
@@ -782,6 +1066,73 @@ async fn main() {
                     20.0,
                     team_color(1),
                 );
+
+                // Obstacle tooltip on hover
+                if !show_surrender_confirm {
+                    for obs in &obstacles {
+                        if !obs.alive { continue; }
+                        if obs.contains_point(mouse) {
+                            let tip_x = mouse.x + 15.0;
+                            let tip_y = (mouse.y - 10.0).max(5.0);
+                            let tip_w = 170.0;
+                            let tip_h = if obs.obstacle_type == terrain::ObstacleType::Cover { 60.0 } else { 45.0 };
+
+                            draw_rectangle(tip_x, tip_y, tip_w, tip_h, Color::new(0.08, 0.08, 0.12, 0.95));
+                            draw_rectangle_lines(tip_x, tip_y, tip_w, tip_h, 1.0, Color::new(0.4, 0.5, 0.6, 0.7));
+
+                            let type_name = match obs.obstacle_type {
+                                terrain::ObstacleType::Wall => "Wall (Indestructible)",
+                                terrain::ObstacleType::Cover => "Cover (Destructible)",
+                            };
+                            draw_text(type_name, tip_x + 6.0, tip_y + 16.0, 14.0, WHITE);
+
+                            let mut ty = tip_y + 32.0;
+                            if obs.obstacle_type == terrain::ObstacleType::Cover {
+                                draw_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + 6.0, ty, 12.0, LIGHTGRAY);
+                                ty += 14.0;
+                            }
+                            let team_name = match obs.team_id { 0 => "Player", 1 => "Opponent", _ => "Neutral" };
+                            draw_text(&format!("Owner: {}", team_name), tip_x + 6.0, ty, 12.0, LIGHTGRAY);
+                            break;
+                        }
+                    }
+                }
+
+                // Surrender confirmation overlay
+                if show_surrender_confirm {
+                    draw_rectangle(0.0, 0.0, ARENA_W, ARENA_H, Color::new(0.0, 0.0, 0.0, 0.6));
+                    let title = "Surrender?";
+                    let tdims = measure_text(title, None, 36, 1.0);
+                    draw_text(title, ARENA_W / 2.0 - tdims.width / 2.0, ARENA_H / 2.0 - 20.0, 36.0, WHITE);
+
+                    let btn_w: f32 = 120.0;
+                    let btn_h: f32 = 40.0;
+                    let cx = ARENA_W / 2.0;
+                    let cy = ARENA_H / 2.0;
+                    let mouse = Vec2::from(mouse_position());
+
+                    // Yes button
+                    let yes_x = cx - btn_w - 10.0;
+                    let yes_y = cy + 10.0;
+                    let yes_hover = mouse.x >= yes_x && mouse.x <= yes_x + btn_w && mouse.y >= yes_y && mouse.y <= yes_y + btn_h;
+                    let yes_color = if yes_hover { Color::new(0.8, 0.2, 0.2, 0.9) } else { Color::new(0.6, 0.15, 0.15, 0.8) };
+                    draw_rectangle(yes_x, yes_y, btn_w, btn_h, yes_color);
+                    draw_rectangle_lines(yes_x, yes_y, btn_w, btn_h, 1.0, WHITE);
+                    let yt = "Yes";
+                    let ydims = measure_text(yt, None, 20, 1.0);
+                    draw_text(yt, yes_x + btn_w / 2.0 - ydims.width / 2.0, yes_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+
+                    // Cancel button
+                    let no_x = cx + 10.0;
+                    let no_y = cy + 10.0;
+                    let no_hover = mouse.x >= no_x && mouse.x <= no_x + btn_w && mouse.y >= no_y && mouse.y <= no_y + btn_h;
+                    let no_color = if no_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
+                    draw_rectangle(no_x, no_y, btn_w, btn_h, no_color);
+                    draw_rectangle_lines(no_x, no_y, btn_w, btn_h, 1.0, WHITE);
+                    let nt = "Cancel";
+                    let ndims = measure_text(nt, None, 20, 1.0);
+                    draw_text(nt, no_x + btn_w / 2.0 - ndims.width / 2.0, no_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+                }
             }
 
             GamePhase::RoundResult {
@@ -789,7 +1140,7 @@ async fn main() {
                 lp_damage,
                 loser_team,
             } => {
-                draw_hud(&progress, 0, 0.0);
+                draw_hud(&progress, 0, 0.0, 0);
 
                 let text = match match_state {
                     MatchState::Winner(tid) => {
@@ -857,23 +1208,66 @@ async fn main() {
                     color,
                 );
 
-                let round_text = format!("Final Round: {}", progress.round);
-                let rdims = measure_text(&round_text, None, 22, 1.0);
+                // Stats panel
+                let panel_w = 320.0;
+                let panel_h = 140.0;
+                let panel_x = ARENA_W / 2.0 - panel_w / 2.0;
+                let panel_y = ARENA_H / 2.0 + 10.0;
+                draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.08, 0.08, 0.12, 0.9));
+                draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 1.0, Color::new(0.4, 0.5, 0.6, 0.7));
+
+                let mut sy = panel_y + 18.0;
+                let sx = panel_x + 12.0;
+
+                let round_text = format!("Rounds Played: {}", progress.round);
+                draw_text(&round_text, sx, sy, 15.0, LIGHTGRAY);
+                sy += 18.0;
+
+                // MVP
+                let mvp = units.iter()
+                    .filter(|u| u.team_id == 0)
+                    .max_by(|a, b| a.damage_dealt_total.partial_cmp(&b.damage_dealt_total).unwrap_or(std::cmp::Ordering::Equal));
+                if let Some(mvp_unit) = mvp {
+                    let mvp_text = format!("MVP: {:?} - {:.0} dmg, {} kills", mvp_unit.kind, mvp_unit.damage_dealt_total, mvp_unit.kills_total);
+                    draw_text(&mvp_text, sx, sy, 15.0, Color::new(1.0, 0.85, 0.2, 1.0));
+                }
+                sy += 18.0;
+
+                let total_dmg: f32 = units.iter()
+                    .filter(|u| u.team_id == 0)
+                    .map(|u| u.damage_dealt_total)
+                    .sum();
+                draw_text(&format!("Total Damage: {:.0}", total_dmg), sx, sy, 15.0, LIGHTGRAY);
+                sy += 18.0;
+
+                let surviving = units.iter().filter(|u| u.team_id == 0 && u.alive).count();
+                let total_units = units.iter().filter(|u| u.team_id == 0).count();
+                draw_text(&format!("Surviving: {} / {}", surviving, total_units), sx, sy, 15.0, LIGHTGRAY);
+                sy += 18.0;
+
+                draw_text(&format!("LP: {} vs {}", progress.player_lp, progress.opponent_lp), sx, sy, 15.0, LIGHTGRAY);
+
+                let below_panel = panel_y + panel_h + 8.0;
                 draw_text(
-                    &round_text,
-                    ARENA_W / 2.0 - rdims.width / 2.0,
-                    ARENA_H / 2.0 + 15.0,
-                    22.0,
-                    WHITE,
+                    "Press R to return to lobby",
+                    ARENA_W / 2.0 - 100.0,
+                    below_panel,
+                    16.0,
+                    DARKGRAY,
                 );
 
-                draw_text(
-                    "Press R to restart",
-                    ARENA_W / 2.0 - 80.0,
-                    ARENA_H / 2.0 + 45.0,
-                    18.0,
-                    LIGHTGRAY,
-                );
+                // Rematch button
+                let rmatch_w = 160.0;
+                let rmatch_h = 40.0;
+                let rmatch_x = ARENA_W / 2.0 - rmatch_w / 2.0;
+                let rmatch_y = below_panel + 15.0;
+                let rmatch_hover = mouse.x >= rmatch_x && mouse.x <= rmatch_x + rmatch_w && mouse.y >= rmatch_y && mouse.y <= rmatch_y + rmatch_h;
+                let rmatch_bg = if rmatch_hover { Color::new(0.2, 0.5, 0.3, 0.9) } else { Color::new(0.15, 0.35, 0.2, 0.8) };
+                draw_rectangle(rmatch_x, rmatch_y, rmatch_w, rmatch_h, rmatch_bg);
+                draw_rectangle_lines(rmatch_x, rmatch_y, rmatch_w, rmatch_h, 2.0, Color::new(0.3, 0.8, 0.4, 1.0));
+                let rt = "Rematch";
+                let rdims2 = measure_text(rt, None, 22, 1.0);
+                draw_text(rt, rmatch_x + rmatch_w / 2.0 - rdims2.width / 2.0, rmatch_y + rmatch_h / 2.0 + 7.0, 22.0, WHITE);
             }
         }
 
@@ -911,6 +1305,95 @@ async fn main() {
                     lobby.reset();
                 }
             }
+        }
+
+        // === Chat System ===
+        // Receive chat messages from network
+        if let Some(ref mut n) = net {
+            for msg in n.received_chats.drain(..) {
+                chat_messages.push((msg, 1, 5.0)); // opponent = team 1
+            }
+        }
+
+        // Chat input (available in Build, Battle, RoundResult)
+        let chat_allowed = matches!(phase, GamePhase::Build | GamePhase::Battle | GamePhase::RoundResult { .. });
+        if chat_allowed {
+            if is_key_pressed(KeyCode::Enter) {
+                if chat_open {
+                    // Send message
+                    if !chat_input.is_empty() {
+                        let text = if chat_input.len() > 100 { chat_input[..100].to_string() } else { chat_input.clone() };
+                        chat_messages.push((text.clone(), 0, 5.0));
+                        if let Some(ref mut n) = net {
+                            n.send(net::NetMessage::ChatMessage(text));
+                        }
+                    }
+                    chat_input.clear();
+                    chat_open = false;
+                } else {
+                    chat_open = true;
+                }
+            }
+            if chat_open {
+                if is_key_pressed(KeyCode::Escape) {
+                    chat_open = false;
+                    chat_input.clear();
+                }
+                while let Some(ch) = get_char_pressed() {
+                    if ch == '\r' || ch == '\n' { continue; }
+                    if ch == '\u{8}' { // backspace
+                        chat_input.pop();
+                    } else if chat_input.len() < 100 && ch.is_ascii_graphic() || ch == ' ' {
+                        chat_input.push(ch);
+                    }
+                }
+            }
+        }
+
+        // Update chat lifetimes
+        for (_, _, lifetime) in chat_messages.iter_mut() {
+            *lifetime -= dt;
+        }
+        chat_messages.retain(|(_, _, lt)| *lt > 0.0);
+
+        // Render chat messages (floating at top of arena)
+        let chat_x = ARENA_W / 2.0;
+        let mut chat_y = 45.0;
+        for (text, team_id, lifetime) in chat_messages.iter().rev().take(5).collect::<Vec<_>>().into_iter().rev() {
+            let alpha = (*lifetime / 5.0).min(1.0);
+            let color = if *team_id == 0 {
+                team::team_color(0)
+            } else {
+                team::team_color(1)
+            };
+            let display_color = Color::new(color.r, color.g, color.b, alpha);
+
+            // Check for emotes
+            let display = match text.as_str() {
+                "/gg" => "GG",
+                "/gl" => "Good Luck!",
+                "/nice" => "Nice!",
+                "/wow" => "Wow!",
+                _ => text.as_str(),
+            };
+            let is_emote = text.starts_with('/');
+            let font_size = if is_emote { 22.0 } else { 16.0 };
+            let dims = measure_text(display, None, font_size as u16, 1.0);
+            draw_text(display, chat_x - dims.width / 2.0, chat_y, font_size, display_color);
+            chat_y += font_size + 4.0;
+        }
+
+        // Render chat input box
+        if chat_open {
+            let input_y = ARENA_H - 40.0;
+            let input_w = 400.0;
+            let input_x = ARENA_W / 2.0 - input_w / 2.0;
+            draw_rectangle(input_x, input_y, input_w, 28.0, Color::new(0.05, 0.05, 0.1, 0.9));
+            draw_rectangle_lines(input_x, input_y, input_w, 28.0, 1.0, Color::new(0.4, 0.5, 0.6, 0.8));
+            let cursor = if (get_time() * 2.0) as u32 % 2 == 0 { "|" } else { "" };
+            draw_text(&format!("{}{}", chat_input, cursor), input_x + 6.0, input_y + 19.0, 16.0, WHITE);
+        } else if chat_allowed {
+            draw_text("Enter: Chat", ARENA_W - 100.0, ARENA_H - 5.0, 12.0, Color::new(0.4, 0.4, 0.4, 0.6));
         }
 
         next_frame().await;
@@ -968,7 +1451,12 @@ fn start_battle_ai(
     // AI buys techs, then spawns NEW army for this round
     let mut ai_gold = progress.round_allowance();
     ai_buy_techs(&mut ai_gold, &mut progress.opponent_techs);
-    let new_opponent_units = progress.spawn_new_ai_army(ai_gold);
+    let ai_builder = if game_settings.smart_ai {
+        economy::smart_army(ai_gold, &progress.ai_memory, &progress.banned_kinds)
+    } else {
+        economy::random_army_filtered(ai_gold, &progress.banned_kinds)
+    };
+    let new_opponent_units = progress.spawn_ai_army_from_builder(&ai_builder);
     units.extend(new_opponent_units);
 
     // Seed RNG for this round
@@ -983,7 +1471,7 @@ fn start_battle_ai(
     GamePhase::Battle
 }
 
-fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32) {
+fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32) {
     // Background bar
     draw_rectangle(
         0.0,
@@ -1035,6 +1523,12 @@ fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32) {
             Color::new(1.0, 0.85, 0.2, 1.0),
         );
         x += 110.0;
+
+        if army_value > 0 {
+            let army_text = format!("Army: {}g", army_value);
+            draw_text(&army_text, x, 19.0, 16.0, Color::new(0.7, 0.7, 0.75, 0.8));
+            x += 100.0;
+        }
 
         if timer > 0.0 {
             let timer_text = format!("Timer: {:.0}s", timer.ceil());

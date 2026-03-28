@@ -6,7 +6,8 @@ use crate::terrain::Obstacle;
 use crate::unit::{Unit, UnitKind};
 
 /// Find the nearest alive enemy for each unit and assign as target.
-pub fn update_targeting(units: &mut [Unit]) {
+/// Walls block line of sight — units cannot target through them.
+pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
     let positions: Vec<(u64, u8, Vec2, bool)> = units
         .iter()
         .map(|u| (u.id, u.team_id, u.pos, u.alive))
@@ -25,7 +26,7 @@ pub fn update_targeting(units: &mut [Unit]) {
                 continue;
             }
             let d = unit.pos.distance(epos);
-            if d < best_dist {
+            if d < best_dist && crate::terrain::has_line_of_sight(unit.pos, epos, obstacles) {
                 best_dist = d;
                 best_id = Some(eid);
             }

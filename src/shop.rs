@@ -8,7 +8,8 @@ const BUTTON_MARGIN: f32 = 4.0;
 const SHOP_TOP: f32 = 35.0;
 
 /// Draw the shop panel and return the index of a clicked pack (if any).
-pub fn draw_shop(gold_remaining: u32, mouse_pos: Vec2, clicked: bool) -> Option<usize> {
+/// Packs whose kind is in `banned` are hidden from the shop.
+pub fn draw_shop(gold_remaining: u32, mouse_pos: Vec2, clicked: bool, banned: &[crate::unit::UnitKind]) -> Option<usize> {
     let packs = all_packs();
 
     // Semi-transparent background
@@ -28,8 +29,13 @@ pub fn draw_shop(gold_remaining: u32, mouse_pos: Vec2, clicked: bool) -> Option<
     let mut clicked_pack = None;
     let mut hovered_pack: Option<usize> = None;
 
+    let mut slot = 0;
     for (i, pack) in packs.iter().enumerate() {
-        let y = SHOP_TOP + i as f32 * (BUTTON_H + BUTTON_MARGIN);
+        if banned.contains(&pack.kind) {
+            continue;
+        }
+        let y = SHOP_TOP + slot as f32 * (BUTTON_H + BUTTON_MARGIN);
+        slot += 1;
         let affordable = gold_remaining >= pack.cost;
         let hovered = mouse_pos.x >= 4.0
             && mouse_pos.x <= SHOP_W - 4.0

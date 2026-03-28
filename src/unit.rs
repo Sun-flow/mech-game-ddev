@@ -69,6 +69,7 @@ pub struct Unit {
     pub target_id: Option<u64>,
     pub attack_cooldown: f32,
     pub alive: bool,
+    pub death_timer: f32,
     // Behavioral tech fields
     pub slow_timer: f32,
     pub evasion_chance: f32,
@@ -94,6 +95,7 @@ impl Unit {
             target_id: None,
             attack_cooldown: 0.0,
             alive: true,
+            death_timer: 0.0,
             slow_timer: 0.0,
             evasion_chance: 0.0,
             damage_dealt_round: 0.0,
@@ -111,7 +113,10 @@ impl Unit {
         self.damage_soaked_total += effective;
         if self.hp <= 0.0 {
             self.hp = 0.0;
-            self.alive = false;
+            if self.alive {
+                self.alive = false;
+                self.death_timer = 0.5;
+            }
         }
     }
 
@@ -122,7 +127,10 @@ impl Unit {
         self.damage_soaked_total += damage;
         if self.hp <= 0.0 {
             self.hp = 0.0;
-            self.alive = false;
+            if self.alive {
+                self.alive = false;
+                self.death_timer = 0.5;
+            }
         }
     }
 
@@ -184,7 +192,7 @@ impl UnitKind {
                 projectile_speed: 400.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 120.0,
-                size: 12.0,
+                size: 10.0,
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
@@ -199,7 +207,7 @@ impl UnitKind {
                 projectile_speed: 0.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 60.0,
-                size: 18.0,
+                size: 20.0,
                 armor: 80.0,
                 splash_radius: 15.0,
                 shield_radius: 0.0,
@@ -229,7 +237,7 @@ impl UnitKind {
                 projectile_speed: 300.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 180.0,
-                size: 8.0,
+                size: 10.0,
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
@@ -259,7 +267,7 @@ impl UnitKind {
                 projectile_speed: 250.0,
                 projectile_type: ProjectileType::Rocket,
                 move_speed: 50.0,
-                size: 14.0,
+                size: 15.0,
                 armor: 0.0,
                 splash_radius: 40.0,
                 shield_radius: 0.0,
@@ -274,7 +282,7 @@ impl UnitKind {
                 projectile_speed: 0.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 150.0,
-                size: 4.0,
+                size: 5.0,
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
@@ -292,7 +300,7 @@ impl UnitKind {
                 projectile_speed: 900.0,
                 projectile_type: ProjectileType::Laser,
                 move_speed: 40.0,
-                size: 11.0,
+                size: 10.0,
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
@@ -309,7 +317,7 @@ impl UnitKind {
                 projectile_speed: 350.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 160.0,
-                size: 4.0,
+                size: 5.0,
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
@@ -325,7 +333,7 @@ impl UnitKind {
                 projectile_speed: 350.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 85.0,
-                size: 13.0,
+                size: 15.0,
                 armor: 30.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
@@ -342,7 +350,7 @@ impl UnitKind {
                 projectile_speed: 0.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 130.0,
-                size: 13.0,
+                size: 15.0,
                 armor: 20.0,
                 splash_radius: 10.0,
                 shield_radius: 0.0,
@@ -358,7 +366,7 @@ impl UnitKind {
                 projectile_speed: 0.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 55.0,
-                size: 16.0,
+                size: 15.0,
                 armor: 50.0,
                 splash_radius: 0.0,
                 shield_radius: 80.0,

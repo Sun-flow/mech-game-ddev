@@ -96,6 +96,46 @@ impl Obstacle {
     }
 }
 
+/// Check if a straight line from `from` to `to` is unobstructed by walls.
+/// Only Wall-type obstacles block line of sight (Cover does not).
+pub fn has_line_of_sight(from: Vec2, to: Vec2, obstacles: &[Obstacle]) -> bool {
+    let dir = to - from;
+    let len = dir.length();
+    if len < 0.001 {
+        return true;
+    }
+
+    for obs in obstacles {
+        if !obs.alive || obs.obstacle_type != ObstacleType::Wall {
+            continue;
+        }
+
+        let obs_min = obs.pos - obs.half_size;
+        let obs_max = obs.pos + obs.half_size;
+
+        // Slab method for ray-AABB intersection
+        let inv_dir = vec2(
+            if dir.x.abs() < 0.0001 { f32::MAX.copysign(dir.x) } else { 1.0 / dir.x },
+            if dir.y.abs() < 0.0001 { f32::MAX.copysign(dir.y) } else { 1.0 / dir.y },
+        );
+
+        let t1x = (obs_min.x - from.x) * inv_dir.x;
+        let t2x = (obs_max.x - from.x) * inv_dir.x;
+        let t1y = (obs_min.y - from.y) * inv_dir.y;
+        let t2y = (obs_max.y - from.y) * inv_dir.y;
+
+        let t_enter = t1x.min(t2x).max(t1y.min(t2y));
+        let t_exit = t1x.max(t2x).min(t1y.max(t2y));
+
+        // Intersection if t_enter <= t_exit and the interval overlaps [0, 1]
+        if t_enter <= t_exit && t_enter < 1.0 && t_exit > 0.0 {
+            return false;
+        }
+    }
+
+    true
+}
+
 /// Generate terrain layout for a round, seeded deterministically.
 /// Places obstacles symmetrically (mirrored across center line).
 pub fn generate_terrain(round: u32, destructible: bool) -> Vec<Obstacle> {

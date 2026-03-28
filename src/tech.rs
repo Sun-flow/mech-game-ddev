@@ -51,7 +51,7 @@ pub fn all_techs() -> &'static [TechDef] {
         TechDef {
             id: TechId::ArmorBoost,
             name: "+Armor",
-            description: "+3 armor",
+            description: "+30 armor",
             applicable_to: &[
                 UnitKind::Striker, UnitKind::Sentinel, UnitKind::Ranger,
                 UnitKind::Scout, UnitKind::Bruiser, UnitKind::Artillery,
