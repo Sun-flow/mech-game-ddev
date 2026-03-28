@@ -73,6 +73,7 @@ async fn main() {
     let mut camera_target = vec2(ARENA_W / 2.0, ARENA_H / 2.0);
     let mut is_fullscreen_mode = false;
     let mut splash_effects: Vec<SplashEffect> = Vec::new();
+    let mut pan_grab_world: Option<Vec2> = None; // world point pinned to cursor during drag
     let mut waiting_for_round_end = false;
     let mut round_end_timeout: f32 = 0.0;
 
@@ -108,16 +109,26 @@ async fn main() {
 
         // Camera zoom/pan (available in all non-lobby phases)
         if !matches!(phase, GamePhase::Lobby) {
+            // Smooth multiplicative zoom — ~100+ steps between min/max
             let wheel = mouse_wheel().1;
             if wheel != 0.0 {
-                camera_zoom = (camera_zoom + wheel * 0.1).clamp(0.5, 3.0);
+                let zoom_factor = 1.0 + wheel.signum() * 0.04; // ~4% per scroll tick
+                camera_zoom = (camera_zoom * zoom_factor).clamp(0.3, 5.0);
             }
+            // "Grab the ground" pan: pin a world point to the cursor
             if is_mouse_button_down(MouseButton::Middle) {
-                let delta = vec2(
-                    mouse_delta_position().x * -screen_width() / (2.0 * camera_zoom),
-                    mouse_delta_position().y * -screen_height() / (2.0 * camera_zoom),
-                );
-                camera_target += delta;
+                if pan_grab_world.is_none() {
+                    // On drag start, record the world point under the cursor
+                    pan_grab_world = Some(arena_camera.screen_to_world(screen_mouse));
+                }
+                if let Some(grab_pt) = pan_grab_world {
+                    // Where is the cursor pointing now in world coords?
+                    let current_world = arena_camera.screen_to_world(screen_mouse);
+                    // Adjust camera so the grabbed point stays under the cursor
+                    camera_target += grab_pt - current_world;
+                }
+            } else {
+                pan_grab_world = None;
             }
             // Clamp camera to 140% of arena (20% margin on each side)
             let margin_x = ARENA_W * 0.2;
@@ -407,7 +418,15 @@ async fn main() {
                     let cs = tech_ui::PackCombatStats::from_units(&units, &placed.unit_ids);
 
                     // Check if mouse is in the tech panel area (consume click to prevent drag)
-                    if screen_mouse.x >= 490.0 && screen_mouse.x <= 700.0 && screen_mouse.y >= 30.0 {
+                    // Compute actual panel height to avoid blocking clicks in the entire column
+                    let available_count = progress.player_techs.available_techs(kind).len();
+                    let purchased_count = progress.player_techs.tech_count(kind);
+                    let has_combat = cs.damage_dealt_total > 0.0 || cs.damage_soaked_total > 0.0;
+                    let combat_extra = if has_combat { 5.0 * 15.0 + 30.0 } else { 0.0 };
+                    let panel_h = 120.0 + (available_count + purchased_count) as f32 * 35.0 + combat_extra + 20.0;
+                    if screen_mouse.x >= 490.0 && screen_mouse.x <= 700.0
+                        && screen_mouse.y >= 30.0 && screen_mouse.y <= 30.0 + panel_h
+                    {
                         click_consumed = true;
                     }
 
@@ -1117,18 +1136,7 @@ async fn main() {
                     bbox_color,
                 );
 
-                // Pack label
-                let label = if placed.locked {
-                    format!("{} (R{})", pack.name, placed.round_placed)
-                } else {
-                    pack.name.to_string()
-                };
-                let label_color = if placed.locked {
-                    Color::new(0.5, 0.5, 0.5, 0.4)
-                } else {
-                    Color::new(0.7, 0.7, 0.7, 0.6)
-                };
-                draw_text(&label, min.x + 2.0, min.y - 2.0, 14.0, label_color);
+                // Pack label — collected for screen-space drawing below
             }
 
             // Opponent pack bounding boxes (from previous rounds, visible during build)
@@ -1149,14 +1157,6 @@ async fn main() {
                     1.0,
                     bbox_color,
                 );
-                let label = format!("{} (R{})", pack.name, opponent_pack.round_placed);
-                draw_text(
-                    &label,
-                    min.x + 2.0,
-                    min.y - 2.0,
-                    12.0,
-                    Color::new(0.4, 0.4, 0.6, 0.4),
-                );
             }
         }
 
@@ -1171,6 +1171,36 @@ async fn main() {
 
             GamePhase::Build => {
                 shop::draw_shop(build.builder.gold_remaining, screen_mouse, false, &progress.banned_kinds);
+
+                // Pack labels (drawn in screen-space so text isn't distorted by camera zoom)
+                {
+                    let packs = all_packs();
+                    for (i, placed) in build.placed_packs.iter().enumerate() {
+                        let pack = &packs[placed.pack_index];
+                        let half = placed.bbox_half_size_for(pack);
+                        let world_pos = vec2(placed.center.x - half.x + 2.0, placed.center.y - half.y - 2.0);
+                        let screen_pos = arena_camera.world_to_screen(world_pos);
+                        let label = if placed.locked {
+                            format!("{} (R{})", pack.name, placed.round_placed)
+                        } else {
+                            pack.name.to_string()
+                        };
+                        let label_color = if placed.locked {
+                            Color::new(0.5, 0.5, 0.5, 0.4)
+                        } else {
+                            Color::new(0.7, 0.7, 0.7, 0.6)
+                        };
+                        draw_text(&label, screen_pos.x, screen_pos.y, 14.0, label_color);
+                    }
+                    for opponent_pack in &progress.opponent_packs {
+                        let pack = &packs[opponent_pack.pack_index];
+                        let half = game_state::PlacedPack::bbox_half_size_rotated(pack, opponent_pack.rotated);
+                        let world_pos = vec2(opponent_pack.center.x - half.x + 2.0, opponent_pack.center.y - half.y - 2.0);
+                        let screen_pos = arena_camera.world_to_screen(world_pos);
+                        let label = format!("{} (R{})", pack.name, opponent_pack.round_placed);
+                        draw_text(&label, screen_pos.x, screen_pos.y, 12.0, Color::new(0.4, 0.4, 0.6, 0.4));
+                    }
+                }
 
                 // Tech panel (when a pack is selected)
                 if let Some(sel_idx) = build.selected_pack {
