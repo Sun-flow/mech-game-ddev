@@ -2,6 +2,7 @@ use macroquad::prelude::*;
 
 use crate::projectile::Projectile;
 use crate::tech::{TechId, TechState};
+use crate::terrain::Obstacle;
 use crate::unit::{Unit, UnitKind};
 
 /// Find the nearest alive enemy for each unit and assign as target.
@@ -36,7 +37,7 @@ pub fn update_targeting(units: &mut [Unit]) {
 
 /// Move units toward their targets. Apply separation to avoid stacking.
 /// Accounts for slow debuff.
-pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32) {
+pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, obstacles: &[Obstacle]) {
     let snapshot: Vec<(u64, Vec2, f32, bool)> = units
         .iter()
         .map(|u| (u.id, u.pos, u.stats.size, u.alive))
@@ -72,10 +73,15 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32) 
             unit.stats.move_speed
         };
 
-        // Move toward target if out of range
+        // Move toward target if out of range, or retreat if too close (min range)
         if let Some(target_pos) = target_positions[i].1 {
             let dist = unit.pos.distance(target_pos);
-            if dist > unit.stats.attack_range * 0.9 {
+            if unit.stats.min_attack_range > 0.0 && dist < unit.stats.min_attack_range * 0.8 {
+                // Too close — retreat away from target
+                let dir = (unit.pos - target_pos).normalize_or_zero();
+                unit.pos += dir * effective_speed * dt;
+            } else if dist > unit.stats.attack_range * 0.9 {
+                // Too far — move toward target
                 let dir = (target_pos - unit.pos).normalize_or_zero();
                 unit.pos += dir * effective_speed * dt;
             }
@@ -95,6 +101,36 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32) 
             }
         }
         unit.pos += push;
+
+        // Wall collision — push units out of wall obstacles
+        for obs in obstacles {
+            if !obs.blocks_movement() { continue; }
+            if obs.intersects_circle(unit.pos, unit.stats.size) {
+                // Push unit out of obstacle
+                let obs_min = obs.pos - obs.half_size;
+                let obs_max = obs.pos + obs.half_size;
+                let closest = vec2(
+                    unit.pos.x.clamp(obs_min.x, obs_max.x),
+                    unit.pos.y.clamp(obs_min.y, obs_max.y),
+                );
+                let diff = unit.pos - closest;
+                let dist = diff.length();
+                if dist > 0.001 && dist < unit.stats.size {
+                    unit.pos += diff.normalize() * (unit.stats.size - dist);
+                } else if dist <= 0.001 {
+                    // Unit center is inside obstacle, push in nearest direction
+                    let dx_left = unit.pos.x - obs_min.x;
+                    let dx_right = obs_max.x - unit.pos.x;
+                    let dy_top = unit.pos.y - obs_min.y;
+                    let dy_bot = obs_max.y - unit.pos.y;
+                    let min_d = dx_left.min(dx_right).min(dy_top).min(dy_bot);
+                    if min_d == dx_left { unit.pos.x = obs_min.x - unit.stats.size; }
+                    else if min_d == dx_right { unit.pos.x = obs_max.x + unit.stats.size; }
+                    else if min_d == dy_top { unit.pos.y = obs_min.y - unit.stats.size; }
+                    else { unit.pos.y = obs_max.y + unit.stats.size; }
+                }
+            }
+        }
 
         let s = unit.stats.size;
         unit.pos.x = unit.pos.x.clamp(s, arena_w - s);
@@ -199,6 +235,10 @@ pub fn update_attacks(
 
             let dist = unit.pos.distance(target.1);
             if dist > unit.stats.attack_range {
+                continue;
+            }
+            // Min range check — can't fire at targets too close
+            if unit.stats.min_attack_range > 0.0 && dist < unit.stats.min_attack_range {
                 continue;
             }
 
@@ -352,7 +392,7 @@ pub fn update_attacks(
 }
 
 /// Update projectiles with shield interception, evasion, pierce, and slow.
-pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32) {
+pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32, obstacles: &mut [Obstacle]) {
     let shields: Vec<(u64, u8, Vec2, f32)> = units
         .iter()
         .filter(|u| u.is_shield())
@@ -364,6 +404,21 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
             continue;
         }
         proj.update(dt);
+
+        // Obstacle collision — check if projectile hit a wall or enemy cover
+        let mut hit_obstacle = false;
+        for obs in obstacles.iter_mut() {
+            if !obs.alive { continue; }
+            if !obs.blocks_projectile(proj.team_id) { continue; }
+            if obs.intersects_circle(proj.pos, crate::projectile::PROJECTILE_RADIUS) {
+                // Destructible cover takes damage
+                obs.take_damage(proj.damage);
+                proj.alive = false;
+                hit_obstacle = true;
+                break;
+            }
+        }
+        if hit_obstacle { continue; }
 
         // Shield barrier interception
         let mut intercepted_by_shield: Option<u64> = None;

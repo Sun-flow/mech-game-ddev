@@ -51,6 +51,9 @@ async fn main() {
     let mut net: Option<net::NetState> = None;
     let mut lobby = lobby::LobbyState::new();
     let mut battle_accumulator: f32 = 0.0;
+    let mut game_settings = settings::GameSettings::default();
+    let mut obstacles: Vec<terrain::Obstacle> = Vec::new();
+    let mut show_surrender_confirm = false;
 
     loop {
         let dt = get_frame_time().min(0.05);
@@ -114,6 +117,8 @@ async fn main() {
                             &mut units,
                             &mut projectiles,
                             &mut progress,
+                            &mut obstacles,
+                            &game_settings,
                         );
                         battle_accumulator = 0.0;
                     }
@@ -271,6 +276,8 @@ async fn main() {
                             &mut units,
                             &mut projectiles,
                             &mut progress,
+                            &mut obstacles,
+                            &game_settings,
                         );
                         battle_accumulator = 0.0;
                     }
@@ -300,6 +307,12 @@ async fn main() {
 
                         projectiles.clear();
 
+                        // Generate terrain if enabled
+                        obstacles.clear();
+                        if game_settings.terrain_enabled {
+                            obstacles = terrain::generate_terrain(progress.round, game_settings.terrain_destructible);
+                        }
+
                         // Seed RNG for deterministic battle
                         macroquad::rand::srand(progress.round as u64);
                         battle_accumulator = 0.0;
@@ -328,7 +341,7 @@ async fn main() {
                     while battle_accumulator >= FIXED_DT {
                         battle_accumulator -= FIXED_DT;
                         update_targeting(&mut units);
-                        update_movement(&mut units, FIXED_DT, ARENA_W, ARENA_H);
+                        update_movement(&mut units, FIXED_DT, ARENA_W, ARENA_H, &obstacles);
                         update_attacks(
                             &mut units,
                             &mut projectiles,
@@ -336,12 +349,12 @@ async fn main() {
                             &progress.player_techs,
                             &progress.opponent_techs,
                         );
-                        update_projectiles(&mut projectiles, &mut units, FIXED_DT);
+                        update_projectiles(&mut projectiles, &mut units, FIXED_DT, &mut obstacles);
                     }
                 } else {
                     // Single-player: variable timestep (original behavior)
                     update_targeting(&mut units);
-                    update_movement(&mut units, dt, ARENA_W, ARENA_H);
+                    update_movement(&mut units, dt, ARENA_W, ARENA_H, &obstacles);
                     update_attacks(
                         &mut units,
                         &mut projectiles,
@@ -349,7 +362,7 @@ async fn main() {
                         &progress.player_techs,
                         &progress.opponent_techs,
                     );
-                    update_projectiles(&mut projectiles, &mut units, dt);
+                    update_projectiles(&mut projectiles, &mut units, dt, &mut obstacles);
                 }
 
                 let state = check_match_state(&units);
@@ -935,8 +948,16 @@ fn start_battle_ai(
     units: &mut Vec<Unit>,
     projectiles: &mut Vec<Projectile>,
     progress: &mut MatchProgress,
+    obstacles: &mut Vec<terrain::Obstacle>,
+    game_settings: &settings::GameSettings,
 ) -> GamePhase {
     projectiles.clear();
+
+    // Generate terrain if enabled
+    obstacles.clear();
+    if game_settings.terrain_enabled {
+        *obstacles = terrain::generate_terrain(progress.round, game_settings.terrain_destructible);
+    }
 
     // Remove old opponent units (they'll be respawned fresh from stored packs)
     units.retain(|u| u.team_id == 0);
@@ -1142,3 +1163,4 @@ fn refresh_units_of_kind(units: &mut [Unit], kind: UnitKind, tech_state: &TechSt
         }
     }
 }
+mod settings; mod terrain;

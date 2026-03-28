@@ -54,6 +54,7 @@ pub struct UnitStats {
     pub armor: f32,
     pub splash_radius: f32,
     pub shield_radius: f32,
+    pub min_attack_range: f32,
     pub shape: UnitShape,
 }
 
@@ -187,6 +188,7 @@ impl UnitKind {
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Triangle,
             },
             UnitKind::Sentinel => UnitStats {
@@ -201,6 +203,7 @@ impl UnitKind {
                 armor: 80.0,
                 splash_radius: 15.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Square,
             },
             UnitKind::Ranger => UnitStats {
@@ -215,6 +218,7 @@ impl UnitKind {
                 armor: 10.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Diamond,
             },
             UnitKind::Scout => UnitStats {
@@ -229,6 +233,7 @@ impl UnitKind {
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Circle,
             },
             UnitKind::Bruiser => UnitStats {
@@ -243,6 +248,7 @@ impl UnitKind {
                 armor: 40.0,
                 splash_radius: 25.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Hexagon,
             },
             UnitKind::Artillery => UnitStats {
@@ -257,6 +263,7 @@ impl UnitKind {
                 armor: 0.0,
                 splash_radius: 40.0,
                 shield_radius: 0.0,
+                min_attack_range: 150.0,
                 shape: UnitShape::Pentagon,
             },
             UnitKind::Chaff => UnitStats {
@@ -271,6 +278,7 @@ impl UnitKind {
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Dot,
             },
 
@@ -288,6 +296,7 @@ impl UnitKind {
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
+                min_attack_range: 200.0,
                 shape: UnitShape::Cross,
             },
 
@@ -304,6 +313,7 @@ impl UnitKind {
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Dot,
             },
 
@@ -319,6 +329,7 @@ impl UnitKind {
                 armor: 30.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Octagon,
             },
 
@@ -335,6 +346,7 @@ impl UnitKind {
                 armor: 20.0,
                 splash_radius: 10.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Star,
             },
 
@@ -350,6 +362,7 @@ impl UnitKind {
                 armor: 50.0,
                 splash_radius: 0.0,
                 shield_radius: 80.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Square,
             },
 
@@ -365,6 +378,7 @@ impl UnitKind {
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
+                min_attack_range: 0.0,
                 shape: UnitShape::Diamond,
             },
         }
