@@ -16,7 +16,7 @@ pub enum NetMessage {
         tech_purchases: Vec<(UnitKind, TechId)>,
         gold_remaining: u32,
     },
-    ChatMessage(String),
+    ChatMessage(String, String), // (sender_name, text)
     Surrender,
     RematchRequest,
     BanSelection(Vec<u8>),
@@ -39,7 +39,7 @@ pub struct NetState {
     pub opponent_build: Option<OpponentBuildData>,
     pub local_ready: bool,
     pub disconnected: bool,
-    pub received_chats: Vec<String>,
+    pub received_chats: Vec<(String, String)>, // (sender_name, text)
     pub opponent_surrendered: bool,
     pub opponent_rematch: bool,
     pub opponent_bans: Option<Vec<u8>>,
@@ -117,8 +117,8 @@ impl NetState {
                                 gold_remaining,
                             });
                         }
-                        NetMessage::ChatMessage(text) => {
-                            self.received_chats.push(text);
+                        NetMessage::ChatMessage(name, text) => {
+                            self.received_chats.push((name, text));
                         }
                         NetMessage::Surrender => {
                             self.opponent_surrendered = true;

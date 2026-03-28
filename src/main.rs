@@ -1394,9 +1394,8 @@ async fn main() {
 
         // Receive chat messages from network
         if let Some(ref mut n) = net {
-            for msg in n.received_chats.drain(..) {
-                // Opponent messages come as "name: text"
-                chat_messages.push(("Opponent".to_string(), msg, 1, 5.0));
+            for (name, text) in n.received_chats.drain(..) {
+                chat_messages.push((name, text, 1, 5.0));
             }
         }
 
@@ -1410,7 +1409,7 @@ async fn main() {
                         let text = if chat_input.len() > 100 { chat_input[..100].to_string() } else { chat_input.clone() };
                         chat_messages.push((player_name.clone(), text.clone(), 0, 5.0));
                         if let Some(ref mut n) = net {
-                            n.send(net::NetMessage::ChatMessage(text));
+                            n.send(net::NetMessage::ChatMessage(player_name.clone(), text));
                         }
                     }
                     chat_input.clear();
