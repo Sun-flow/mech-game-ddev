@@ -7,7 +7,7 @@ use crate::pack::all_packs;
 use crate::tech::{TechId, TechState};
 use crate::unit::{Unit, UnitKind};
 
-pub const STARTING_LP: i32 = 1000;
+pub const STARTING_LP: i32 = 3000;
 
 /// Tracks what the AI observed in previous rounds for counter-picking.
 #[derive(Clone, Debug, Default)]

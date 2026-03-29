@@ -3,6 +3,7 @@ mod combat;
 mod economy;
 mod game_state;
 mod lobby;
+pub mod ui;
 mod match_progress;
 mod net;
 mod pack;
@@ -15,7 +16,7 @@ mod unit;
 
 use macroquad::prelude::*;
 
-use arena::{check_match_state, MatchState, ARENA_H, ARENA_W, HALF_W, SHOP_W};
+use arena::{check_match_state, MatchState, ARENA_H, ARENA_W, HALF_W, shop_w};
 use combat::{update_attacks, update_movement, update_projectiles, update_targeting};
 use economy::{ai_buy_techs, ArmyBuilder};
 use game_state::{BuildState, GamePhase};
@@ -60,6 +61,8 @@ async fn main() {
     let mut net: Option<net::NetState> = None;
     let mut lobby = lobby::LobbyState::new();
     let mut battle_accumulator: f32 = 0.0;
+    let mut battle_timer: f32 = 0.0;
+    const ROUND_TIMEOUT: f32 = 90.0;
     let mut game_settings = settings::GameSettings::default();
     let mut main_settings = settings::MainSettings::default();
     let mut obstacles: Vec<terrain::Obstacle> = Vec::new();
@@ -84,6 +87,7 @@ async fn main() {
         let right_click = is_mouse_button_pressed(MouseButton::Right);
         let middle_click = is_mouse_button_pressed(MouseButton::Middle);
         team::set_player_color(game_settings.player_color_index);
+        ui::set_text_scale(main_settings.ui_scale);
         // Apply opponent color if received
         if let Some(ref n) = net {
             if let Some(opp_color) = n.opponent_color {
@@ -202,17 +206,17 @@ async fn main() {
 
                 // Title
                 let title = "Ban Phase — Select up to 2 unit types to ban";
-                let tdims = measure_text(title, None, 24, 1.0);
-                draw_text(title, screen_width() / 2.0 - tdims.width / 2.0, 50.0, 24.0, WHITE);
+                let tdims = crate::ui::measure_scaled_text(title, 24);
+                crate::ui::draw_scaled_text(title, screen_width() / 2.0 - tdims.width / 2.0, crate::ui::s(50.0), 24.0, WHITE);
 
                 // Draw unit cards in a grid (4 cols)
                 let cols = 4;
-                let card_w = 160.0;
-                let card_h = 50.0;
-                let gap = 12.0;
+                let card_w = crate::ui::s(160.0);
+                let card_h = crate::ui::s(50.0);
+                let gap = crate::ui::s(12.0);
                 let grid_w = cols as f32 * card_w + (cols - 1) as f32 * gap;
                 let start_x = screen_width() / 2.0 - grid_w / 2.0;
-                let start_y = 90.0;
+                let start_y = crate::ui::s(90.0);
 
                 for (i, kind) in all_kinds.iter().enumerate() {
                     let col = (i % cols) as f32;
@@ -237,15 +241,15 @@ async fn main() {
                     let name = format!("{:?}", kind);
                     let stats = kind.stats();
                     let info = format!("{} HP:{:.0} DMG:{:.0}", name, stats.max_hp, stats.damage);
-                    draw_text(&info, x + 8.0, y + 20.0, 14.0, if is_banned { Color::new(1.0, 0.5, 0.5, 1.0) } else { WHITE });
+                    crate::ui::draw_scaled_text(&info, x + crate::ui::s(8.0), y + crate::ui::s(20.0), 14.0, if is_banned { Color::new(1.0, 0.5, 0.5, 1.0) } else { WHITE });
 
                     if is_banned {
                         let ban_text = "BANNED";
-                        let bdims = measure_text(ban_text, None, 16, 1.0);
-                        draw_text(ban_text, x + card_w / 2.0 - bdims.width / 2.0, y + 40.0, 16.0, RED);
+                        let bdims = crate::ui::measure_scaled_text(ban_text, 16);
+                        crate::ui::draw_scaled_text(ban_text, x + card_w / 2.0 - bdims.width / 2.0, y + crate::ui::s(40.0), 16.0, RED);
                     } else {
                         let detail = format!("RNG:{:.0} SPD:{:.0} AS:{:.1}", stats.attack_range, stats.move_speed, stats.attack_speed);
-                        draw_text(&detail, x + 8.0, y + 38.0, 12.0, LIGHTGRAY);
+                        crate::ui::draw_scaled_text(&detail, x + crate::ui::s(8.0), y + crate::ui::s(38.0), 12.0, LIGHTGRAY);
                     }
 
                     // Click to toggle ban
@@ -259,17 +263,17 @@ async fn main() {
                 }
 
                 // Confirm button
-                let btn_w = 200.0;
-                let btn_h = 45.0;
+                let btn_w = crate::ui::s(200.0);
+                let btn_h = crate::ui::s(45.0);
                 let btn_x = screen_width() / 2.0 - btn_w / 2.0;
-                let btn_y = start_y + 4.0 * (card_h + gap) + 20.0;
+                let btn_y = start_y + 4.0 * (card_h + gap) + crate::ui::s(20.0);
                 let btn_hover = screen_mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= btn_y && mouse.y <= btn_y + btn_h;
                 let btn_color = if btn_hover { Color::new(0.2, 0.6, 0.3, 0.9) } else { Color::new(0.15, 0.45, 0.2, 0.8) };
                 draw_rectangle(btn_x, btn_y, btn_w, btn_h, btn_color);
                 draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 1.0, WHITE);
                 let confirm_text = format!("Confirm Bans ({}/ 2)", bans.len());
-                let cdims = measure_text(&confirm_text, None, 20, 1.0);
-                draw_text(&confirm_text, btn_x + btn_w / 2.0 - cdims.width / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+                let cdims = crate::ui::measure_scaled_text(&confirm_text, 20);
+                crate::ui::draw_scaled_text(&confirm_text, btn_x + btn_w / 2.0 - cdims.width / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
 
                 // Poll network for opponent bans
                 if let Some(ref mut n) = net {
@@ -295,11 +299,11 @@ async fn main() {
 
                 // Show waiting indicator
                 if *confirmed && net.is_some() && opponent_bans.is_none() {
-                    let wait_y = btn_y + btn_h + 15.0;
+                    let wait_y = btn_y + btn_h + crate::ui::s(15.0);
                     let dots = ".".repeat((get_time() * 2.0) as usize % 4);
                     let wait_text = format!("Waiting for opponent bans{}", dots);
-                    let wdims = measure_text(&wait_text, None, 16, 1.0);
-                    draw_text(&wait_text, screen_width() / 2.0 - wdims.width / 2.0, wait_y, 16.0, LIGHTGRAY);
+                    let wdims = crate::ui::measure_scaled_text(&wait_text, 16);
+                    crate::ui::draw_scaled_text(&wait_text, screen_width() / 2.0 - wdims.width / 2.0, wait_y, 16.0, LIGHTGRAY);
                 }
 
                 // Transition when ready
@@ -352,6 +356,14 @@ async fn main() {
                                     build.reposition_pack_units(placed_index, &mut units);
                                 }
                             }
+                            game_state::UndoEntry::MultiMove { indices, old_centers } => {
+                                for (i, &idx) in indices.iter().enumerate() {
+                                    if idx < build.placed_packs.len() {
+                                        build.placed_packs[idx].center = old_centers[i];
+                                        build.reposition_pack_units(idx, &mut units);
+                                    }
+                                }
+                            }
                             game_state::UndoEntry::Tech { kind, tech_id } => {
                                 // Refund tech cost
                                 let cost = progress.player_techs.effective_cost(kind);
@@ -390,14 +402,15 @@ async fn main() {
                             &game_settings,
                         );
                         battle_accumulator = 0.0;
+                        battle_timer = 0.0;
                     }
                     continue;
                 }
 
                 // Shop interaction (left click in shop area, only when not holding a pack)
-                if left_click && screen_mouse.x < SHOP_W && build.dragging.is_none() {
+                if left_click && screen_mouse.x < shop_w() && build.dragging.is_none() {
                     if let Some(pack_idx) =
-                        shop::draw_shop(build.builder.gold_remaining, screen_mouse, true, &progress.banned_kinds)
+                        shop::draw_shop(build.builder.gold_remaining, screen_mouse, true, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round)
                     {
                         if let Some(new_units) = build.purchase_pack(
                             pack_idx,
@@ -423,9 +436,9 @@ async fn main() {
                     let purchased_count = progress.player_techs.tech_count(kind);
                     let has_combat = cs.damage_dealt_total > 0.0 || cs.damage_soaked_total > 0.0;
                     let combat_extra = if has_combat { 5.0 * 15.0 + 30.0 } else { 0.0 };
-                    let panel_h = 120.0 + (available_count + purchased_count) as f32 * 35.0 + combat_extra + 20.0;
-                    if screen_mouse.x >= 490.0 && screen_mouse.x <= 700.0
-                        && screen_mouse.y >= 30.0 && screen_mouse.y <= 30.0 + panel_h
+                    let panel_h = crate::ui::s(120.0) + (available_count + purchased_count) as f32 * crate::ui::s(35.0) + crate::ui::s(combat_extra) + crate::ui::s(20.0);
+                    if screen_mouse.x >= crate::ui::s(490.0) && screen_mouse.x <= crate::ui::s(700.0)
+                        && screen_mouse.y >= crate::ui::s(30.0) && screen_mouse.y <= crate::ui::s(30.0) + panel_h
                     {
                         click_consumed = true;
                     }
@@ -452,7 +465,7 @@ async fn main() {
                 }
 
                 // Right-click: sell if on unlocked pack, otherwise deselect
-                if right_click && screen_mouse.x > SHOP_W && build.dragging.is_none() {
+                if right_click && screen_mouse.x > shop_w() && build.dragging.is_none() {
                     let mut sold = false;
                     if let Some(placed_idx) = build.pack_at(mouse) {
                         if !build.placed_packs[placed_idx].locked {
@@ -469,7 +482,7 @@ async fn main() {
                 }
 
                 // Middle-click to rotate (only unlocked)
-                if middle_click && screen_mouse.x > SHOP_W {
+                if middle_click && screen_mouse.x > shop_w() {
                     if let Some(drag_idx) = build.dragging {
                         if !build.placed_packs[drag_idx].locked {
                             build.rotate_pack(drag_idx, &mut units);
@@ -481,7 +494,144 @@ async fn main() {
                     }
                 }
 
-                // Click-to-hold/place logic with selection
+                // === Multi-drag system ===
+                let left_released = is_mouse_button_released(MouseButton::Left);
+
+                // Active multi-drag: move all packs together
+                if !build.multi_dragging.is_empty() {
+                    let grid = terrain::GRID_CELL;
+                    let snapped_mouse = vec2(
+                        (mouse.x / grid).round() * grid,
+                        (mouse.y / grid).round() * grid,
+                    );
+                    for (i, &pack_idx) in build.multi_dragging.clone().iter().enumerate() {
+                        let offset = build.multi_drag_offsets[i];
+                        let new_center = snapped_mouse + offset;
+                        let pack = &all_packs()[build.placed_packs[pack_idx].pack_index];
+                        let half = build.placed_packs[pack_idx].bbox_half_size_for(pack);
+                        let clamped = vec2(
+                            new_center.x.clamp(half.x, HALF_W - half.x),
+                            new_center.y.clamp(half.y, ARENA_H - half.y),
+                        );
+                        build.placed_packs[pack_idx].center = clamped;
+                        build.reposition_pack_units(pack_idx, &mut units);
+                    }
+
+                    if left_click {
+                        // Drop all — check overlaps
+                        let dragging_set: Vec<usize> = build.multi_dragging.clone();
+                        let mut any_overlap = false;
+                        for &pack_idx in &dragging_set {
+                            let placed = &build.placed_packs[pack_idx];
+                            // Check overlap against non-dragged packs
+                            for (j, other) in build.placed_packs.iter().enumerate() {
+                                if dragging_set.contains(&j) { continue; }
+                                let p1 = &all_packs()[placed.pack_index];
+                                let p2 = &all_packs()[other.pack_index];
+                                if placed.overlaps(other, p1, p2) {
+                                    any_overlap = true;
+                                    break;
+                                }
+                            }
+                            if any_overlap { break; }
+                        }
+
+                        if any_overlap {
+                            // Revert all to pre-centers
+                            for (i, &pack_idx) in dragging_set.iter().enumerate() {
+                                build.placed_packs[pack_idx].center = build.multi_drag_pre_centers[i];
+                                build.reposition_pack_units(pack_idx, &mut units);
+                            }
+                        } else {
+                            // Check if any actually moved
+                            let mut any_moved = false;
+                            for (i, &pack_idx) in dragging_set.iter().enumerate() {
+                                if build.placed_packs[pack_idx].center != build.multi_drag_pre_centers[i] {
+                                    any_moved = true;
+                                    break;
+                                }
+                            }
+                            if any_moved {
+                                build.undo_history.push(game_state::UndoEntry::MultiMove {
+                                    indices: dragging_set.clone(),
+                                    old_centers: build.multi_drag_pre_centers.clone(),
+                                });
+                            }
+                        }
+                        build.multi_dragging.clear();
+                        build.multi_drag_offsets.clear();
+                        build.multi_drag_pre_centers.clear();
+                    }
+
+                    if right_click {
+                        // Cancel — revert all
+                        let dragging_set: Vec<usize> = build.multi_dragging.clone();
+                        for (i, &pack_idx) in dragging_set.iter().enumerate() {
+                            build.placed_packs[pack_idx].center = build.multi_drag_pre_centers[i];
+                            build.reposition_pack_units(pack_idx, &mut units);
+                        }
+                        build.multi_dragging.clear();
+                        build.multi_drag_offsets.clear();
+                        build.multi_drag_pre_centers.clear();
+                    }
+                }
+                // Drag-box: track while held, complete on release
+                else if let Some(box_start) = build.drag_box_start {
+                    if left_released {
+                        let box_end = mouse;
+                        let min_x = box_start.x.min(box_end.x);
+                        let max_x = box_start.x.max(box_end.x);
+                        let min_y = box_start.y.min(box_end.y);
+                        let max_y = box_start.y.max(box_end.y);
+
+                        // Minimum box size threshold to distinguish from accidental micro-drag
+                        if (max_x - min_x) > 5.0 || (max_y - min_y) > 5.0 {
+                            let packs = all_packs();
+                            let mut selected_indices = Vec::new();
+                            for (i, placed) in build.placed_packs.iter().enumerate() {
+                                if placed.locked { continue; }
+                                let pack = &packs[placed.pack_index];
+                                let half = placed.bbox_half_size_for(pack);
+                                let p_min = placed.center - half;
+                                let p_max = placed.center + half;
+                                // AABB intersection test
+                                if p_min.x < max_x && p_max.x > min_x && p_min.y < max_y && p_max.y > min_y {
+                                    selected_indices.push(i);
+                                }
+                            }
+
+                            if !selected_indices.is_empty() {
+                                // Compute anchor as center of selection box
+                                let anchor = vec2((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+                                let mut offsets = Vec::new();
+                                let mut pre_centers = Vec::new();
+                                for &idx in &selected_indices {
+                                    offsets.push(build.placed_packs[idx].center - anchor);
+                                    pre_centers.push(build.placed_packs[idx].center);
+                                }
+                                build.multi_dragging = selected_indices;
+                                build.multi_drag_offsets = offsets;
+                                build.multi_drag_pre_centers = pre_centers;
+                                build.selected_pack = None;
+                            }
+                        }
+                        build.drag_box_start = None;
+                    }
+                    // Right-click cancels the drag box
+                    if right_click {
+                        build.drag_box_start = None;
+                    }
+                }
+                // Start drag-box when clicking empty space (not on a pack, not on UI)
+                else if left_click && screen_mouse.x > shop_w() && !click_consumed
+                    && build.dragging.is_none() && build.multi_dragging.is_empty()
+                    && build.pack_at(mouse).is_none() && build.selected_pack.is_none()
+                {
+                    build.drag_box_start = Some(mouse);
+                }
+
+                // === Single-pack click-to-hold/place logic ===
+                if build.multi_dragging.is_empty() && build.drag_box_start.is_none() {
                 if let Some(drag_idx) = build.dragging {
                     // Currently holding a pack — follow mouse
                     let pack = &all_packs()[build.placed_packs[drag_idx].pack_index];
@@ -519,7 +669,7 @@ async fn main() {
                         build.reposition_pack_units(drag_idx, &mut units);
                         build.dragging = None;
                     }
-                } else if left_click && screen_mouse.x > SHOP_W && !click_consumed {
+                } else if left_click && screen_mouse.x > shop_w() && !click_consumed {
                     // Not holding — selection logic
                     if let Some(placed_idx) = build.pack_at(mouse) {
                         if build.selected_pack == Some(placed_idx) {
@@ -546,12 +696,13 @@ async fn main() {
                         }
                     }
                 }
+                } // end multi_dragging.is_empty() guard
 
                 // Begin Round button (screen-space UI)
-                let btn_w = 160.0;
-                let btn_h = 40.0;
+                let btn_w = crate::ui::s(160.0);
+                let btn_h = crate::ui::s(40.0);
                 let btn_x = screen_width() / 2.0 - btn_w / 2.0;
-                let btn_y = screen_height() - 55.0;
+                let btn_y = screen_height() - crate::ui::s(55.0);
                 if left_click
                     && screen_mouse.x >= btn_x
                     && screen_mouse.x <= btn_x + btn_w
@@ -574,6 +725,7 @@ async fn main() {
                             &game_settings,
                         );
                         battle_accumulator = 0.0;
+                        battle_timer = 0.0;
                     }
                     continue;
                 }
@@ -612,6 +764,7 @@ async fn main() {
                         // Seed RNG for deterministic battle
                         macroquad::rand::srand(progress.round as u64);
                         battle_accumulator = 0.0;
+                        battle_timer = 0.0;
 
                         // Reset per-round damage stats
                         for unit in units.iter_mut() {
@@ -684,30 +837,34 @@ async fn main() {
 
                 // Surrender confirmation handling
                 if show_surrender_confirm && is_mouse_button_pressed(MouseButton::Left) {
-                    let btn_w = 120.0;
-                    let btn_h = 40.0;
+                    let btn_w = crate::ui::s(120.0);
+                    let btn_h = crate::ui::s(40.0);
                     let cx = screen_width() / 2.0;
                     let cy = screen_height() / 2.0;
                     // "Yes" button
-                    let yes_x = cx - btn_w - 10.0;
-                    let yes_y = cy + 10.0;
+                    let yes_x = cx - btn_w - crate::ui::s(10.0);
+                    let yes_y = cy + crate::ui::s(10.0);
                     if screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h {
                         progress.player_lp = 0;
                         show_surrender_confirm = false;
                         phase = GamePhase::GameOver(1);
                     }
                     // "Cancel" button
-                    let no_x = cx + 10.0;
-                    let no_y = cy + 10.0;
+                    let no_x = cx + crate::ui::s(10.0);
+                    let no_y = cy + crate::ui::s(10.0);
                     if screen_mouse.x >= no_x && screen_mouse.x <= no_x + btn_w && screen_mouse.y >= no_y && screen_mouse.y <= no_y + btn_h {
                         show_surrender_confirm = false;
                     }
                 }
 
+                // Round timeout
+                battle_timer += dt;
+                let timed_out = battle_timer >= ROUND_TIMEOUT;
+
                 let state = check_match_state(&units);
                 let is_multiplayer = net.is_some();
                 let is_host_game = net.as_ref().map_or(true, |n| n.is_host);
-                let battle_ended = state != MatchState::InProgress && projectiles.is_empty();
+                let battle_ended = (state != MatchState::InProgress && projectiles.is_empty()) || timed_out;
 
                 // Guest waiting for host's authoritative round result
                 if waiting_for_round_end {
@@ -752,7 +909,7 @@ async fn main() {
                 }
 
                 if battle_ended && !waiting_for_round_end {
-                    let final_state = check_match_state(&units);
+                    let final_state = if timed_out { MatchState::Draw } else { check_match_state(&units) };
 
                     // Record AI memory for counter-picking
                     let ai_won = match &final_state {
@@ -762,14 +919,25 @@ async fn main() {
                     progress.ai_memory.record_round(&units, ai_won);
 
                     // Calculate LP damage
-                    let (lp_damage, loser_team) = match &final_state {
-                        MatchState::Winner(winner) => {
-                            let damage = MatchProgress::calculate_lp_damage(&units, *winner);
-                            let loser = if *winner == 0 { 1u8 } else { 0u8 };
-                            (damage, Some(loser))
+                    let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count() as i32;
+                    let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count() as i32;
+
+                    let (lp_damage, loser_team) = if timed_out {
+                        // Timeout: both players take damage equal to opponent's surviving units
+                        // Apply as mutual damage (no single loser)
+                        progress.player_lp -= alive_1;
+                        progress.opponent_lp -= alive_0;
+                        (0, None) // damage already applied directly
+                    } else {
+                        match &final_state {
+                            MatchState::Winner(winner) => {
+                                let damage = MatchProgress::calculate_lp_damage(&units, *winner);
+                                let loser = if *winner == 0 { 1u8 } else { 0u8 };
+                                (damage, Some(loser))
+                            }
+                            MatchState::Draw => (0, None),
+                            MatchState::InProgress => unreachable!(),
                         }
-                        MatchState::Draw => (0, None),
-                        MatchState::InProgress => unreachable!(),
                     };
 
                     if is_multiplayer && !is_host_game {
@@ -780,8 +948,8 @@ async fn main() {
                         // Host or single-player: we are authoritative
                         if is_multiplayer {
                             // Host sends round result to guest
-                            let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count() as u16;
-                            let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count() as u16;
+                            let alive_0 = alive_0 as u16;
+                            let alive_1 = alive_1 as u16;
                             let total_hp_0: i32 = units.iter().filter(|u| u.alive && u.team_id == 0).map(|u| u.hp as i32).sum();
                             let total_hp_1: i32 = units.iter().filter(|u| u.alive && u.team_id == 1).map(|u| u.hp as i32).sum();
                             let winner = match &final_state {
@@ -901,12 +1069,12 @@ async fn main() {
                 }
 
                 // Rematch button click — position must match render (panel_y + panel_h + 8 + 15)
-                let rmatch_w = 160.0;
-                let rmatch_h = 40.0;
+                let rmatch_w = crate::ui::s(160.0);
+                let rmatch_h = crate::ui::s(40.0);
                 let rmatch_x = screen_width() / 2.0 - rmatch_w / 2.0;
                 let rmatch_panel_y = screen_height() / 2.0 + 10.0;
-                let rmatch_panel_h = 140.0;
-                let rmatch_y = rmatch_panel_y + rmatch_panel_h + 8.0 + 15.0;
+                let rmatch_panel_h = crate::ui::s(140.0);
+                let rmatch_y = rmatch_panel_y + rmatch_panel_h + crate::ui::s(8.0) + crate::ui::s(15.0);
                 if left_click && screen_mouse.x >= rmatch_x && screen_mouse.x <= rmatch_x + rmatch_w
                     && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
                 {
@@ -968,14 +1136,14 @@ async fn main() {
             }
         }
 
-        // Draw shield barrier circles
+        // Draw shield barrier circles (only while barrier has HP)
         for unit in &units {
-            if !unit.alive || !unit.is_shield() {
+            if !unit.alive || !unit.is_shield() || unit.shield_hp <= 0.0 {
                 continue;
             }
             let tc = team_color(unit.team_id);
-            let hp_frac = unit.hp / unit.stats.max_hp;
-            let alpha = 0.12 + 0.12 * hp_frac;
+            let shield_frac = if unit.stats.shield_hp > 0.0 { unit.shield_hp / unit.stats.shield_hp } else { 0.0 };
+            let alpha = 0.12 + 0.12 * shield_frac;
             draw_circle(
                 unit.pos.x,
                 unit.pos.y,
@@ -987,7 +1155,7 @@ async fn main() {
                 unit.pos.y,
                 unit.stats.shield_radius,
                 1.5,
-                Color::new(tc.r, tc.g, tc.b, 0.4 * hp_frac + 0.1),
+                Color::new(tc.r, tc.g, tc.b, 0.4 * shield_frac + 0.1),
             );
         }
 
@@ -1096,6 +1264,17 @@ async fn main() {
             draw_rectangle(0.0, 0.0, HALF_W, ARENA_H, Color::new(0.2, 0.3, 0.5, 0.05));
             draw_rectangle(HALF_W, 0.0, HALF_W, ARENA_H, Color::new(0.5, 0.2, 0.2, 0.05));
 
+            // Drag-box selection rectangle
+            if let Some(box_start) = build.drag_box_start {
+                let box_end = world_mouse;
+                let min_x = box_start.x.min(box_end.x);
+                let min_y = box_start.y.min(box_end.y);
+                let w = (box_start.x - box_end.x).abs();
+                let h = (box_start.y - box_end.y).abs();
+                draw_rectangle(min_x, min_y, w, h, Color::new(0.2, 0.5, 1.0, 0.15));
+                draw_rectangle_lines(min_x, min_y, w, h, 1.5, Color::new(0.3, 0.6, 1.0, 0.8));
+            }
+
             // Pack bounding boxes
             let packs = all_packs();
             for (i, placed) in build.placed_packs.iter().enumerate() {
@@ -1103,7 +1282,18 @@ async fn main() {
                 let half = placed.bbox_half_size_for(pack);
                 let min = placed.center - half;
 
-                let bbox_color = if build.dragging == Some(i)
+                let is_multi_dragged = build.multi_dragging.contains(&i);
+                let bbox_color = if is_multi_dragged {
+                    // Check overlap against non-dragged packs
+                    let mut overlap = false;
+                    for (j, other) in build.placed_packs.iter().enumerate() {
+                        if build.multi_dragging.contains(&j) { continue; }
+                        let p1 = &packs[placed.pack_index];
+                        let p2 = &packs[other.pack_index];
+                        if placed.overlaps(other, p1, p2) { overlap = true; break; }
+                    }
+                    if overlap { Color::new(1.0, 0.2, 0.2, 0.6) } else { Color::new(0.2, 1.0, 0.3, 0.5) }
+                } else if build.dragging == Some(i)
                     && build.would_overlap(
                         placed.center,
                         placed.pack_index,
@@ -1170,7 +1360,7 @@ async fn main() {
             }
 
             GamePhase::Build => {
-                shop::draw_shop(build.builder.gold_remaining, screen_mouse, false, &progress.banned_kinds);
+                shop::draw_shop(build.builder.gold_remaining, screen_mouse, false, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round);
 
                 // Pack labels (drawn in screen-space so text isn't distorted by camera zoom)
                 {
@@ -1190,7 +1380,7 @@ async fn main() {
                         } else {
                             Color::new(0.7, 0.7, 0.7, 0.6)
                         };
-                        draw_text(&label, screen_pos.x, screen_pos.y, 14.0, label_color);
+                        crate::ui::draw_scaled_text(&label, screen_pos.x, screen_pos.y, 14.0, label_color);
                     }
                     for opponent_pack in &progress.opponent_packs {
                         let pack = &packs[opponent_pack.pack_index];
@@ -1198,7 +1388,7 @@ async fn main() {
                         let world_pos = vec2(opponent_pack.center.x - half.x + 2.0, opponent_pack.center.y - half.y - 2.0);
                         let screen_pos = arena_camera.world_to_screen(world_pos);
                         let label = format!("{} (R{})", pack.name, opponent_pack.round_placed);
-                        draw_text(&label, screen_pos.x, screen_pos.y, 12.0, Color::new(0.4, 0.4, 0.6, 0.4));
+                        crate::ui::draw_scaled_text(&label, screen_pos.x, screen_pos.y, 12.0, Color::new(0.4, 0.4, 0.6, 0.4));
                     }
                 }
 
@@ -1224,13 +1414,13 @@ async fn main() {
                     let packs = all_packs();
                     build.placed_packs.iter().map(|p| packs[p.pack_index].cost).sum()
                 };
-                draw_hud(&progress, build.builder.gold_remaining, build.timer, army_value);
+                draw_hud(&progress, build.builder.gold_remaining, build.timer, army_value, 0.0);
 
                 // Begin Round button (screen-space)
-                let btn_w = 160.0;
-                let btn_h = 40.0;
+                let btn_w = crate::ui::s(160.0);
+                let btn_h = crate::ui::s(40.0);
                 let btn_x = screen_width() / 2.0 - btn_w / 2.0;
-                let btn_y = screen_height() - 55.0;
+                let btn_y = screen_height() - crate::ui::s(55.0);
                 let btn_hovered = screen_mouse.x >= btn_x
                     && screen_mouse.x <= btn_x + btn_w
                     && screen_mouse.y >= btn_y
@@ -1250,8 +1440,8 @@ async fn main() {
                     Color::new(0.3, 0.8, 0.4, 1.0),
                 );
                 let btn_text = "Begin Round";
-                let tdims = measure_text(btn_text, None, 22, 1.0);
-                draw_text(
+                let tdims = crate::ui::measure_scaled_text(btn_text, 22);
+                crate::ui::draw_scaled_text(
                     btn_text,
                     btn_x + btn_w / 2.0 - tdims.width / 2.0,
                     btn_y + btn_h / 2.0 + 7.0,
@@ -1260,22 +1450,22 @@ async fn main() {
                 );
 
                 // Hint text (screen-space)
-                draw_text(
+                crate::ui::draw_scaled_text(
                     "Select → Double-click move | Mid-click rotate | Right-click sell | G: Grid | Ctrl+Z: Undo | Scroll: Zoom",
-                    SHOP_W + 10.0,
-                    screen_height() - 10.0,
+                    shop_w() + 10.0,
+                    screen_height() - crate::ui::s(10.0),
                     13.0,
                     Color::new(0.5, 0.5, 0.5, 0.7),
                 );
             }
 
             GamePhase::WaitingForOpponent => {
-                draw_hud(&progress, build.builder.gold_remaining, 0.0, 0);
+                draw_hud(&progress, build.builder.gold_remaining, 0.0, 0, 0.0);
 
                 let dots = ".".repeat(((get_time() * 2.0) as usize % 4));
                 let wait_text = format!("Waiting for opponent{}", dots);
-                let wdims = measure_text(&wait_text, None, 28, 1.0);
-                draw_text(
+                let wdims = crate::ui::measure_scaled_text(&wait_text, 28);
+                crate::ui::draw_scaled_text(
                     &wait_text,
                     screen_width() / 2.0 - wdims.width / 2.0,
                     screen_height() / 2.0,
@@ -1285,22 +1475,24 @@ async fn main() {
             }
 
             GamePhase::Battle => {
-                draw_hud(&progress, 0, 0.0, 0);
+                let remaining = (ROUND_TIMEOUT - battle_timer).max(0.0);
+                draw_hud(&progress, 0, 0.0, 0, remaining);
+
                 let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count();
                 let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count();
-                draw_text(
+                crate::ui::draw_scaled_text(
                     &format!("Red: {}", alive_0),
-                    10.0,
-                    screen_height() - 15.0,
+                    crate::ui::s(10.0),
+                    screen_height() - crate::ui::s(15.0),
                     20.0,
                     team_color(0),
                 );
                 let blue_text = format!("Blue: {}", alive_1);
-                let bdims = measure_text(&blue_text, None, 20, 1.0);
-                draw_text(
+                let bdims = crate::ui::measure_scaled_text(&blue_text, 20);
+                crate::ui::draw_scaled_text(
                     &blue_text,
-                    screen_width() - bdims.width - 10.0,
-                    screen_height() - 15.0,
+                    screen_width() - bdims.width - crate::ui::s(10.0),
+                    screen_height() - crate::ui::s(15.0),
                     20.0,
                     team_color(1),
                 );
@@ -1310,10 +1502,10 @@ async fn main() {
                     for obs in &obstacles {
                         if !obs.alive { continue; }
                         if obs.contains_point(world_mouse) {
-                            let tip_x = screen_mouse.x + 15.0;
-                            let tip_y = (screen_mouse.y - 10.0).max(5.0);
-                            let tip_w = 170.0;
-                            let tip_h = if obs.obstacle_type == terrain::ObstacleType::Cover { 60.0 } else { 45.0 };
+                            let tip_x = screen_mouse.x + crate::ui::s(15.0);
+                            let tip_y = (screen_mouse.y - crate::ui::s(10.0)).max(5.0);
+                            let tip_w = crate::ui::s(170.0);
+                            let tip_h = if obs.obstacle_type == terrain::ObstacleType::Cover { crate::ui::s(60.0) } else { crate::ui::s(45.0) };
 
                             draw_rectangle(tip_x, tip_y, tip_w, tip_h, Color::new(0.08, 0.08, 0.12, 0.95));
                             draw_rectangle_lines(tip_x, tip_y, tip_w, tip_h, 1.0, Color::new(0.4, 0.5, 0.6, 0.7));
@@ -1322,15 +1514,15 @@ async fn main() {
                                 terrain::ObstacleType::Wall => "Wall (Indestructible)",
                                 terrain::ObstacleType::Cover => "Cover (Destructible)",
                             };
-                            draw_text(type_name, tip_x + 6.0, tip_y + 16.0, 14.0, WHITE);
+                            crate::ui::draw_scaled_text(type_name, tip_x + crate::ui::s(6.0), tip_y + crate::ui::s(16.0), 14.0, WHITE);
 
-                            let mut ty = tip_y + 32.0;
+                            let mut ty = tip_y + crate::ui::s(32.0);
                             if obs.obstacle_type == terrain::ObstacleType::Cover {
-                                draw_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + 6.0, ty, 12.0, LIGHTGRAY);
-                                ty += 14.0;
+                                crate::ui::draw_scaled_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
+                                ty += crate::ui::s(14.0);
                             }
                             let team_name = match obs.team_id { 0 => "Player", 1 => "Opponent", _ => "Neutral" };
-                            draw_text(&format!("Owner: {}", team_name), tip_x + 6.0, ty, 12.0, LIGHTGRAY);
+                            crate::ui::draw_scaled_text(&format!("Owner: {}", team_name), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
                             break;
                         }
                     }
@@ -1340,35 +1532,35 @@ async fn main() {
                 if show_surrender_confirm {
                     draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.6));
                     let title = "Surrender?";
-                    let tdims = measure_text(title, None, 36, 1.0);
-                    draw_text(title, screen_width() / 2.0 - tdims.width / 2.0, screen_height() / 2.0 - 20.0, 36.0, WHITE);
+                    let tdims = crate::ui::measure_scaled_text(title, 36);
+                    crate::ui::draw_scaled_text(title, screen_width() / 2.0 - tdims.width / 2.0, screen_height() / 2.0 - crate::ui::s(20.0), 36.0, WHITE);
 
-                    let btn_w: f32 = 120.0;
-                    let btn_h: f32 = 40.0;
+                    let btn_w: f32 = crate::ui::s(120.0);
+                    let btn_h: f32 = crate::ui::s(40.0);
                     let cx = screen_width() / 2.0;
                     let cy = screen_height() / 2.0;
 
                     // Yes button
-                    let yes_x = cx - btn_w - 10.0;
-                    let yes_y = cy + 10.0;
+                    let yes_x = cx - btn_w - crate::ui::s(10.0);
+                    let yes_y = cy + crate::ui::s(10.0);
                     let yes_hover = screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h;
                     let yes_color = if yes_hover { Color::new(0.8, 0.2, 0.2, 0.9) } else { Color::new(0.6, 0.15, 0.15, 0.8) };
                     draw_rectangle(yes_x, yes_y, btn_w, btn_h, yes_color);
                     draw_rectangle_lines(yes_x, yes_y, btn_w, btn_h, 1.0, WHITE);
                     let yt = "Yes";
-                    let ydims = measure_text(yt, None, 20, 1.0);
-                    draw_text(yt, yes_x + btn_w / 2.0 - ydims.width / 2.0, yes_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+                    let ydims = crate::ui::measure_scaled_text(yt, 20);
+                    crate::ui::draw_scaled_text(yt, yes_x + btn_w / 2.0 - ydims.width / 2.0, yes_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
 
                     // Cancel button
-                    let no_x = cx + 10.0;
-                    let no_y = cy + 10.0;
+                    let no_x = cx + crate::ui::s(10.0);
+                    let no_y = cy + crate::ui::s(10.0);
                     let no_hover = screen_mouse.x >= no_x && screen_mouse.x <= no_x + btn_w && screen_mouse.y >= no_y && screen_mouse.y <= no_y + btn_h;
                     let no_color = if no_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
                     draw_rectangle(no_x, no_y, btn_w, btn_h, no_color);
                     draw_rectangle_lines(no_x, no_y, btn_w, btn_h, 1.0, WHITE);
                     let nt = "Cancel";
-                    let ndims = measure_text(nt, None, 20, 1.0);
-                    draw_text(nt, no_x + btn_w / 2.0 - ndims.width / 2.0, no_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+                    let ndims = crate::ui::measure_scaled_text(nt, 20);
+                    crate::ui::draw_scaled_text(nt, no_x + btn_w / 2.0 - ndims.width / 2.0, no_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
                 }
             }
 
@@ -1377,7 +1569,7 @@ async fn main() {
                 lp_damage,
                 loser_team,
             } => {
-                draw_hud(&progress, 0, 0.0, 0);
+                draw_hud(&progress, 0, 0.0, 0, 0.0);
 
                 let text = match match_state {
                     MatchState::Winner(tid) => {
@@ -1388,11 +1580,11 @@ async fn main() {
                     MatchState::InProgress => unreachable!(),
                 };
 
-                let dims = measure_text(&text, None, 36, 1.0);
-                draw_text(
+                let dims = crate::ui::measure_scaled_text(&text, 36);
+                crate::ui::draw_scaled_text(
                     &text,
                     screen_width() / 2.0 - dims.width / 2.0,
-                    screen_height() / 2.0 - 30.0,
+                    screen_height() / 2.0 - crate::ui::s(30.0),
                     36.0,
                     WHITE,
                 );
@@ -1400,11 +1592,11 @@ async fn main() {
                 if let Some(loser) = loser_team {
                     let loser_name = if *loser == 0 { "Player" } else { "Opponent" };
                     let dmg_text = format!("{} loses {} LP", loser_name, lp_damage);
-                    let ddims = measure_text(&dmg_text, None, 22, 1.0);
-                    draw_text(
+                    let ddims = crate::ui::measure_scaled_text(&dmg_text, 22);
+                    crate::ui::draw_scaled_text(
                         &dmg_text,
                         screen_width() / 2.0 - ddims.width / 2.0,
-                        screen_height() / 2.0 + 5.0,
+                        screen_height() / 2.0 + crate::ui::s(5.0),
                         22.0,
                         Color::new(1.0, 0.4, 0.3, 1.0),
                     );
@@ -1415,11 +1607,11 @@ async fn main() {
                 } else {
                     "Press Space for next round"
                 };
-                let ndims = measure_text(next_text, None, 18, 1.0);
-                draw_text(
+                let ndims = crate::ui::measure_scaled_text(next_text, 18);
+                crate::ui::draw_scaled_text(
                     next_text,
                     screen_width() / 2.0 - ndims.width / 2.0,
-                    screen_height() / 2.0 + 35.0,
+                    screen_height() / 2.0 + crate::ui::s(35.0),
                     18.0,
                     LIGHTGRAY,
                 );
@@ -1436,29 +1628,29 @@ async fn main() {
                 } else {
                     Color::new(1.0, 0.3, 0.2, 1.0)
                 };
-                let dims = measure_text(text, None, 48, 1.0);
-                draw_text(
+                let dims = crate::ui::measure_scaled_text(text, 48);
+                crate::ui::draw_scaled_text(
                     text,
                     screen_width() / 2.0 - dims.width / 2.0,
-                    screen_height() / 2.0 - 20.0,
+                    screen_height() / 2.0 - crate::ui::s(20.0),
                     48.0,
                     color,
                 );
 
                 // Stats panel
-                let panel_w = 320.0;
-                let panel_h = 140.0;
+                let panel_w = crate::ui::s(320.0);
+                let panel_h = crate::ui::s(140.0);
                 let panel_x = screen_width() / 2.0 - panel_w / 2.0;
                 let panel_y = screen_height() / 2.0 + 10.0;
                 draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.08, 0.08, 0.12, 0.9));
                 draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 1.0, Color::new(0.4, 0.5, 0.6, 0.7));
 
-                let mut sy = panel_y + 18.0;
-                let sx = panel_x + 12.0;
+                let mut sy = panel_y + crate::ui::s(18.0);
+                let sx = panel_x + crate::ui::s(12.0);
 
                 let round_text = format!("Rounds Played: {}", progress.round);
-                draw_text(&round_text, sx, sy, 15.0, LIGHTGRAY);
-                sy += 18.0;
+                crate::ui::draw_scaled_text(&round_text, sx, sy, 15.0, LIGHTGRAY);
+                sy += crate::ui::s(18.0);
 
                 // MVP
                 let mvp = units.iter()
@@ -1466,45 +1658,45 @@ async fn main() {
                     .max_by(|a, b| a.damage_dealt_total.partial_cmp(&b.damage_dealt_total).unwrap_or(std::cmp::Ordering::Equal));
                 if let Some(mvp_unit) = mvp {
                     let mvp_text = format!("MVP: {:?} - {:.0} dmg, {} kills", mvp_unit.kind, mvp_unit.damage_dealt_total, mvp_unit.kills_total);
-                    draw_text(&mvp_text, sx, sy, 15.0, Color::new(1.0, 0.85, 0.2, 1.0));
+                    crate::ui::draw_scaled_text(&mvp_text, sx, sy, 15.0, Color::new(1.0, 0.85, 0.2, 1.0));
                 }
-                sy += 18.0;
+                sy += crate::ui::s(18.0);
 
                 let total_dmg: f32 = units.iter()
                     .filter(|u| u.team_id == 0)
                     .map(|u| u.damage_dealt_total)
                     .sum();
-                draw_text(&format!("Total Damage: {:.0}", total_dmg), sx, sy, 15.0, LIGHTGRAY);
-                sy += 18.0;
+                crate::ui::draw_scaled_text(&format!("Total Damage: {:.0}", total_dmg), sx, sy, 15.0, LIGHTGRAY);
+                sy += crate::ui::s(18.0);
 
                 let surviving = units.iter().filter(|u| u.team_id == 0 && u.alive).count();
                 let total_units = units.iter().filter(|u| u.team_id == 0).count();
-                draw_text(&format!("Surviving: {} / {}", surviving, total_units), sx, sy, 15.0, LIGHTGRAY);
-                sy += 18.0;
+                crate::ui::draw_scaled_text(&format!("Surviving: {} / {}", surviving, total_units), sx, sy, 15.0, LIGHTGRAY);
+                sy += crate::ui::s(18.0);
 
-                draw_text(&format!("LP: {} vs {}", progress.player_lp, progress.opponent_lp), sx, sy, 15.0, LIGHTGRAY);
+                crate::ui::draw_scaled_text(&format!("LP: {} vs {}", progress.player_lp, progress.opponent_lp), sx, sy, 15.0, LIGHTGRAY);
 
-                let below_panel = panel_y + panel_h + 8.0;
-                draw_text(
+                let below_panel = panel_y + panel_h + crate::ui::s(8.0);
+                crate::ui::draw_scaled_text(
                     "Press R to return to lobby",
-                    screen_width() / 2.0 - 100.0,
+                    screen_width() / 2.0 - crate::ui::s(100.0),
                     below_panel,
                     16.0,
                     DARKGRAY,
                 );
 
                 // Rematch button
-                let rmatch_w = 160.0;
-                let rmatch_h = 40.0;
+                let rmatch_w = crate::ui::s(160.0);
+                let rmatch_h = crate::ui::s(40.0);
                 let rmatch_x = screen_width() / 2.0 - rmatch_w / 2.0;
-                let rmatch_y = below_panel + 15.0;
+                let rmatch_y = below_panel + crate::ui::s(15.0);
                 let rmatch_hover = screen_mouse.x >= rmatch_x && screen_mouse.x <= rmatch_x + rmatch_w && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h;
                 let rmatch_bg = if rmatch_hover { Color::new(0.2, 0.5, 0.3, 0.9) } else { Color::new(0.15, 0.35, 0.2, 0.8) };
                 draw_rectangle(rmatch_x, rmatch_y, rmatch_w, rmatch_h, rmatch_bg);
                 draw_rectangle_lines(rmatch_x, rmatch_y, rmatch_w, rmatch_h, 2.0, Color::new(0.3, 0.8, 0.4, 1.0));
                 let rt = "Rematch";
-                let rdims2 = measure_text(rt, None, 22, 1.0);
-                draw_text(rt, rmatch_x + rmatch_w / 2.0 - rdims2.width / 2.0, rmatch_y + rmatch_h / 2.0 + 7.0, 22.0, WHITE);
+                let rdims2 = crate::ui::measure_scaled_text(rt, 22);
+                crate::ui::draw_scaled_text(rt, rmatch_x + rmatch_w / 2.0 - rdims2.width / 2.0, rmatch_y + rmatch_h / 2.0 + 7.0, 22.0, WHITE);
             }
         }
 
@@ -1514,20 +1706,20 @@ async fn main() {
                 // Semi-transparent dark overlay
                 draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.7));
                 let disc_text = "Opponent Disconnected";
-                let ddims = measure_text(disc_text, None, 36, 1.0);
-                draw_text(
+                let ddims = crate::ui::measure_scaled_text(disc_text, 36);
+                crate::ui::draw_scaled_text(
                     disc_text,
                     screen_width() / 2.0 - ddims.width / 2.0,
-                    screen_height() / 2.0 - 10.0,
+                    screen_height() / 2.0 - crate::ui::s(10.0),
                     36.0,
                     Color::new(1.0, 0.3, 0.2, 1.0),
                 );
                 let hint = "Press R to return to lobby";
-                let hdims = measure_text(hint, None, 18, 1.0);
-                draw_text(
+                let hdims = crate::ui::measure_scaled_text(hint, 18);
+                crate::ui::draw_scaled_text(
                     hint,
                     screen_width() / 2.0 - hdims.width / 2.0,
-                    screen_height() / 2.0 + 20.0,
+                    screen_height() / 2.0 + crate::ui::s(20.0),
                     18.0,
                     LIGHTGRAY,
                 );
@@ -1597,7 +1789,7 @@ async fn main() {
 
         // Render chat messages (floating at top of arena)
         let chat_x = screen_width() / 2.0;
-        let mut chat_y = 45.0;
+        let mut chat_y = crate::ui::s(45.0);
         for (name, text, team_id, lifetime) in chat_messages.iter().rev().take(5).collect::<Vec<_>>().into_iter().rev() {
             let alpha = (*lifetime / 5.0).min(1.0);
             let color = if *team_id == 0 {
@@ -1622,26 +1814,26 @@ async fn main() {
                 format!("{}: {}", name, display_text)
             };
             let font_size = if is_emote { 20.0 } else { 15.0 };
-            let dims = measure_text(&full_display, None, font_size as u16, 1.0);
-            draw_text(&full_display, chat_x - dims.width / 2.0, chat_y, font_size, display_color);
+            let dims = crate::ui::measure_scaled_text(&full_display, font_size as u16);
+            crate::ui::draw_scaled_text(&full_display, chat_x - dims.width / 2.0, chat_y, font_size, display_color);
             chat_y += font_size + 4.0;
         }
 
         // Render chat input box
         if chat_open {
-            let input_y = screen_height() - 45.0;
-            let input_w = 450.0;
+            let input_y = screen_height() - crate::ui::s(45.0);
+            let input_w = crate::ui::s(450.0);
             let input_x = screen_width() / 2.0 - input_w / 2.0;
-            let input_h = 30.0;
+            let input_h = crate::ui::s(30.0);
             draw_rectangle(input_x, input_y, input_w, input_h, Color::new(0.05, 0.05, 0.1, 0.92));
             draw_rectangle_lines(input_x, input_y, input_w, input_h, 1.5, Color::new(0.4, 0.5, 0.6, 0.9));
             let name_prefix = format!("{}: ", player_name);
-            let name_w = measure_text(&name_prefix, None, 15, 1.0).width;
-            draw_text(&name_prefix, input_x + 8.0, input_y + 20.0, 15.0, Color::new(0.6, 0.8, 1.0, 0.9));
+            let name_w = crate::ui::measure_scaled_text(&name_prefix, 15).width;
+            crate::ui::draw_scaled_text(&name_prefix, input_x + 8.0, input_y + 20.0, 15.0, Color::new(0.6, 0.8, 1.0, 0.9));
             let cursor = if (get_time() * 2.0) as u32 % 2 == 0 { "|" } else { "" };
-            draw_text(&format!("{}{}", chat_input, cursor), input_x + 8.0 + name_w, input_y + 20.0, 15.0, WHITE);
+            crate::ui::draw_scaled_text(&format!("{}{}", chat_input, cursor), input_x + 8.0 + name_w, input_y + 20.0, 15.0, WHITE);
         } else if chat_allowed {
-            draw_text("Enter: Chat", screen_width() - 100.0, screen_height() - 5.0, 12.0, Color::new(0.4, 0.4, 0.4, 0.6));
+            crate::ui::draw_scaled_text("Enter: Chat", screen_width() - crate::ui::s(100.0), screen_height() - crate::ui::s(5.0), 12.0, Color::new(0.4, 0.4, 0.4, 0.6));
         }
 
         next_frame().await;
@@ -1722,22 +1914,28 @@ fn start_battle_ai(
     GamePhase::Battle
 }
 
-fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32) {
+fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32) {
     // Background bar (screen-wide)
     draw_rectangle(
         0.0,
         0.0,
         screen_width(),
-        28.0,
+        crate::ui::s(28.0),
         Color::new(0.05, 0.05, 0.08, 0.85),
     );
 
-    let mut x = SHOP_W + 10.0;
+    // Spread HUD elements evenly across available width
+    let hud_left = shop_w() + crate::ui::s(15.0);
+    let hud_y = crate::ui::s(19.0);
+    let gap = crate::ui::s(30.0); // padding between elements
+
+    let mut x = hud_left;
 
     // Round
     let round_text = format!("Round: {}", progress.round);
-    draw_text(&round_text, x, 19.0, 18.0, WHITE);
-    x += 100.0;
+    let round_w = crate::ui::measure_scaled_text(&round_text, 18).width;
+    crate::ui::draw_scaled_text(&round_text, x, hud_y, 18.0, WHITE);
+    x += round_w + gap;
 
     // Player LP
     let player_lp_text = format!("Player LP: {}", progress.player_lp);
@@ -1748,8 +1946,9 @@ fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32) {
     } else {
         Color::new(1.0, 0.3, 0.2, 1.0)
     };
-    draw_text(&player_lp_text, x, 19.0, 18.0, plp_color);
-    x += 160.0;
+    let plp_w = crate::ui::measure_scaled_text(&player_lp_text, 18).width;
+    crate::ui::draw_scaled_text(&player_lp_text, x, hud_y, 18.0, plp_color);
+    x += plp_w + gap;
 
     // Opponent LP
     let opponent_lp_text = format!("Opponent LP: {}", progress.opponent_lp);
@@ -1760,31 +1959,37 @@ fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32) {
     } else {
         Color::new(1.0, 0.3, 0.2, 1.0)
     };
-    draw_text(&opponent_lp_text, x, 19.0, 18.0, alp_color);
-    x += 160.0;
+    let alp_w = crate::ui::measure_scaled_text(&opponent_lp_text, 18).width;
+    crate::ui::draw_scaled_text(&opponent_lp_text, x, hud_y, 18.0, alp_color);
+    x += alp_w + gap;
 
     // Gold (only during build)
     if gold > 0 || timer > 0.0 {
         let gold_text = format!("Gold: {}", gold);
-        draw_text(
-            &gold_text,
-            x,
-            19.0,
-            18.0,
-            Color::new(1.0, 0.85, 0.2, 1.0),
-        );
-        x += 110.0;
+        let gold_w = crate::ui::measure_scaled_text(&gold_text, 18).width;
+        crate::ui::draw_scaled_text(&gold_text, x, hud_y, 18.0, Color::new(1.0, 0.85, 0.2, 1.0));
+        x += gold_w + gap;
 
         if army_value > 0 {
             let army_text = format!("Army: {}g", army_value);
-            draw_text(&army_text, x, 19.0, 16.0, Color::new(0.7, 0.7, 0.75, 0.8));
-            x += 100.0;
+            let army_w = crate::ui::measure_scaled_text(&army_text, 16).width;
+            crate::ui::draw_scaled_text(&army_text, x, hud_y, 16.0, Color::new(0.7, 0.7, 0.75, 0.8));
+            x += army_w + gap;
         }
 
         if timer > 0.0 {
             let timer_text = format!("Timer: {:.0}s", timer.ceil());
-            draw_text(&timer_text, x, 19.0, 18.0, WHITE);
+            crate::ui::draw_scaled_text(&timer_text, x, hud_y, 18.0, WHITE);
         }
+    }
+
+    // Battle round timer (shown during combat)
+    if battle_remaining > 0.0 && battle_remaining < 90.0 {
+        let timer_color = if battle_remaining < 15.0 { Color::new(1.0, 0.3, 0.2, 1.0) }
+            else if battle_remaining < 30.0 { Color::new(1.0, 0.8, 0.2, 1.0) }
+            else { Color::new(0.7, 0.7, 0.7, 1.0) };
+        let timer_text = format!("Round: {:.0}s", battle_remaining.ceil());
+        crate::ui::draw_scaled_text(&timer_text, x, hud_y, 18.0, timer_color);
     }
 }
 

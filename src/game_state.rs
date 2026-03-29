@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::arena::{MatchState, ARENA_H, HALF_W, SHOP_W};
+use crate::arena::{MatchState, ARENA_H, HALF_W, shop_w};
 use crate::economy::ArmyBuilder;
 use crate::pack::{all_packs, PackDef};
 use crate::tech::TechState;
@@ -88,7 +88,10 @@ pub enum UndoEntry {
     Move { placed_index: usize, old_center: Vec2 },
     Rotate { placed_index: usize, was_rotated: bool, old_center: Vec2 },
     Tech { kind: crate::unit::UnitKind, tech_id: crate::tech::TechId },
+    MultiMove { indices: Vec<usize>, old_centers: Vec<Vec2> },
 }
+
+pub const BUILD_LIMIT: u32 = 3;
 
 pub struct BuildState {
     pub builder: ArmyBuilder,
@@ -99,6 +102,16 @@ pub struct BuildState {
     pub next_id: u64,
     pub round_tech_purchases: Vec<(crate::unit::UnitKind, crate::tech::TechId)>,
     pub undo_history: Vec<UndoEntry>,
+    /// Number of packs bought this round (resets each round).
+    pub packs_bought_this_round: u32,
+    /// Multi-drag state: indices of packs being dragged together
+    pub multi_dragging: Vec<usize>,
+    /// Offset of each multi-dragged pack from the drag anchor point
+    pub multi_drag_offsets: Vec<Vec2>,
+    /// Saved centers before multi-drag started (for undo/cancel)
+    pub multi_drag_pre_centers: Vec<Vec2>,
+    /// World-space start point of the drag-box selection rectangle
+    pub drag_box_start: Option<Vec2>,
 }
 
 impl BuildState {
@@ -112,6 +125,11 @@ impl BuildState {
             next_id: 1,
             round_tech_purchases: Vec::new(),
             undo_history: Vec::new(),
+            packs_bought_this_round: 0,
+            multi_dragging: Vec::new(),
+            multi_drag_offsets: Vec::new(),
+            multi_drag_pre_centers: Vec::new(),
+            drag_box_start: None,
         }
     }
 
@@ -130,6 +148,11 @@ impl BuildState {
             next_id,
             round_tech_purchases: Vec::new(),
             undo_history: Vec::new(),
+            packs_bought_this_round: 0,
+            multi_dragging: Vec::new(),
+            multi_drag_offsets: Vec::new(),
+            multi_drag_pre_centers: Vec::new(),
+            drag_box_start: None,
         }
     }
 
@@ -143,12 +166,19 @@ impl BuildState {
         let packs = all_packs();
         let pack = &packs[pack_index];
 
+        // Check build limit for this round
+        if self.packs_bought_this_round >= BUILD_LIMIT {
+            return None;
+        }
+
         if !self.builder.buy_pack(pack) {
             return None;
         }
 
+        self.packs_bought_this_round += 1;
+
         // Find a default placement position that doesn't overlap
-        let default_x = SHOP_W + 100.0;
+        let default_x = shop_w() + 100.0;
         let mut default_y = 80.0;
         let half = PlacedPack::bbox_half_size_rotated(pack, false);
 
@@ -212,6 +242,10 @@ impl BuildState {
     pub fn sell_pack(&mut self, placed_index: usize) -> Option<(u32, Vec<u64>)> {
         if self.placed_packs[placed_index].locked {
             return None;
+        }
+        // Restore build limit since this was a this-round purchase
+        if self.packs_bought_this_round > 0 {
+            self.packs_bought_this_round -= 1;
         }
         let placed = self.placed_packs.remove(placed_index);
         let pack = &all_packs()[placed.pack_index];

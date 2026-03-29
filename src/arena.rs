@@ -1,9 +1,11 @@
 use crate::unit::Unit;
 
-pub const ARENA_W: f32 = 1400.0;
-pub const ARENA_H: f32 = 800.0;
+pub const ARENA_W: f32 = 1680.0;
+pub const ARENA_H: f32 = 960.0;
 pub const HALF_W: f32 = ARENA_W / 2.0;
-pub const SHOP_W: f32 = 180.0;
+pub const SHOP_W_BASE: f32 = 180.0;
+/// Dynamic shop width that scales with window size.
+pub fn shop_w() -> f32 { SHOP_W_BASE * crate::ui::ui_scale() }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum MatchState {

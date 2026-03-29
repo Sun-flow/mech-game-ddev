@@ -327,8 +327,7 @@ pub fn update_attacks(
                     cleave_ignores_armor,
                 });
             } else {
-                let armor_pierce = unit.kind == UnitKind::Sniper
-                    && techs.has_tech(UnitKind::Sniper, TechId::SniperArmorPierce);
+                let armor_pierce = techs.has_tech(unit.kind, TechId::SniperArmorPierce);
                 let pierce = unit.kind == UnitKind::Ranger
                     && techs.has_tech(UnitKind::Ranger, TechId::RangerPierce);
                 let slow = unit.kind == UnitKind::Artillery
@@ -452,10 +451,10 @@ pub fn update_attacks(
 
 /// Update projectiles with shield interception, evasion, pierce, and slow.
 pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32, obstacles: &mut [Obstacle], splash_effects: &mut Vec<crate::SplashEffect>) {
-    let shields: Vec<(u64, u8, Vec2, f32)> = units
+    let shields: Vec<(u64, u8, Vec2, f32, bool)> = units
         .iter()
-        .filter(|u| u.is_shield())
-        .map(|u| (u.id, u.team_id, u.pos, u.stats.shield_radius))
+        .filter(|u| u.is_shield() && u.alive)
+        .map(|u| (u.id, u.team_id, u.pos, u.stats.shield_radius, u.shield_hp > 0.0))
         .collect();
 
     for proj in projectiles.iter_mut() {
@@ -488,8 +487,8 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
 
         // Shield barrier interception
         let mut intercepted_by_shield: Option<u64> = None;
-        for &(shield_id, shield_team, shield_pos, shield_radius) in &shields {
-            if shield_team == proj.team_id {
+        for &(shield_id, shield_team, shield_pos, shield_radius, has_shield_hp) in &shields {
+            if shield_team == proj.team_id || !has_shield_hp {
                 continue;
             }
             let dist = proj.pos.distance(shield_pos);
@@ -501,7 +500,8 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
 
         if let Some(shield_id) = intercepted_by_shield {
             if let Some(shield_unit) = units.iter_mut().find(|u| u.id == shield_id && u.alive) {
-                shield_unit.take_damage(proj.damage);
+                // Damage the barrier's separate HP pool
+                shield_unit.shield_hp = (shield_unit.shield_hp - proj.damage).max(0.0);
             }
             proj.alive = false;
             continue;

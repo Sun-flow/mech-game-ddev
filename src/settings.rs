@@ -16,8 +16,8 @@ impl MainSettings {
 
 /// Draw a slider for UI scale in the lobby settings screen. Returns true if value changed.
 pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, clicked: bool, dragging: bool, panel_x: f32, y: f32) {
-    let label = "UI Scale";
-    draw_text(label, panel_x + 20.0, y + 17.0, 18.0, WHITE);
+    let label = "Text Size";
+    crate::ui::draw_scaled_text(label, panel_x + 20.0, y + 17.0, 18.0, WHITE);
 
     let slider_x = panel_x + 140.0;
     let slider_w = 200.0;
@@ -36,7 +36,7 @@ pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, click
 
     // Value label
     let val_text = format!("{:.2}x", main_settings.ui_scale);
-    draw_text(&val_text, slider_x + slider_w + 12.0, y + 17.0, 16.0, LIGHTGRAY);
+    crate::ui::draw_scaled_text(&val_text, slider_x + slider_w + 12.0, y + 17.0, 16.0, LIGHTGRAY);
 
     // Drag interaction
     if dragging || (clicked && mouse.x >= slider_x - knob_r && mouse.x <= slider_x + slider_w + knob_r
@@ -99,8 +99,8 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
     draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.5));
 
     // Panel
-    let panel_w = 400.0;
-    let panel_h = 420.0;
+    let panel_w = crate::ui::s(400.0);
+    let panel_h = crate::ui::s(420.0);
     let px = sw / 2.0 - panel_w / 2.0;
     let py = sh / 2.0 - panel_h / 2.0;
     draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
@@ -108,15 +108,15 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
 
     // Title
     let title = "Match Settings";
-    let tdims = measure_text(title, None, 24, 1.0);
-    draw_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
+    let tdims = crate::ui::measure_scaled_text(title, 24);
+    crate::ui::draw_scaled_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
 
-    let mut y = py + 55.0;
-    let row_h = 40.0;
-    let toggle_x = px + panel_w - 70.0;
-    let toggle_w = 50.0;
-    let toggle_h = 24.0;
-    let label_x = px + 20.0;
+    let mut y = py + crate::ui::s(55.0);
+    let row_h = crate::ui::s(40.0);
+    let toggle_x = px + panel_w - crate::ui::s(70.0);
+    let toggle_w = crate::ui::s(50.0);
+    let toggle_h = crate::ui::s(24.0);
+    let label_x = px + crate::ui::s(20.0);
 
     let mut back_clicked = false;
 
@@ -137,7 +137,7 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
     for (i, toggle) in toggles.iter().enumerate() {
         let row_y = y + i as f32 * row_h;
         let text_alpha = if toggle.active { 1.0 } else { 0.4 };
-        draw_text(toggle.label, label_x, row_y + 17.0, 18.0, Color::new(1.0, 1.0, 1.0, text_alpha));
+        crate::ui::draw_scaled_text(toggle.label, label_x, row_y + 17.0, 18.0, Color::new(1.0, 1.0, 1.0, text_alpha));
 
         // Toggle switch
         let tx = toggle_x;
@@ -156,7 +156,7 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
 
         // On/Off label
         let state_text = if toggle.enabled { "ON" } else { "OFF" };
-        draw_text(state_text, tx + toggle_w + 8.0, row_y + 17.0, 12.0, Color::new(0.6, 0.6, 0.6, text_alpha));
+        crate::ui::draw_scaled_text(state_text, tx + toggle_w + 8.0, row_y + 17.0, 12.0, Color::new(0.6, 0.6, 0.6, text_alpha));
 
         // Click to toggle
         if toggle.active && clicked && mouse.x >= tx && mouse.x <= tx + toggle_w && mouse.y >= ty && mouse.y <= ty + toggle_h {
@@ -172,11 +172,11 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
 
     // Team color picker
     y += 4.0 * row_h + 10.0;
-    draw_text("Team Color", label_x, y + 17.0, 18.0, WHITE);
+    crate::ui::draw_scaled_text("Team Color", label_x, y + 17.0, 18.0, WHITE);
     y += 30.0;
 
-    let swatch_size = 36.0;
-    let swatch_gap = 12.0;
+    let swatch_size = crate::ui::s(36.0);
+    let swatch_gap = crate::ui::s(12.0);
     let total_swatch_w = TEAM_COLOR_OPTIONS.len() as f32 * swatch_size + (TEAM_COLOR_OPTIONS.len() - 1) as f32 * swatch_gap;
     let swatch_start_x = px + panel_w / 2.0 - total_swatch_w / 2.0;
 
@@ -194,8 +194,8 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
         }
 
         // Color name below swatch
-        let ndims = measure_text(name, None, 11, 1.0);
-        draw_text(name, sx + swatch_size / 2.0 - ndims.width / 2.0, sy + swatch_size + 14.0, 11.0, LIGHTGRAY);
+        let ndims = crate::ui::measure_scaled_text(name, 11);
+        crate::ui::draw_scaled_text(name, sx + swatch_size / 2.0 - ndims.width / 2.0, sy + swatch_size + 14.0, 11.0, LIGHTGRAY);
 
         if clicked && is_hovered {
             settings.player_color_index = i as u8;
@@ -203,17 +203,17 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
     }
 
     // Back button
-    let back_w = 120.0;
-    let back_h = 36.0;
+    let back_w = crate::ui::s(120.0);
+    let back_h = crate::ui::s(36.0);
     let back_x = px + panel_w / 2.0 - back_w / 2.0;
-    let back_y = py + panel_h - 50.0;
+    let back_y = py + panel_h - crate::ui::s(50.0);
     let back_hover = mouse.x >= back_x && mouse.x <= back_x + back_w && mouse.y >= back_y && mouse.y <= back_y + back_h;
     let back_bg = if back_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
     draw_rectangle(back_x, back_y, back_w, back_h, back_bg);
     draw_rectangle_lines(back_x, back_y, back_w, back_h, 1.0, GRAY);
     let bt = "Start Game";
-    let bdims = measure_text(bt, None, 20, 1.0);
-    draw_text(bt, back_x + back_w / 2.0 - bdims.width / 2.0, back_y + back_h / 2.0 + 6.0, 20.0, WHITE);
+    let bdims = crate::ui::measure_scaled_text(bt, 20);
+    crate::ui::draw_scaled_text(bt, back_x + back_w / 2.0 - bdims.width / 2.0, back_y + back_h / 2.0 + 6.0, 20.0, WHITE);
 
     if clicked && back_hover {
         back_clicked = true;

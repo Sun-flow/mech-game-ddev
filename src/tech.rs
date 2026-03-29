@@ -121,7 +121,7 @@ pub fn all_techs() -> &'static [TechDef] {
             id: TechId::SniperArmorPierce,
             name: "Armor Pierce",
             description: "Shots ignore armor",
-            applicable_to: &[UnitKind::Sniper],
+            applicable_to: &[UnitKind::Sniper, UnitKind::Striker],
         },
         TechDef {
             id: TechId::SkirmisherSwarm,
@@ -174,7 +174,7 @@ impl TechState {
 
     /// Cost = 100 + (number of techs already bought for this kind) * 100
     pub fn effective_cost(&self, kind: UnitKind) -> u32 {
-        100 + self.tech_count(kind) as u32 * 100
+        200 + self.tech_count(kind) as u32 * 200
     }
 
     pub fn has_tech(&self, kind: UnitKind, tech_id: TechId) -> bool {
