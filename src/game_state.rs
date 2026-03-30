@@ -177,24 +177,56 @@ impl BuildState {
 
         self.packs_bought_this_round += 1;
 
-        // Find a default placement position that doesn't overlap
-        let default_x = shop_w() + 100.0;
-        let mut default_y = 80.0;
+        // Find a default placement position in the deploy zone (center of build area)
         let half = PlacedPack::bbox_half_size_rotated(pack, false);
+        let deploy_cx = shop_w() + (HALF_W - shop_w()) / 2.0;
+        let deploy_cy = ARENA_H / 2.0;
+        let min_x = shop_w() + half.x;
+        let max_x = HALF_W - half.x;
+        let min_y = half.y;
+        let max_y = ARENA_H - half.y;
 
-        for existing in &self.placed_packs {
-            let ep = &packs[existing.pack_index];
-            let eh = existing.bbox_half_size_for(ep);
-            if (default_x - existing.center.x).abs() < half.x + eh.x {
-                let bottom = existing.center.y + eh.y;
-                if default_y < bottom + half.y + 5.0 {
-                    default_y = bottom + half.y + 5.0;
+        let overlaps_existing = |cx: f32, cy: f32| -> bool {
+            let padding = 5.0;
+            for existing in &self.placed_packs {
+                let ep = &packs[existing.pack_index];
+                let eh = existing.bbox_half_size_for(ep);
+                let dx = (cx - existing.center.x).abs();
+                let dy = (cy - existing.center.y).abs();
+                if dx < half.x + eh.x + padding && dy < half.y + eh.y + padding {
+                    return true;
                 }
             }
-        }
+            false
+        };
 
-        default_y = default_y.clamp(half.y, ARENA_H - half.y);
-        let center = vec2(default_x, default_y);
+        let center = if !overlaps_existing(deploy_cx, deploy_cy) {
+            vec2(deploy_cx, deploy_cy)
+        } else {
+            // Spiral outward from center to find closest free position
+            let mut best = vec2(deploy_cx, deploy_cy);
+            let mut found = false;
+            let radius_step = 10.0;
+            let angle_steps = 16;
+            'search: for ring in 1..60 {
+                let r = ring as f32 * radius_step;
+                for a in 0..angle_steps {
+                    let angle = (a as f32 / angle_steps as f32) * std::f32::consts::TAU;
+                    let cx = (deploy_cx + r * angle.cos()).clamp(min_x, max_x);
+                    let cy = (deploy_cy + r * angle.sin()).clamp(min_y, max_y);
+                    if !overlaps_existing(cx, cy) {
+                        best = vec2(cx, cy);
+                        found = true;
+                        break 'search;
+                    }
+                }
+            }
+            if !found {
+                // Fallback: just clamp to center
+                best = vec2(deploy_cx.clamp(min_x, max_x), deploy_cy.clamp(min_y, max_y));
+            }
+            best
+        };
 
         // Spawn units with tech bonuses applied
         let mut stats = pack.kind.stats();

@@ -31,6 +31,17 @@ pub enum NetMessage {
         total_hp_0: i32,
         total_hp_1: i32,
     },
+    /// Host sends state hash to guest every SYNC_INTERVAL frames
+    StateHash { frame: u32, hash: u64 },
+    /// Guest requests full state from host when hash mismatch detected
+    StateRequest { frame: u32 },
+    /// Host sends full authoritative state to guest
+    StateSync {
+        frame: u32,
+        units_data: Vec<u8>,
+        projectiles_data: Vec<u8>,
+        obstacles_data: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -38,6 +49,14 @@ pub struct OpponentBuildData {
     pub new_packs: Vec<(usize, (f32, f32), bool)>,
     pub tech_purchases: Vec<(UnitKind, TechId)>,
     pub gold_remaining: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct StateSyncData {
+    pub frame: u32,
+    pub units_data: Vec<u8>,
+    pub projectiles_data: Vec<u8>,
+    pub obstacles_data: Vec<u8>,
 }
 
 pub struct NetState {
@@ -56,6 +75,10 @@ pub struct NetState {
     pub received_settings: Option<crate::settings::GameSettings>,
     pub opponent_color: Option<u8>,
     pub received_round_end: Option<RoundEndData>,
+    // Desync detection & state sync
+    pub received_state_hash: Option<(u32, u64)>,
+    pub received_state_request: Option<u32>,
+    pub received_state_sync: Option<StateSyncData>,
 }
 
 #[derive(Clone, Debug)]
@@ -92,6 +115,9 @@ impl NetState {
             received_settings: None,
             opponent_color: None,
             received_round_end: None,
+            received_state_hash: None,
+            received_state_request: None,
+            received_state_sync: None,
         }
     }
 
@@ -161,6 +187,17 @@ impl NetState {
                         NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0, total_hp_1 } => {
                             self.received_round_end = Some(RoundEndData {
                                 winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0, total_hp_1,
+                            });
+                        }
+                        NetMessage::StateHash { frame, hash } => {
+                            self.received_state_hash = Some((frame, hash));
+                        }
+                        NetMessage::StateRequest { frame } => {
+                            self.received_state_request = Some(frame);
+                        }
+                        NetMessage::StateSync { frame, units_data, projectiles_data, obstacles_data } => {
+                            self.received_state_sync = Some(StateSyncData {
+                                frame, units_data, projectiles_data, obstacles_data,
                             });
                         }
                     }

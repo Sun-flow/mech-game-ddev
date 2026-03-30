@@ -351,7 +351,7 @@ struct AStarNode {
 }
 
 impl PartialEq for AStarNode {
-    fn eq(&self, other: &Self) -> bool { self.f == other.f }
+    fn eq(&self, other: &Self) -> bool { self.f == other.f && self.pos == other.pos }
 }
 impl Eq for AStarNode {}
 impl PartialOrd for AStarNode {
@@ -359,7 +359,17 @@ impl PartialOrd for AStarNode {
 }
 impl Ord for AStarNode {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.f.partial_cmp(&self.f).unwrap_or(Ordering::Equal)
+        // Primary: lower f-score is better (reversed for max-heap)
+        // Tiebreak: deterministic ordering by grid position (y then x)
+        match other.f.partial_cmp(&self.f).unwrap_or(Ordering::Equal) {
+            Ordering::Equal => {
+                match self.pos.1.cmp(&other.pos.1) {
+                    Ordering::Equal => self.pos.0.cmp(&other.pos.0),
+                    ord => ord,
+                }
+            }
+            ord => ord,
+        }
     }
 }
 

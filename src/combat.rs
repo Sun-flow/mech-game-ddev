@@ -30,12 +30,15 @@ pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
             }
             let d = unit.pos.distance(epos);
             // Track nearest enemy regardless of LOS (for pathfinding)
-            if d < best_any_dist {
+            // Tiebreak on unit ID for determinism
+            if d < best_any_dist || (d == best_any_dist && best_any_id.map_or(true, |id| eid < id)) {
                 best_any_dist = d;
                 best_any_id = Some(eid);
             }
             // Track nearest enemy with LOS (preferred for attacking)
-            if d < best_los_dist && crate::terrain::has_line_of_sight_wide(unit.pos, epos, crate::projectile::PROJECTILE_RADIUS, obstacles) {
+            if (d < best_los_dist || (d == best_los_dist && best_los_id.map_or(true, |id| eid < id)))
+                && crate::terrain::has_line_of_sight_wide(unit.pos, epos, crate::projectile::PROJECTILE_RADIUS, obstacles)
+            {
                 best_los_dist = d;
                 best_los_id = Some(eid);
             }
@@ -222,7 +225,10 @@ pub fn update_attacks(
                 }
                 let dist = unit.pos.distance(proj.pos);
                 if dist <= unit.stats.attack_range {
-                    if best_rocket.is_none() || dist < best_rocket.unwrap().1 {
+                    // Tiebreak on index for determinism when distances are equal
+                    if best_rocket.is_none() || dist < best_rocket.unwrap().1
+                        || (dist == best_rocket.unwrap().1 && pi < best_rocket.unwrap().0)
+                    {
                         best_rocket = Some((pi, dist));
                     }
                 }
@@ -485,16 +491,19 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         }
         if hit_obstacle { continue; }
 
-        // Shield barrier interception
+        // Shield barrier interception — pick closest shield, tiebreak on ID
         let mut intercepted_by_shield: Option<u64> = None;
+        let mut best_shield_dist = f32::MAX;
         for &(shield_id, shield_team, shield_pos, shield_radius, has_shield_hp) in &shields {
             if shield_team == proj.team_id || !has_shield_hp {
                 continue;
             }
             let dist = proj.pos.distance(shield_pos);
-            if dist < shield_radius {
+            if dist < shield_radius
+                && (dist < best_shield_dist || (dist == best_shield_dist && intercepted_by_shield.map_or(true, |id| shield_id < id)))
+            {
                 intercepted_by_shield = Some(shield_id);
-                break;
+                best_shield_dist = dist;
             }
         }
 

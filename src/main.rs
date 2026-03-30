@@ -13,6 +13,7 @@ mod team;
 mod tech;
 mod tech_ui;
 mod unit;
+mod sync;
 
 use macroquad::prelude::*;
 
@@ -62,7 +63,9 @@ async fn main() {
     let mut lobby = lobby::LobbyState::new();
     let mut battle_accumulator: f32 = 0.0;
     let mut battle_timer: f32 = 0.0;
+    let mut battle_frame: u32 = 0;
     const ROUND_TIMEOUT: f32 = 90.0;
+    const SYNC_INTERVAL: u32 = 4;
     let mut game_settings = settings::GameSettings::default();
     let mut main_settings = settings::MainSettings::default();
     let mut obstacles: Vec<terrain::Obstacle> = Vec::new();
@@ -403,6 +406,7 @@ async fn main() {
                         );
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
+                        battle_frame = 0;
                     }
                     continue;
                 }
@@ -726,6 +730,7 @@ async fn main() {
                         );
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
+                        battle_frame = 0;
                     }
                     continue;
                 }
@@ -765,6 +770,7 @@ async fn main() {
                         macroquad::rand::srand(progress.round as u64);
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
+                        battle_frame = 0;
 
                         // Reset per-round damage stats
                         for unit in units.iter_mut() {
@@ -811,6 +817,61 @@ async fn main() {
                         for unit in units.iter_mut() {
                             if !unit.alive && unit.death_timer > 0.0 {
                                 unit.death_timer -= FIXED_DT;
+                            }
+                        }
+                        battle_frame += 1;
+
+                        // --- Host: send hash every SYNC_INTERVAL frames ---
+                        if let Some(ref mut n) = net {
+                            if n.is_host && battle_frame % SYNC_INTERVAL == 0 {
+                                let local_hash = sync::compute_state_hash(&units, &projectiles, &obstacles);
+                                n.send(net::NetMessage::StateHash { frame: battle_frame, hash: local_hash });
+                            }
+                        }
+                    }
+
+                    // --- Desync detection & state sync (outside fixed-timestep loop) ---
+                    // Poll network again to pick up any messages that arrived during simulation
+                    if let Some(ref mut n) = net {
+                        n.poll();
+
+                        if n.is_host {
+                            // Host: respond to state request from guest
+                            if let Some(_req_frame) = n.received_state_request.take() {
+                                let (units_data, projectiles_data, obstacles_data) =
+                                    sync::serialize_state(&units, &projectiles, &obstacles);
+                                eprintln!("[SYNC] Host sending full state at frame {} ({} + {} + {} bytes)",
+                                    battle_frame, units_data.len(), projectiles_data.len(), obstacles_data.len());
+                                n.send(net::NetMessage::StateSync {
+                                    frame: battle_frame,
+                                    units_data,
+                                    projectiles_data,
+                                    obstacles_data,
+                                });
+                            }
+                        } else {
+                            // Guest: check hash from host (compare against current local state)
+                            if let Some((host_frame, host_hash)) = n.received_state_hash.take() {
+                                let local_hash = sync::compute_state_hash(&units, &projectiles, &obstacles);
+                                if host_hash != local_hash {
+                                    eprintln!("[DESYNC] Hash mismatch! Host frame {} vs local frame {}. Requesting state.",
+                                        host_frame, battle_frame);
+                                    n.send(net::NetMessage::StateRequest { frame: battle_frame });
+                                }
+                            }
+
+                            // Guest: apply state correction from host immediately
+                            if let Some(sync_data) = n.received_state_sync.take() {
+                                eprintln!("[SYNC] Guest applying host state correction (host frame {}, local frame {})",
+                                    sync_data.frame, battle_frame);
+                                sync::apply_state_sync(
+                                    &mut units,
+                                    &mut projectiles,
+                                    &mut obstacles,
+                                    &sync_data.units_data,
+                                    &sync_data.projectiles_data,
+                                    &sync_data.obstacles_data,
+                                );
                             }
                         }
                     }

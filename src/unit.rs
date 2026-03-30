@@ -15,7 +15,7 @@ pub enum UnitShape {
     Octagon,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ProjectileType {
     Bullet,
     Laser,
