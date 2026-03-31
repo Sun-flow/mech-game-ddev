@@ -55,7 +55,7 @@ pub struct MatchProgress {
 }
 
 impl MatchProgress {
-    pub fn new() -> Self {
+    pub fn new(is_host: bool) -> Self {
         Self {
             round: 1,
             player_lp: STARTING_LP,
@@ -63,7 +63,7 @@ impl MatchProgress {
             player_techs: TechState::new(),
             opponent_techs: TechState::new(),
             opponent_packs: Vec::new(),
-            opponent_next_id: 100_000,
+            opponent_next_id: if is_host { 100_000 } else { 1 },
             player_saved_gold: 0,
             ai_memory: AiMemory::default(),
             banned_kinds: Vec::new(),

@@ -21,6 +21,7 @@ pub enum NetMessage {
     RematchRequest,
     BanSelection(Vec<u8>),
     ColorChoice(u8),
+    NameSync(String),
     RoundEnd {
         winner: Option<u8>,
         lp_damage: i32,
@@ -74,6 +75,7 @@ pub struct NetState {
     pub opponent_bans: Option<Vec<u8>>,
     pub received_settings: Option<crate::settings::GameSettings>,
     pub opponent_color: Option<u8>,
+    pub opponent_name: Option<String>,
     pub received_round_end: Option<RoundEndData>,
     // Desync detection & state sync
     pub received_state_hash: Option<(u32, u64)>,
@@ -114,6 +116,7 @@ impl NetState {
             opponent_bans: None,
             received_settings: None,
             opponent_color: None,
+            opponent_name: None,
             received_round_end: None,
             received_state_hash: None,
             received_state_request: None,
@@ -131,9 +134,6 @@ impl NetState {
             for (id, state) in new_peers {
                 match state {
                     PeerState::Connected => {
-                        if self.peer_id.is_none() {
-                            self.is_host = true;
-                        }
                         self.peer_id = Some(id);
                     }
                     PeerState::Disconnected => {
@@ -183,6 +183,9 @@ impl NetState {
                         }
                         NetMessage::ColorChoice(idx) => {
                             self.opponent_color = Some(idx);
+                        }
+                        NetMessage::NameSync(name) => {
+                            self.opponent_name = Some(name);
                         }
                         NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0, total_hp_1 } => {
                             self.received_round_end = Some(RoundEndData {

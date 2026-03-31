@@ -15,7 +15,10 @@ impl MainSettings {
 }
 
 /// Draw a slider for UI scale in the lobby settings screen. Returns true if value changed.
-pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, clicked: bool, dragging: bool, panel_x: f32, y: f32) {
+pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, clicked: bool, _dragging: bool, panel_x: f32, y: f32) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SLIDER_ACTIVE: AtomicBool = AtomicBool::new(false);
+
     let label = "Text Size";
     crate::ui::draw_scaled_text(label, panel_x + 20.0, y + 17.0, 18.0, WHITE);
 
@@ -38,17 +41,22 @@ pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, click
     let val_text = format!("{:.2}x", main_settings.ui_scale);
     crate::ui::draw_scaled_text(&val_text, slider_x + slider_w + 12.0, y + 17.0, 16.0, LIGHTGRAY);
 
-    // Drag interaction
-    if dragging || (clicked && mouse.x >= slider_x - knob_r && mouse.x <= slider_x + slider_w + knob_r
-        && mouse.y >= slider_y - knob_r && mouse.y <= slider_y + slider_h + knob_r)
-    {
-        if is_mouse_button_down(MouseButton::Left) {
-            let t = ((mouse.x - slider_x) / slider_w).clamp(0.0, 1.0);
-            // Snap to 0.05 increments
-            let raw = 0.75 + t * (2.0 - 0.75);
-            main_settings.ui_scale = (raw / 0.05).round() * 0.05;
-            main_settings.ui_scale = main_settings.ui_scale.clamp(0.75, 2.0);
-        }
+    // Start drag only if click lands on the slider
+    let on_slider = mouse.x >= slider_x - knob_r && mouse.x <= slider_x + slider_w + knob_r
+        && mouse.y >= slider_y - knob_r && mouse.y <= slider_y + slider_h + knob_r;
+    if clicked && on_slider {
+        SLIDER_ACTIVE.store(true, Ordering::Relaxed);
+    }
+    if !is_mouse_button_down(MouseButton::Left) {
+        SLIDER_ACTIVE.store(false, Ordering::Relaxed);
+    }
+
+    if SLIDER_ACTIVE.load(Ordering::Relaxed) {
+        let t = ((mouse.x - slider_x) / slider_w).clamp(0.0, 1.0);
+        // Snap to 0.05 increments
+        let raw = 0.75 + t * (2.0 - 0.75);
+        main_settings.ui_scale = (raw / 0.05).round() * 0.05;
+        main_settings.ui_scale = main_settings.ui_scale.clamp(0.75, 2.0);
     }
 }
 

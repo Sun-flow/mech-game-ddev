@@ -101,11 +101,16 @@ impl LobbyState {
                 let name_w = s(200.0);
                 let name_x = sw() / 2.0 - name_w / 2.0;
                 let name_h = s(30.0);
-                if left_click && mouse.x >= name_x && mouse.x <= name_x + name_w
-                    && mouse.y >= name_y && mouse.y <= name_y + name_h {
+                let name_hovered = mouse.x >= name_x && mouse.x <= name_x + name_w
+                    && mouse.y >= name_y && mouse.y <= name_y + name_h;
+                if left_click && name_hovered {
                     self.name_editing = true;
                 } else if left_click {
                     self.name_editing = false;
+                }
+                if is_mouse_button_pressed(MouseButton::Right) && name_hovered {
+                    self.player_name.clear();
+                    self.name_editing = true;
                 }
                 if self.name_editing {
                     while let Some(ch) = get_char_pressed() {
@@ -218,6 +223,7 @@ impl LobbyState {
                         if self.is_room_creator {
                             net.send(crate::net::NetMessage::SettingsSync(game_settings.clone()));
                         }
+                        net.send(crate::net::NetMessage::NameSync(self.player_name.clone()));
                         net.send(crate::net::NetMessage::ColorChoice(game_settings.player_color_index));
                         net.send(crate::net::NetMessage::ReadyToStart);
                         self.status = "Peer connected! Waiting for ready...".to_string();

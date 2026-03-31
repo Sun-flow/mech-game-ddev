@@ -115,14 +115,14 @@ pub struct BuildState {
 }
 
 impl BuildState {
-    pub fn new(gold: u32) -> Self {
+    pub fn new(gold: u32, is_host: bool) -> Self {
         Self {
             builder: ArmyBuilder::new(gold),
             placed_packs: Vec::new(),
             dragging: None,
             selected_pack: None,
             timer: BUILD_TIMER,
-            next_id: 1,
+            next_id: if is_host { 1 } else { 100_000 },
             round_tech_purchases: Vec::new(),
             undo_history: Vec::new(),
             packs_bought_this_round: 0,

@@ -170,38 +170,54 @@ impl SyncObstacle {
 // State hashing — fast hash of gameplay-relevant fields only
 // ---------------------------------------------------------------------------
 
+/// Compute a hash of gameplay-relevant state.
+/// When `mirror` is true (guest), hashes with mirrored x positions and swapped
+/// team_ids so the result matches the host's hash for the same physical state.
 pub fn compute_state_hash(
     units: &[Unit],
     projectiles: &[Projectile],
     obstacles: &[Obstacle],
+    mirror: bool,
 ) -> u64 {
+    let arena_w = crate::arena::ARENA_W;
     let mut hasher = DefaultHasher::new();
 
-    for u in units {
+    // Sort units by id so both sides hash in the same order
+    let mut sorted_units: Vec<&Unit> = units.iter().collect();
+    sorted_units.sort_by_key(|u| u.id);
+
+    for u in &sorted_units {
         u.id.hash(&mut hasher);
         u.alive.hash(&mut hasher);
         u.hp.to_bits().hash(&mut hasher);
-        u.pos.x.to_bits().hash(&mut hasher);
+        let x = if mirror { arena_w - u.pos.x } else { u.pos.x };
+        x.to_bits().hash(&mut hasher);
         u.pos.y.to_bits().hash(&mut hasher);
-        u.team_id.hash(&mut hasher);
-        u.target_id.hash(&mut hasher);
+        let team = if mirror { 1 - u.team_id } else { u.team_id };
+        team.hash(&mut hasher);
+        // NOTE: target_id excluded — targeting can diverge due to tie-breaking without
+        // meaning the simulation is desynced (positions/hp are what matter)
         u.attack_cooldown.to_bits().hash(&mut hasher);
         u.shield_hp.to_bits().hash(&mut hasher);
         u.slow_timer.to_bits().hash(&mut hasher);
     }
 
     for p in projectiles {
-        p.pos.x.to_bits().hash(&mut hasher);
+        let px = if mirror { arena_w - p.pos.x } else { p.pos.x };
+        px.to_bits().hash(&mut hasher);
         p.pos.y.to_bits().hash(&mut hasher);
-        p.vel.x.to_bits().hash(&mut hasher);
+        let vx = if mirror { -p.vel.x } else { p.vel.x };
+        vx.to_bits().hash(&mut hasher);
         p.vel.y.to_bits().hash(&mut hasher);
         p.alive.hash(&mut hasher);
         p.damage.to_bits().hash(&mut hasher);
-        p.team_id.hash(&mut hasher);
+        let team = if mirror { 1 - p.team_id } else { p.team_id };
+        team.hash(&mut hasher);
     }
 
     for o in obstacles {
-        o.pos.x.to_bits().hash(&mut hasher);
+        let ox = if mirror { arena_w - o.pos.x } else { o.pos.x };
+        ox.to_bits().hash(&mut hasher);
         o.pos.y.to_bits().hash(&mut hasher);
         o.hp.to_bits().hash(&mut hasher);
         o.alive.hash(&mut hasher);
@@ -230,6 +246,9 @@ pub fn serialize_state(
     )
 }
 
+/// Apply host's authoritative state to local game state.
+/// When `mirror` is true (guest), translates host positions via (-1)*x
+/// (ARENA_W - x) and swaps team_ids to maintain the guest's perspective.
 pub fn apply_state_sync(
     units: &mut Vec<Unit>,
     projectiles: &mut Vec<Projectile>,
@@ -237,12 +256,20 @@ pub fn apply_state_sync(
     units_data: &[u8],
     projectiles_data: &[u8],
     obstacles_data: &[u8],
+    mirror: bool,
 ) {
+    let arena_w = crate::arena::ARENA_W;
+
     // Deserialize sync structs
     if let Ok(sync_units) = bincode::deserialize::<Vec<SyncUnit>>(units_data) {
         // Match by id and apply; units that exist in sync but not locally are skipped
         // (stats/kind are preserved from local since they don't change mid-round)
-        for su in &sync_units {
+        for mut su in sync_units {
+            if mirror {
+                su.pos.0 = arena_w - su.pos.0;
+                su.team_id = 1 - su.team_id;
+                su.path = su.path.iter().map(|&(px, py)| (arena_w - px, py)).collect();
+            }
             if let Some(u) = units.iter_mut().find(|u| u.id == su.id) {
                 su.apply_to(u);
             }
@@ -251,12 +278,27 @@ pub fn apply_state_sync(
 
     if let Ok(sync_projs) = bincode::deserialize::<Vec<SyncProjectile>>(projectiles_data) {
         // Replace projectiles entirely — they're ephemeral and have no persistent identity
-        *projectiles = sync_projs.iter().map(|sp| sp.to_projectile()).collect();
+        *projectiles = sync_projs.iter().map(|sp| {
+            let mut p = sp.to_projectile();
+            if mirror {
+                p.pos.x = arena_w - p.pos.x;
+                p.vel.x = -p.vel.x;
+                p.origin.x = arena_w - p.origin.x;
+                p.team_id = 1 - p.team_id;
+            }
+            p
+        }).collect();
     }
 
     if let Ok(sync_obs) = bincode::deserialize::<Vec<SyncObstacle>>(obstacles_data) {
         // Apply to existing obstacles by index (obstacles don't change count mid-round)
-        for (so, o) in sync_obs.iter().zip(obstacles.iter_mut()) {
+        for (mut so, o) in sync_obs.into_iter().zip(obstacles.iter_mut()) {
+            if mirror {
+                so.pos.0 = arena_w - so.pos.0;
+                if so.team_id != 255 {
+                    so.team_id = 1 - so.team_id;
+                }
+            }
             so.apply_to(o);
         }
     }

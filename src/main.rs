@@ -51,9 +51,9 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut progress = MatchProgress::new();
+    let mut progress = MatchProgress::new(true);
     let mut phase = GamePhase::Lobby;
-    let mut build = BuildState::new(progress.round_gold());
+    let mut build = BuildState::new(progress.round_gold(), true);
     let mut units: Vec<Unit> = Vec::new();
     let mut projectiles: Vec<Projectile> = Vec::new();
     let mut _army_0 = ArmyBuilder::new(0);
@@ -66,10 +66,14 @@ async fn main() {
     let mut battle_frame: u32 = 0;
     const ROUND_TIMEOUT: f32 = 90.0;
     const SYNC_INTERVAL: u32 = 4;
+    // Guest keeps recent frame hashes so it can match against the host's frame
+    let mut recent_hashes: std::collections::VecDeque<(u32, u64)> = std::collections::VecDeque::with_capacity(5);
     let mut game_settings = settings::GameSettings::default();
     let mut main_settings = settings::MainSettings::default();
     let mut obstacles: Vec<terrain::Obstacle> = Vec::new();
     let mut show_surrender_confirm = false;
+    let mut mp_player_name = String::from("Player");
+    let mut mp_opponent_name = String::from("Opponent");
     let mut chat_messages: Vec<(String, String, u8, f32)> = Vec::new(); // (name, text, team_id, lifetime)
     let mut chat_input = String::new();
     let mut chat_open = false;
@@ -148,7 +152,15 @@ async fn main() {
             GamePhase::Lobby => {
                 match lobby.update(&mut game_settings, &mut main_settings) {
                     lobby::LobbyResult::StartMultiplayer => {
+                        let is_host = lobby.is_room_creator;
                         net = lobby.net.take();
+                        if let Some(ref mut n) = net {
+                            n.is_host = is_host;
+                            mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
+                        }
+                        mp_player_name = lobby.player_name.clone();
+                        progress = MatchProgress::new(is_host);
+                        build = BuildState::new(progress.round_gold(), is_host);
                         if game_settings.draft_ban_enabled {
                             phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
@@ -158,6 +170,10 @@ async fn main() {
                     }
                     lobby::LobbyResult::StartVsAi => {
                         net = None;
+                        mp_player_name = lobby.player_name.clone();
+                        mp_opponent_name = "AI".to_string();
+                        progress = MatchProgress::new(true);
+                        build = BuildState::new(progress.round_gold(), true);
                         if game_settings.draft_ban_enabled {
                             phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
@@ -170,7 +186,15 @@ async fn main() {
 
                 match lobby.draw(&mut game_settings, &mut main_settings) {
                     lobby::LobbyResult::StartMultiplayer => {
+                        let is_host = lobby.is_room_creator;
                         net = lobby.net.take();
+                        if let Some(ref mut n) = net {
+                            n.is_host = is_host;
+                            mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
+                        }
+                        mp_player_name = lobby.player_name.clone();
+                        progress = MatchProgress::new(is_host);
+                        build = BuildState::new(progress.round_gold(), is_host);
                         if game_settings.draft_ban_enabled {
                             phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
@@ -180,6 +204,10 @@ async fn main() {
                     }
                     lobby::LobbyResult::StartVsAi => {
                         net = None;
+                        mp_player_name = lobby.player_name.clone();
+                        mp_opponent_name = "AI".to_string();
+                        progress = MatchProgress::new(true);
+                        build = BuildState::new(progress.round_gold(), true);
                         if game_settings.draft_ban_enabled {
                             phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
@@ -407,6 +435,7 @@ async fn main() {
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
                         battle_frame = 0;
+                        recent_hashes.clear();
                     }
                     continue;
                 }
@@ -731,6 +760,7 @@ async fn main() {
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
                         battle_frame = 0;
+                        recent_hashes.clear();
                     }
                     continue;
                 }
@@ -771,6 +801,7 @@ async fn main() {
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
                         battle_frame = 0;
+                        recent_hashes.clear();
 
                         // Reset per-round damage stats
                         for unit in units.iter_mut() {
@@ -821,11 +852,20 @@ async fn main() {
                         }
                         battle_frame += 1;
 
-                        // --- Host: send hash every SYNC_INTERVAL frames ---
+                        // --- Sync hashing every SYNC_INTERVAL frames ---
                         if let Some(ref mut n) = net {
-                            if n.is_host && battle_frame % SYNC_INTERVAL == 0 {
-                                let local_hash = sync::compute_state_hash(&units, &projectiles, &obstacles);
-                                n.send(net::NetMessage::StateHash { frame: battle_frame, hash: local_hash });
+                            if battle_frame % SYNC_INTERVAL == 0 {
+                                if n.is_host {
+                                    let local_hash = sync::compute_state_hash(&units, &projectiles, &obstacles, false);
+                                    n.send(net::NetMessage::StateHash { frame: battle_frame, hash: local_hash });
+                                } else {
+                                    // Guest: store hash for this frame so we can compare when host's hash arrives
+                                    let local_hash = sync::compute_state_hash(&units, &projectiles, &obstacles, true);
+                                    if recent_hashes.len() >= 4 {
+                                        recent_hashes.pop_front();
+                                    }
+                                    recent_hashes.push_back((battle_frame, local_hash));
+                                }
                             }
                         }
                     }
@@ -850,17 +890,20 @@ async fn main() {
                                 });
                             }
                         } else {
-                            // Guest: check hash from host (compare against current local state)
+                            // Guest: check hash from host against our stored hash for that frame
                             if let Some((host_frame, host_hash)) = n.received_state_hash.take() {
-                                let local_hash = sync::compute_state_hash(&units, &projectiles, &obstacles);
-                                if host_hash != local_hash {
-                                    eprintln!("[DESYNC] Hash mismatch! Host frame {} vs local frame {}. Requesting state.",
-                                        host_frame, battle_frame);
-                                    n.send(net::NetMessage::StateRequest { frame: battle_frame });
+                                if let Some(pos) = recent_hashes.iter().position(|(f, _)| *f == host_frame) {
+                                    let (_, local_hash) = recent_hashes[pos];
+                                    if host_hash != local_hash {
+                                        eprintln!("[DESYNC] Hash mismatch at frame {}! Requesting state.", host_frame);
+                                        n.send(net::NetMessage::StateRequest { frame: battle_frame });
+                                    }
+                                    // Remove this and older hashes
+                                    recent_hashes.drain(..=pos);
                                 }
                             }
 
-                            // Guest: apply state correction from host immediately
+                            // Guest: apply state correction from host immediately (mirror positions)
                             if let Some(sync_data) = n.received_state_sync.take() {
                                 eprintln!("[SYNC] Guest applying host state correction (host frame {}, local frame {})",
                                     sync_data.frame, battle_frame);
@@ -871,6 +914,7 @@ async fn main() {
                                     &sync_data.units_data,
                                     &sync_data.projectiles_data,
                                     &sync_data.obstacles_data,
+                                    true,
                                 );
                             }
                         }
@@ -932,20 +976,23 @@ async fn main() {
                     round_end_timeout -= dt;
                     if let Some(ref mut n) = net {
                         if let Some(rd) = n.received_round_end.take() {
-                            // Use host's authoritative values
-                            let final_state = match rd.winner {
+                            // Flip host's perspective to guest's: host team 0 = guest team 1
+                            let flipped_winner = rd.winner.map(|w| 1 - w);
+                            let flipped_loser = rd.loser_team.map(|l| 1 - l);
+
+                            let final_state = match flipped_winner {
                                 Some(w) => MatchState::Winner(w),
                                 None => MatchState::Draw,
                             };
 
-                            // Log desync check
+                            // Log desync check (flip host counts to match guest perspective)
                             let local_alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count() as u16;
                             let local_alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count() as u16;
-                            if local_alive_0 != rd.alive_0 || local_alive_1 != rd.alive_1 {
-                                eprintln!("[DESYNC] Unit count mismatch! Local: {}/{} Host: {}/{}", local_alive_0, local_alive_1, rd.alive_0, rd.alive_1);
+                            if local_alive_0 != rd.alive_1 || local_alive_1 != rd.alive_0 {
+                                eprintln!("[DESYNC] Unit count mismatch! Local: {}/{} Host(flipped): {}/{}", local_alive_0, local_alive_1, rd.alive_1, rd.alive_0);
                             }
 
-                            if let Some(loser) = rd.loser_team {
+                            if let Some(loser) = flipped_loser {
                                 if loser == 0 {
                                     progress.player_lp -= rd.lp_damage;
                                 } else {
@@ -958,7 +1005,7 @@ async fn main() {
                             phase = GamePhase::RoundResult {
                                 match_state: final_state,
                                 lp_damage: rd.lp_damage,
-                                loser_team: rd.loser_team,
+                                loser_team: flipped_loser,
                             };
                         } else if round_end_timeout <= 0.0 {
                             // Timeout — fall back to local computation
@@ -1118,9 +1165,9 @@ async fn main() {
 
             GamePhase::GameOver(_) => {
                 if is_key_pressed(KeyCode::R) {
-                    progress = MatchProgress::new();
+                    progress = MatchProgress::new(true);
                     phase = GamePhase::Lobby;
-                    build = BuildState::new(progress.round_gold());
+                    build = BuildState::new(progress.round_gold(), true);
                     units.clear();
                     projectiles.clear();
                     _army_0 = ArmyBuilder::new(0);
@@ -1140,8 +1187,9 @@ async fn main() {
                     && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
                 {
                     // Reset for rematch (skip lobby, go straight to Build)
-                    progress = MatchProgress::new();
-                    build = BuildState::new(progress.round_gold());
+                    let is_host = net.as_ref().map_or(true, |n| n.is_host);
+                    progress = MatchProgress::new(is_host);
+                    build = BuildState::new(progress.round_gold(), is_host);
                     units.clear();
                     projectiles.clear();
                     obstacles.clear();
@@ -1475,7 +1523,7 @@ async fn main() {
                     let packs = all_packs();
                     build.placed_packs.iter().map(|p| packs[p.pack_index].cost).sum()
                 };
-                draw_hud(&progress, build.builder.gold_remaining, build.timer, army_value, 0.0);
+                draw_hud(&progress, build.builder.gold_remaining, build.timer, army_value, 0.0, &mp_player_name, &mp_opponent_name);
 
                 // Begin Round button (screen-space)
                 let btn_w = crate::ui::s(160.0);
@@ -1521,7 +1569,7 @@ async fn main() {
             }
 
             GamePhase::WaitingForOpponent => {
-                draw_hud(&progress, build.builder.gold_remaining, 0.0, 0, 0.0);
+                draw_hud(&progress, build.builder.gold_remaining, 0.0, 0, 0.0, &mp_player_name, &mp_opponent_name);
 
                 let dots = ".".repeat(((get_time() * 2.0) as usize % 4));
                 let wait_text = format!("Waiting for opponent{}", dots);
@@ -1537,7 +1585,7 @@ async fn main() {
 
             GamePhase::Battle => {
                 let remaining = (ROUND_TIMEOUT - battle_timer).max(0.0);
-                draw_hud(&progress, 0, 0.0, 0, remaining);
+                draw_hud(&progress, 0, 0.0, 0, remaining, &mp_player_name, &mp_opponent_name);
 
                 let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count();
                 let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count();
@@ -1582,7 +1630,7 @@ async fn main() {
                                 crate::ui::draw_scaled_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
                                 ty += crate::ui::s(14.0);
                             }
-                            let team_name = match obs.team_id { 0 => "Player", 1 => "Opponent", _ => "Neutral" };
+                            let team_name = match obs.team_id { 0 => mp_player_name.as_str(), 1 => mp_opponent_name.as_str(), _ => "Neutral" };
                             crate::ui::draw_scaled_text(&format!("Owner: {}", team_name), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
                             break;
                         }
@@ -1630,12 +1678,21 @@ async fn main() {
                 lp_damage,
                 loser_team,
             } => {
-                draw_hud(&progress, 0, 0.0, 0, 0.0);
+                draw_hud(&progress, 0, 0.0, 0, 0.0, &mp_player_name, &mp_opponent_name);
 
                 let text = match match_state {
                     MatchState::Winner(tid) => {
-                        let name = if *tid == 0 { "Red" } else { "Blue" };
-                        format!("{} wins round {}!", name, progress.round)
+                        let (winner_name, color_idx) = if *tid == 0 {
+                            (&mp_player_name, game_settings.player_color_index)
+                        } else {
+                            let opp_idx = net.as_ref().and_then(|n| n.opponent_color).unwrap_or(1);
+                            (&mp_opponent_name, opp_idx)
+                        };
+                        let color_name = settings::TEAM_COLOR_OPTIONS
+                            .get(color_idx as usize)
+                            .map(|(name, _)| *name)
+                            .unwrap_or("???");
+                        format!("{} ({}) wins round {}!", winner_name, color_name, progress.round)
                     }
                     MatchState::Draw => format!("Round {} - Draw!", progress.round),
                     MatchState::InProgress => unreachable!(),
@@ -1651,7 +1708,7 @@ async fn main() {
                 );
 
                 if let Some(loser) = loser_team {
-                    let loser_name = if *loser == 0 { "Player" } else { "Opponent" };
+                    let loser_name = if *loser == 0 { &mp_player_name } else { &mp_opponent_name };
                     let dmg_text = format!("{} loses {} LP", loser_name, lp_damage);
                     let ddims = crate::ui::measure_scaled_text(&dmg_text, 22);
                     crate::ui::draw_scaled_text(
@@ -1679,23 +1736,41 @@ async fn main() {
             }
 
             GamePhase::GameOver(winner) => {
-                let text = if *winner == 0 {
-                    "YOU WIN!"
+                let (headline, winner_color_idx) = if *winner == 0 {
+                    ("YOU WIN!".to_string(), game_settings.player_color_index)
                 } else {
-                    "YOU LOSE!"
+                    ("YOU LOSE!".to_string(), net.as_ref().and_then(|n| n.opponent_color).unwrap_or(1))
                 };
-                let color = if *winner == 0 {
+                let winner_name = if *winner == 0 { &mp_player_name } else { &mp_opponent_name };
+                let color_name = settings::TEAM_COLOR_OPTIONS
+                    .get(winner_color_idx as usize)
+                    .map(|(name, _)| *name)
+                    .unwrap_or("???");
+                let subtitle = format!("{} ({}) wins!", winner_name, color_name);
+                let headline_color = if *winner == 0 {
                     Color::new(0.2, 1.0, 0.3, 1.0)
                 } else {
                     Color::new(1.0, 0.3, 0.2, 1.0)
                 };
-                let dims = crate::ui::measure_scaled_text(text, 48);
+                let dims = crate::ui::measure_scaled_text(&headline, 48);
                 crate::ui::draw_scaled_text(
-                    text,
+                    &headline,
                     screen_width() / 2.0 - dims.width / 2.0,
-                    screen_height() / 2.0 - crate::ui::s(20.0),
+                    screen_height() / 2.0 - crate::ui::s(40.0),
                     48.0,
-                    color,
+                    headline_color,
+                );
+                let sub_dims = crate::ui::measure_scaled_text(&subtitle, 22);
+                let (_, (cr, cg, cb)) = settings::TEAM_COLOR_OPTIONS
+                    .get(winner_color_idx as usize)
+                    .copied()
+                    .unwrap_or(("White", (1.0, 1.0, 1.0)));
+                crate::ui::draw_scaled_text(
+                    &subtitle,
+                    screen_width() / 2.0 - sub_dims.width / 2.0,
+                    screen_height() / 2.0 - crate::ui::s(10.0),
+                    22.0,
+                    Color::new(cr, cg, cb, 1.0),
                 );
 
                 // Stats panel
@@ -1735,7 +1810,7 @@ async fn main() {
                 crate::ui::draw_scaled_text(&format!("Surviving: {} / {}", surviving, total_units), sx, sy, 15.0, LIGHTGRAY);
                 sy += crate::ui::s(18.0);
 
-                crate::ui::draw_scaled_text(&format!("LP: {} vs {}", progress.player_lp, progress.opponent_lp), sx, sy, 15.0, LIGHTGRAY);
+                crate::ui::draw_scaled_text(&format!("LP: {} {} vs {} {}", mp_player_name, progress.player_lp, mp_opponent_name, progress.opponent_lp), sx, sy, 15.0, LIGHTGRAY);
 
                 let below_panel = panel_y + panel_h + crate::ui::s(8.0);
                 crate::ui::draw_scaled_text(
@@ -1786,9 +1861,9 @@ async fn main() {
                 );
 
                 if is_key_pressed(KeyCode::R) {
-                    progress = MatchProgress::new();
+                    progress = MatchProgress::new(true);
                     phase = GamePhase::Lobby;
-                    build = BuildState::new(progress.round_gold());
+                    build = BuildState::new(progress.round_gold(), true);
                     units.clear();
                     projectiles.clear();
                     net = None;
@@ -1975,7 +2050,7 @@ fn start_battle_ai(
     GamePhase::Battle
 }
 
-fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32) {
+fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, player_name: &str, opponent_name: &str) {
     // Background bar (screen-wide)
     draw_rectangle(
         0.0,
@@ -1999,7 +2074,7 @@ fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, ba
     x += round_w + gap;
 
     // Player LP
-    let player_lp_text = format!("Player LP: {}", progress.player_lp);
+    let player_lp_text = format!("{} LP: {}", player_name, progress.player_lp);
     let plp_color = if progress.player_lp > 500 {
         Color::new(0.3, 1.0, 0.4, 1.0)
     } else if progress.player_lp > 200 {
@@ -2012,7 +2087,7 @@ fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, ba
     x += plp_w + gap;
 
     // Opponent LP
-    let opponent_lp_text = format!("Opponent LP: {}", progress.opponent_lp);
+    let opponent_lp_text = format!("{} LP: {}", opponent_name, progress.opponent_lp);
     let alp_color = if progress.opponent_lp > 500 {
         Color::new(0.3, 0.6, 1.0, 1.0)
     } else if progress.opponent_lp > 200 {
