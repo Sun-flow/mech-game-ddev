@@ -143,13 +143,6 @@ impl Unit {
         }
     }
 
-    /// Reset per-round stats (call at start of each round).
-    #[allow(dead_code)]
-    pub fn reset_round_stats(&mut self) {
-        self.damage_dealt_round = 0.0;
-        self.damage_soaked_round = 0.0;
-    }
-
     pub fn is_melee(&self) -> bool {
         self.stats.projectile_speed <= 0.0
     }
@@ -410,24 +403,5 @@ impl UnitKind {
                 shape: UnitShape::Diamond,
             },
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn all() -> &'static [UnitKind] {
-        &[
-            UnitKind::Striker,
-            UnitKind::Sentinel,
-            UnitKind::Ranger,
-            UnitKind::Scout,
-            UnitKind::Bruiser,
-            UnitKind::Artillery,
-            UnitKind::Chaff,
-            UnitKind::Sniper,
-            UnitKind::Skirmisher,
-            UnitKind::Dragoon,
-            UnitKind::Berserker,
-            UnitKind::Shield,
-            UnitKind::Interceptor,
-        ]
     }
 }

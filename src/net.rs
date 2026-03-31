@@ -49,8 +49,6 @@ pub enum NetMessage {
 pub struct OpponentBuildData {
     pub new_packs: Vec<(usize, (f32, f32), bool)>,
     pub tech_purchases: Vec<(UnitKind, TechId)>,
-    #[allow(dead_code)]
-    pub gold_remaining: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -68,8 +66,6 @@ pub struct NetState {
     pub is_host: bool,
     pub peer_ready: bool,
     pub opponent_build: Option<OpponentBuildData>,
-    #[allow(dead_code)]
-    pub local_ready: bool,
     pub disconnected: bool,
     pub received_chats: Vec<(String, String)>, // (sender_name, text)
     pub opponent_surrendered: bool,
@@ -92,10 +88,6 @@ pub struct RoundEndData {
     pub loser_team: Option<u8>,
     pub alive_0: u16,
     pub alive_1: u16,
-    #[allow(dead_code)]
-    pub total_hp_0: i32,
-    #[allow(dead_code)]
-    pub total_hp_1: i32,
 }
 
 impl NetState {
@@ -112,7 +104,6 @@ impl NetState {
             is_host: false,
             peer_ready: false,
             opponent_build: None,
-            local_ready: false,
             disconnected: false,
             received_chats: Vec::new(),
             opponent_surrendered: false,
@@ -162,12 +153,11 @@ impl NetState {
                         NetMessage::BuildComplete {
                             new_packs,
                             tech_purchases,
-                            gold_remaining,
+                            gold_remaining: _,
                         } => {
                             self.opponent_build = Some(OpponentBuildData {
                                 new_packs,
                                 tech_purchases,
-                                gold_remaining,
                             });
                         }
                         NetMessage::ChatMessage(name, text) => {
@@ -191,9 +181,9 @@ impl NetState {
                         NetMessage::NameSync(name) => {
                             self.opponent_name = Some(name);
                         }
-                        NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0, total_hp_1 } => {
+                        NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0: _, total_hp_1: _ } => {
                             self.received_round_end = Some(RoundEndData {
-                                winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0, total_hp_1,
+                                winner, lp_damage, loser_team, alive_0, alive_1,
                             });
                         }
                         NetMessage::StateHash { frame, hash } => {
