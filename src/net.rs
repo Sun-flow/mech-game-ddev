@@ -49,6 +49,7 @@ pub enum NetMessage {
 pub struct OpponentBuildData {
     pub new_packs: Vec<(usize, (f32, f32), bool)>,
     pub tech_purchases: Vec<(UnitKind, TechId)>,
+    #[allow(dead_code)]
     pub gold_remaining: u32,
 }
 
@@ -67,6 +68,7 @@ pub struct NetState {
     pub is_host: bool,
     pub peer_ready: bool,
     pub opponent_build: Option<OpponentBuildData>,
+    #[allow(dead_code)]
     pub local_ready: bool,
     pub disconnected: bool,
     pub received_chats: Vec<(String, String)>, // (sender_name, text)
@@ -90,7 +92,9 @@ pub struct RoundEndData {
     pub loser_team: Option<u8>,
     pub alive_0: u16,
     pub alive_1: u16,
+    #[allow(dead_code)]
     pub total_hp_0: i32,
+    #[allow(dead_code)]
     pub total_hp_1: i32,
 }
 

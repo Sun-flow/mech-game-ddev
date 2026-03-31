@@ -4,6 +4,7 @@ use crate::pack::{all_packs, PackDef};
 use crate::tech::TechState;
 use crate::unit::Unit;
 
+#[allow(dead_code)]
 pub const STARTING_GOLD: u32 = 1000;
 
 #[derive(Clone, Debug)]
@@ -30,11 +31,13 @@ impl ArmyBuilder {
         }
     }
 
+    #[allow(dead_code)]
     pub fn gold_spent(&self) -> u32 {
         STARTING_GOLD - self.gold_remaining
     }
 
     /// Spawn all purchased packs as units on one side of the arena.
+    #[allow(dead_code)]
     pub fn spawn_army(&self, team_id: u8, side_x: f32, arena_h: f32, next_id: &mut u64) -> Vec<Unit> {
         let mut units = Vec::new();
         let total_packs = self.packs.len();
@@ -69,6 +72,7 @@ impl ArmyBuilder {
 }
 
 /// Build a random army within budget by picking random packs.
+#[allow(dead_code)]
 pub fn random_army(gold: u32) -> ArmyBuilder {
     random_army_filtered(gold, &[])
 }

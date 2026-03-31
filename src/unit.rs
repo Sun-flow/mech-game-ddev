@@ -144,6 +144,7 @@ impl Unit {
     }
 
     /// Reset per-round stats (call at start of each round).
+    #[allow(dead_code)]
     pub fn reset_round_stats(&mut self) {
         self.damage_dealt_round = 0.0;
         self.damage_soaked_round = 0.0;
@@ -411,6 +412,7 @@ impl UnitKind {
         }
     }
 
+    #[allow(dead_code)]
     pub fn all() -> &'static [UnitKind] {
         &[
             UnitKind::Striker,

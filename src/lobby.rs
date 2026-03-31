@@ -79,20 +79,13 @@ impl LobbyState {
             .collect()
     }
 
-    pub fn update(&mut self, game_settings: &mut crate::settings::GameSettings, main_settings: &mut crate::settings::MainSettings) -> LobbyResult {
+    pub fn update(&mut self, game_settings: &mut crate::settings::GameSettings, _main_settings: &mut crate::settings::MainSettings) -> LobbyResult {
         let mouse = vec2(mouse_position().0, mouse_position().1);
         let left_click = is_mouse_button_pressed(MouseButton::Left);
 
         let btn_w = s(240.0);
         let btn_h = s(45.0);
         let btn_x = sw() / 2.0 - btn_w / 2.0;
-
-        // Clone next_action if in MatchSettings to avoid borrow issues
-        let match_settings_next = if let LobbyMode::MatchSettings { ref next_action } = self.mode {
-            Some(next_action.clone())
-        } else {
-            None
-        };
 
         match self.mode {
             LobbyMode::Menu => {
@@ -440,7 +433,7 @@ impl LobbyState {
                 crate::ui::draw_scaled_text(&self.status, sw() / 2.0 - sdims.width / 2.0, sh() / 2.0 + 25.0, 20.0, LIGHTGRAY);
 
                 if self.mode == LobbyMode::WaitingForPeer {
-                    let dots = ".".repeat(((get_time() * 2.0) as usize % 4));
+                    let dots = ".".repeat((get_time() * 2.0) as usize % 4);
                     let wait_text = format!("Waiting for opponent{}", dots);
                     let wdims = crate::ui::measure_scaled_text(&wait_text, 18);
                     crate::ui::draw_scaled_text(&wait_text, sw() / 2.0 - wdims.width / 2.0, sh() / 2.0 + s(55.0), 18.0, Color::new(0.6, 0.6, 0.6, 1.0));

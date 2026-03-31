@@ -1474,7 +1474,7 @@ async fn main() {
                 // Pack labels (drawn in screen-space so text isn't distorted by camera zoom)
                 {
                     let packs = all_packs();
-                    for (i, placed) in build.placed_packs.iter().enumerate() {
+                    for (_i, placed) in build.placed_packs.iter().enumerate() {
                         let pack = &packs[placed.pack_index];
                         let half = placed.bbox_half_size_for(pack);
                         let world_pos = vec2(placed.center.x - half.x + 2.0, placed.center.y - half.y - 2.0);
@@ -1571,7 +1571,7 @@ async fn main() {
             GamePhase::WaitingForOpponent => {
                 draw_hud(&progress, build.builder.gold_remaining, 0.0, 0, 0.0, &mp_player_name, &mp_opponent_name);
 
-                let dots = ".".repeat(((get_time() * 2.0) as usize % 4));
+                let dots = ".".repeat((get_time() * 2.0) as usize % 4);
                 let wait_text = format!("Waiting for opponent{}", dots);
                 let wdims = crate::ui::measure_scaled_text(&wait_text, 28);
                 crate::ui::draw_scaled_text(
