@@ -40,7 +40,6 @@ impl Projectile {
         team_id: u8,
         splash_radius: f32,
         proj_type: ProjectileType,
-        _attack_range: f32,
     ) -> Self {
         let dir = (target_pos - origin).normalize_or_zero();
         let target_dist = origin.distance(target_pos);

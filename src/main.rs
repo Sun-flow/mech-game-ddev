@@ -19,7 +19,7 @@ use macroquad::prelude::*;
 
 use arena::{check_match_state, MatchState, ARENA_H, ARENA_W, HALF_W, shop_w};
 use combat::{update_attacks, update_movement, update_projectiles, update_targeting};
-use economy::{ai_buy_techs, ArmyBuilder};
+use economy::ai_buy_techs;
 use game_state::{BuildState, GamePhase};
 use match_progress::MatchProgress;
 use pack::all_packs;
@@ -56,9 +56,6 @@ async fn main() {
     let mut build = BuildState::new(progress.round_gold(), true);
     let mut units: Vec<Unit> = Vec::new();
     let mut projectiles: Vec<Projectile> = Vec::new();
-    let mut _army_0 = ArmyBuilder::new(0);
-    let mut _army_1 = ArmyBuilder::new(0);
-
     let mut net: Option<net::NetState> = None;
     let mut lobby = lobby::LobbyState::new();
     let mut battle_accumulator: f32 = 0.0;
@@ -298,7 +295,7 @@ async fn main() {
                 let btn_h = crate::ui::s(45.0);
                 let btn_x = screen_width() / 2.0 - btn_w / 2.0;
                 let btn_y = start_y + 4.0 * (card_h + gap) + crate::ui::s(20.0);
-                let btn_hover = screen_mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= btn_y && mouse.y <= btn_y + btn_h;
+                let btn_hover = screen_mouse.x >= btn_x && screen_mouse.x <= btn_x + btn_w && screen_mouse.y >= btn_y && screen_mouse.y <= btn_y + btn_h;
                 let btn_color = if btn_hover { Color::new(0.2, 0.6, 0.3, 0.9) } else { Color::new(0.15, 0.45, 0.2, 0.8) };
                 draw_rectangle(btn_x, btn_y, btn_w, btn_h, btn_color);
                 draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 1.0, WHITE);
@@ -419,7 +416,7 @@ async fn main() {
                 if build.timer <= 0.0 {
                     if net.is_some() {
                         // Multiplayer: send build, transition to waiting
-                        send_build_complete(&mut net, &build, &progress);
+                        send_build_complete(&mut net, &build);
                         phase = GamePhase::WaitingForOpponent;
                     } else {
                         // Single-player: start battle immediately with AI
@@ -744,7 +741,7 @@ async fn main() {
                 {
                     if net.is_some() {
                         // Multiplayer: send build data, wait for opponent
-                        send_build_complete(&mut net, &build, &progress);
+                        send_build_complete(&mut net, &build);
                         phase = GamePhase::WaitingForOpponent;
                     } else {
                         // Single-player: start battle with AI
@@ -992,7 +989,12 @@ async fn main() {
                                 eprintln!("[DESYNC] Unit count mismatch! Local: {}/{} Host(flipped): {}/{}", local_alive_0, local_alive_1, rd.alive_1, rd.alive_0);
                             }
 
-                            if let Some(loser) = flipped_loser {
+                            // Apply timeout mutual damage (flipped for guest perspective)
+                            if rd.timeout_dmg_0 > 0 || rd.timeout_dmg_1 > 0 {
+                                // Host's team 0 = guest's team 1, so flip
+                                progress.player_lp -= rd.timeout_dmg_1;
+                                progress.opponent_lp -= rd.timeout_dmg_0;
+                            } else if let Some(loser) = flipped_loser {
                                 if loser == 0 {
                                     progress.player_lp -= rd.lp_damage;
                                 } else {
@@ -1030,20 +1032,19 @@ async fn main() {
                     let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count() as i32;
                     let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count() as i32;
 
-                    let (lp_damage, loser_team) = if timed_out {
+                    // Compute damage and loser — but DON'T apply yet (guest needs
+                    // the same values from the network message).
+                    let (lp_damage, loser_team, timeout_dmg_0, timeout_dmg_1) = if timed_out {
                         // Timeout: both players take damage equal to opponent's surviving units
-                        // Apply as mutual damage (no single loser)
-                        progress.player_lp -= alive_1;
-                        progress.opponent_lp -= alive_0;
-                        (0, None) // damage already applied directly
+                        (0, None, alive_1, alive_0)
                     } else {
                         match &final_state {
                             MatchState::Winner(winner) => {
                                 let damage = MatchProgress::calculate_lp_damage(&units, *winner);
                                 let loser = if *winner == 0 { 1u8 } else { 0u8 };
-                                (damage, Some(loser))
+                                (damage, Some(loser), 0, 0)
                             }
-                            MatchState::Draw => (0, None),
+                            MatchState::Draw => (0, None, 0, 0),
                             MatchState::InProgress => unreachable!(),
                         }
                     };
@@ -1068,12 +1069,16 @@ async fn main() {
                                 n.send(net::NetMessage::RoundEnd {
                                     winner, lp_damage, loser_team,
                                     alive_0, alive_1, total_hp_0, total_hp_1,
+                                    timeout_dmg_0, timeout_dmg_1,
                                 });
                             }
                         }
 
                         // Apply LP damage
-                        if let Some(loser) = loser_team {
+                        if timed_out {
+                            progress.player_lp -= timeout_dmg_0;
+                            progress.opponent_lp -= timeout_dmg_1;
+                        } else if let Some(loser) = loser_team {
                             if loser == 0 {
                                 progress.player_lp -= lp_damage;
                             } else {
@@ -1148,14 +1153,9 @@ async fn main() {
                             }
                         }
 
-                        // Respawn opponent units (visible during build phase)
-                        if net.is_none() {
-                            // Single-player: respawn AI units
-                            units.extend(progress.respawn_opponent_units());
-                        } else {
-                            // Multiplayer: respawn from stored opponent packs
-                            units.extend(progress.respawn_opponent_units());
-                        }
+                        // Respawn opponent units from stored packs (visible during build phase).
+                        // Works for both single-player (AI packs) and multiplayer (network packs).
+                        units.extend(progress.respawn_opponent_units());
 
                         projectiles.clear();
                         phase = GamePhase::Build;
@@ -1170,8 +1170,6 @@ async fn main() {
                     build = BuildState::new(progress.round_gold(), true);
                     units.clear();
                     projectiles.clear();
-                    _army_0 = ArmyBuilder::new(0);
-                    _army_1 = ArmyBuilder::new(0);
                     net = None;
                     lobby.reset();
                 }
@@ -1980,7 +1978,6 @@ async fn main() {
 fn send_build_complete(
     net: &mut Option<net::NetState>,
     build: &BuildState,
-    _progress: &MatchProgress,
 ) {
     if let Some(ref mut n) = net {
         // Collect new (unlocked) packs as Vec<(pack_index, center, rotated)>

@@ -182,11 +182,12 @@ pub fn compute_state_hash(
     let arena_w = crate::arena::ARENA_W;
     let mut hasher = DefaultHasher::new();
 
-    // Sort units by id so both sides hash in the same order
-    let mut sorted_units: Vec<&Unit> = units.iter().collect();
-    sorted_units.sort_by_key(|u| u.id);
+    // Sort unit indices by id so both sides hash in the same order
+    let mut sorted_indices: Vec<usize> = (0..units.len()).collect();
+    sorted_indices.sort_unstable_by_key(|&i| units[i].id);
 
-    for u in &sorted_units {
+    for &i in &sorted_indices {
+        let u = &units[i];
         u.id.hash(&mut hasher);
         u.alive.hash(&mut hasher);
         u.hp.to_bits().hash(&mut hasher);
@@ -292,6 +293,9 @@ pub fn apply_state_sync(
 
     if let Ok(sync_obs) = bincode::deserialize::<Vec<SyncObstacle>>(obstacles_data) {
         // Apply to existing obstacles by index (obstacles don't change count mid-round)
+        if sync_obs.len() != obstacles.len() {
+            eprintln!("[SYNC] Obstacle count mismatch: received {} vs local {}", sync_obs.len(), obstacles.len());
+        }
         for (mut so, o) in sync_obs.into_iter().zip(obstacles.iter_mut()) {
             if mirror {
                 so.pos.0 = arena_w - so.pos.0;

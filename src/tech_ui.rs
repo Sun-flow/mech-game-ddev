@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use macroquad::prelude::*;
 
 use crate::pack::all_packs;
@@ -22,6 +24,7 @@ pub struct PackCombatStats {
 
 impl PackCombatStats {
     pub fn from_units(units: &[Unit], unit_ids: &[u64]) -> Self {
+        let id_set: HashSet<u64> = unit_ids.iter().copied().collect();
         let mut st = PackCombatStats {
             damage_dealt_round: 0.0,
             damage_dealt_total: 0.0,
@@ -30,7 +33,7 @@ impl PackCombatStats {
             kills_total: 0,
         };
         for unit in units {
-            if unit_ids.contains(&unit.id) {
+            if id_set.contains(&unit.id) {
                 st.damage_dealt_round += unit.damage_dealt_round;
                 st.damage_dealt_total += unit.damage_dealt_total;
                 st.damage_soaked_round += unit.damage_soaked_round;

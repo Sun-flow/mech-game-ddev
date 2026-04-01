@@ -366,8 +366,7 @@ impl LobbyState {
 
                 let mouse = vec2(mouse_position().0, mouse_position().1);
                 let clicked = is_mouse_button_pressed(MouseButton::Left);
-                let dragging = is_mouse_button_down(MouseButton::Left);
-                crate::settings::draw_ui_scale_slider(main_settings, mouse, clicked, dragging, px, py + 55.0);
+                crate::settings::draw_ui_scale_slider(main_settings, mouse, clicked, px, py + 55.0);
 
                 crate::ui::draw_scaled_text("Press Escape to go back", sw() / 2.0 - 100.0, py + panel_h + 20.0, 14.0, DARKGRAY);
             }
@@ -400,9 +399,8 @@ impl LobbyState {
                 let code_display = if self.input_code.is_empty() {
                     "____".to_string()
                 } else {
-                    let mut s = self.input_code.clone();
-                    while s.len() < 4 { s.push('_'); }
-                    s
+                    // Pad with underscores to show remaining chars needed
+                    format!("{:_<4}", self.input_code)
                 };
                 let cdims = crate::ui::measure_scaled_text(&code_display, 48);
                 crate::ui::draw_scaled_text(&code_display, sw() / 2.0 - cdims.width / 2.0, sh() / 2.0 + 30.0, 48.0, Color::new(0.3, 0.8, 1.0, 1.0));
@@ -452,38 +450,13 @@ impl LobbyState {
 
                 let swatch_size = s(50.0);
                 let swatch_gap = s(16.0);
-                let colors = crate::settings::TEAM_COLOR_OPTIONS;
-                let total_w = colors.len() as f32 * swatch_size + (colors.len() - 1) as f32 * swatch_gap;
-                let sx_start = sw() / 2.0 - total_w / 2.0;
                 let sy = sh() / 2.0 - 20.0;
 
-                for (i, (name, (r, g, b))) in colors.iter().enumerate() {
-                    let sx = sx_start + i as f32 * (swatch_size + swatch_gap);
-                    let is_host_color = i as u8 == host_color;
-                    let is_selected = i as u8 == game_settings.player_color_index;
-                    let is_hovered = mouse.x >= sx && mouse.x <= sx + swatch_size && mouse.y >= sy && mouse.y <= sy + swatch_size;
-
-                    if is_host_color {
-                        // Dimmed and crossed out — host already picked this
-                        draw_rectangle(sx, sy, swatch_size, swatch_size, Color::new(*r * 0.3, *g * 0.3, *b * 0.3, 0.5));
-                        draw_line(sx, sy, sx + swatch_size, sy + swatch_size, 2.0, Color::new(1.0, 0.3, 0.3, 0.7));
-                        draw_line(sx + swatch_size, sy, sx, sy + swatch_size, 2.0, Color::new(1.0, 0.3, 0.3, 0.7));
-                    } else {
-                        draw_rectangle(sx, sy, swatch_size, swatch_size, Color::new(*r, *g, *b, 1.0));
-                        if is_selected {
-                            draw_rectangle_lines(sx - 3.0, sy - 3.0, swatch_size + 6.0, swatch_size + 6.0, 3.0, WHITE);
-                        } else if is_hovered {
-                            draw_rectangle_lines(sx - 1.0, sy - 1.0, swatch_size + 2.0, swatch_size + 2.0, 2.0, Color::new(0.7, 0.7, 0.7, 0.8));
-                        }
-
-                        if left_click && is_hovered {
-                            game_settings.player_color_index = i as u8;
-                        }
-                    }
-
-                    let ndims = crate::ui::measure_scaled_text(name, 12);
-                    let label_color = if is_host_color { Color::new(0.4, 0.4, 0.4, 0.5) } else { LIGHTGRAY };
-                    crate::ui::draw_scaled_text(name, sx + swatch_size / 2.0 - ndims.width / 2.0, sy + swatch_size + 16.0, 12.0, label_color);
+                if let Some(color_idx) = crate::settings::draw_color_swatches(
+                    game_settings.player_color_index, mouse, left_click,
+                    sw() / 2.0, sy, swatch_size, swatch_gap, Some(host_color),
+                ) {
+                    game_settings.player_color_index = color_idx;
                 }
 
                 // Ready button

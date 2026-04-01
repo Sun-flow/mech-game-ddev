@@ -31,12 +31,12 @@ pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
             let d = unit.pos.distance(epos);
             // Track nearest enemy regardless of LOS (for pathfinding)
             // Tiebreak on unit ID for determinism
-            if d < best_any_dist || (d == best_any_dist && best_any_id.map_or(true, |id| eid < id)) {
+            if d < best_any_dist || (d - best_any_dist).abs() < 0.01 && best_any_id.map_or(true, |id| eid < id) {
                 best_any_dist = d;
                 best_any_id = Some(eid);
             }
             // Track nearest enemy with LOS (preferred for attacking)
-            if (d < best_los_dist || (d == best_los_dist && best_los_id.map_or(true, |id| eid < id)))
+            if (d < best_los_dist || (d - best_los_dist).abs() < 0.01 && best_los_id.map_or(true, |id| eid < id))
                 && crate::terrain::has_line_of_sight_wide(unit.pos, epos, crate::projectile::PROJECTILE_RADIUS, obstacles)
             {
                 best_los_dist = d;
@@ -178,9 +178,10 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
                     let dy_top = unit.pos.y - obs_min.y;
                     let dy_bot = obs_max.y - unit.pos.y;
                     let min_d = dx_left.min(dx_right).min(dy_top).min(dy_bot);
-                    if min_d == dx_left { unit.pos.x = obs_min.x - unit.stats.size; }
-                    else if min_d == dx_right { unit.pos.x = obs_max.x + unit.stats.size; }
-                    else if min_d == dy_top { unit.pos.y = obs_min.y - unit.stats.size; }
+                    const EPS: f32 = 0.001;
+                    if (min_d - dx_left).abs() < EPS { unit.pos.x = obs_min.x - unit.stats.size; }
+                    else if (min_d - dx_right).abs() < EPS { unit.pos.x = obs_max.x + unit.stats.size; }
+                    else if (min_d - dy_top).abs() < EPS { unit.pos.y = obs_min.y - unit.stats.size; }
                     else { unit.pos.y = obs_max.y + unit.stats.size; }
                 }
             }
@@ -227,7 +228,7 @@ pub fn update_attacks(
                 if dist <= unit.stats.attack_range {
                     // Tiebreak on index for determinism when distances are equal
                     if best_rocket.is_none() || dist < best_rocket.unwrap().1
-                        || (dist == best_rocket.unwrap().1 && pi < best_rocket.unwrap().0)
+                        || ((dist - best_rocket.unwrap().1).abs() < 0.01 && pi < best_rocket.unwrap().0)
                     {
                         best_rocket = Some((pi, dist));
                     }
@@ -247,7 +248,8 @@ pub fn update_attacks(
         }
     }
 
-    // Interceptors with DualWeapon tech can ALSO attack units this frame
+    // Interceptors that intercepted a rocket this frame are blocked from also
+    // attacking units — UNLESS they have the DualWeapon tech.
     let intercepted_unit_ids: Vec<u64> = interceptor_actions
         .iter()
         .filter(|(_uid, _, team)| {
@@ -348,7 +350,6 @@ pub fn update_attacks(
                     team_id: unit.team_id,
                     splash_radius: unit.stats.splash_radius,
                     proj_type: unit.stats.projectile_type,
-                    attack_range: unit.stats.attack_range,
                     armor_pierce,
                     pierce_count: if pierce { 1 } else { 0 },
                     applies_slow: slow,
@@ -407,16 +408,13 @@ pub fn update_attacks(
                         }
                     }
                 }
-                // Record stats on attacker
+                // Record stats on attacker (and apply lifesteal if applicable)
                 if let Some(attacker) = units.iter_mut().find(|u| u.id == attacker_id) {
                     attacker.damage_dealt_round += total_damage_dealt;
                     attacker.damage_dealt_total += total_damage_dealt;
                     attacker.kills_total += kills;
-                }
-                // Lifesteal
-                if lifesteal && total_damage_dealt > 0.0 {
-                    let heal = total_damage_dealt * 0.3 * (1.0 - attacker_hp_frac);
-                    if let Some(attacker) = units.iter_mut().find(|u| u.id == attacker_id && u.alive) {
+                    if lifesteal && total_damage_dealt > 0.0 && attacker.alive {
+                        let heal = total_damage_dealt * 0.3 * (1.0 - attacker_hp_frac);
                         attacker.hp = (attacker.hp + heal).min(attacker.stats.max_hp);
                     }
                 }
@@ -430,7 +428,6 @@ pub fn update_attacks(
                 team_id,
                 splash_radius,
                 proj_type,
-                attack_range,
                 armor_pierce,
                 pierce_count,
                 applies_slow,
@@ -443,7 +440,6 @@ pub fn update_attacks(
                     team_id,
                     splash_radius,
                     proj_type,
-                    attack_range,
                 );
                 proj.armor_pierce = armor_pierce;
                 proj.pierce_remaining = pierce_count;
@@ -500,7 +496,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
             }
             let dist = proj.pos.distance(shield_pos);
             if dist < shield_radius
-                && (dist < best_shield_dist || (dist == best_shield_dist && intercepted_by_shield.map_or(true, |id| shield_id < id)))
+                && (dist < best_shield_dist || (dist - best_shield_dist).abs() < 0.01 && intercepted_by_shield.map_or(true, |id| shield_id < id))
             {
                 intercepted_by_shield = Some(shield_id);
                 best_shield_dist = dist;
@@ -629,7 +625,6 @@ enum AttackEvent {
         team_id: u8,
         splash_radius: f32,
         proj_type: crate::unit::ProjectileType,
-        attack_range: f32,
         armor_pierce: bool,
         pierce_count: u8,
         applies_slow: bool,

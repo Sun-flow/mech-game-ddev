@@ -132,7 +132,7 @@ pub fn all_techs() -> &'static [TechDef] {
         TechDef {
             id: TechId::DragoonFortify,
             name: "Fortify",
-            description: "+30 HP, +2 armor",
+            description: "+300 HP, +20 armor",
             applicable_to: &[UnitKind::Dragoon],
         },
         TechDef {
@@ -172,7 +172,7 @@ impl TechState {
         self.purchased.get(&kind).map_or(0, |v| v.len())
     }
 
-    /// Cost = 100 + (number of techs already bought for this kind) * 100
+    /// Cost = 200 + (number of techs already bought for this kind) * 200
     pub fn effective_cost(&self, kind: UnitKind) -> u32 {
         200 + self.tech_count(kind) as u32 * 200
     }

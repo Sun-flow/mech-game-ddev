@@ -390,8 +390,14 @@ pub fn find_path(grid: &NavGrid, from: Vec2, to: Vec2) -> Option<Vec<Vec2>> {
     let start = world_to_grid(from);
     let goal = world_to_grid(to);
 
-    let start = nearest_passable(grid, start);
-    let goal = nearest_passable(grid, goal);
+    let start = match nearest_passable(grid, start) {
+        Some(s) => s,
+        None => return None,
+    };
+    let goal = match nearest_passable(grid, goal) {
+        Some(g) => g,
+        None => return None,
+    };
 
     if start == goal {
         return Some(vec![to]);
@@ -453,8 +459,8 @@ pub fn find_path(grid: &NavGrid, from: Vec2, to: Vec2) -> Option<Vec<Vec2>> {
     None
 }
 
-fn nearest_passable(grid: &NavGrid, pos: (usize, usize)) -> (usize, usize) {
-    if grid.passable(pos.0, pos.1) { return pos; }
+fn nearest_passable(grid: &NavGrid, pos: (usize, usize)) -> Option<(usize, usize)> {
+    if grid.passable(pos.0, pos.1) { return Some(pos); }
     for r in 1..20 {
         for dx in -(r as i32)..=(r as i32) {
             for dy in -(r as i32)..=(r as i32) {
@@ -463,11 +469,11 @@ fn nearest_passable(grid: &NavGrid, pos: (usize, usize)) -> (usize, usize) {
                 let ny = pos.1 as i32 + dy;
                 if nx < 0 || ny < 0 { continue; }
                 let (nx, ny) = (nx as usize, ny as usize);
-                if grid.passable(nx, ny) { return (nx, ny); }
+                if grid.passable(nx, ny) { return Some((nx, ny)); }
             }
         }
     }
-    pos
+    None
 }
 
 fn smooth_path(grid: &NavGrid, start: Vec2, path: &[Vec2]) -> Vec<Vec2> {

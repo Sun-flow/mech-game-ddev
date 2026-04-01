@@ -15,7 +15,7 @@ impl MainSettings {
 }
 
 /// Draw a slider for UI scale in the lobby settings screen. Returns true if value changed.
-pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, clicked: bool, _dragging: bool, panel_x: f32, y: f32) {
+pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, clicked: bool, panel_x: f32, y: f32) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static SLIDER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -97,6 +97,53 @@ pub const TEAM_COLOR_OPTIONS: &[(&str, (f32, f32, f32))] = &[
     ("Purple", (0.7, 0.2, 0.9)),
     ("Orange", (0.9, 0.5, 0.1)),
 ];
+
+/// Draw a row of color swatches and return the clicked index (if any).
+/// `disabled_index` dims and crosses out a color (e.g., host's color in guest picker).
+pub fn draw_color_swatches(
+    selected: u8,
+    mouse: Vec2,
+    clicked: bool,
+    center_x: f32,
+    y: f32,
+    swatch_size: f32,
+    swatch_gap: f32,
+    disabled_index: Option<u8>,
+) -> Option<u8> {
+    let colors = TEAM_COLOR_OPTIONS;
+    let total_w = colors.len() as f32 * swatch_size + (colors.len() - 1) as f32 * swatch_gap;
+    let sx_start = center_x - total_w / 2.0;
+    let mut clicked_color = None;
+
+    for (i, (name, (r, g, b))) in colors.iter().enumerate() {
+        let sx = sx_start + i as f32 * (swatch_size + swatch_gap);
+        let is_disabled = disabled_index == Some(i as u8);
+        let is_selected = i as u8 == selected;
+        let is_hovered = mouse.x >= sx && mouse.x <= sx + swatch_size && mouse.y >= y && mouse.y <= y + swatch_size;
+
+        if is_disabled {
+            draw_rectangle(sx, y, swatch_size, swatch_size, Color::new(*r * 0.3, *g * 0.3, *b * 0.3, 0.5));
+            draw_line(sx, y, sx + swatch_size, y + swatch_size, 2.0, Color::new(1.0, 0.3, 0.3, 0.7));
+            draw_line(sx + swatch_size, y, sx, y + swatch_size, 2.0, Color::new(1.0, 0.3, 0.3, 0.7));
+        } else {
+            draw_rectangle(sx, y, swatch_size, swatch_size, Color::new(*r, *g, *b, 1.0));
+            if is_selected {
+                draw_rectangle_lines(sx - 2.0, y - 2.0, swatch_size + 4.0, swatch_size + 4.0, 3.0, WHITE);
+            } else if is_hovered {
+                draw_rectangle_lines(sx - 1.0, y - 1.0, swatch_size + 2.0, swatch_size + 2.0, 2.0, Color::new(0.7, 0.7, 0.7, 0.8));
+            }
+            if clicked && is_hovered {
+                clicked_color = Some(i as u8);
+            }
+        }
+
+        let ndims = crate::ui::measure_scaled_text(name, 11);
+        let label_color = if is_disabled { Color::new(0.4, 0.4, 0.4, 0.5) } else { LIGHTGRAY };
+        crate::ui::draw_scaled_text(name, sx + swatch_size / 2.0 - ndims.width / 2.0, y + swatch_size + 14.0, 11.0, label_color);
+    }
+
+    clicked_color
+}
 
 /// Draw the match settings panel overlay. Returns true if "Start" was clicked.
 pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bool) -> bool {
@@ -185,29 +232,12 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
 
     let swatch_size = crate::ui::s(36.0);
     let swatch_gap = crate::ui::s(12.0);
-    let total_swatch_w = TEAM_COLOR_OPTIONS.len() as f32 * swatch_size + (TEAM_COLOR_OPTIONS.len() - 1) as f32 * swatch_gap;
-    let swatch_start_x = px + panel_w / 2.0 - total_swatch_w / 2.0;
 
-    for (i, (name, (r, g, b))) in TEAM_COLOR_OPTIONS.iter().enumerate() {
-        let sx = swatch_start_x + i as f32 * (swatch_size + swatch_gap);
-        let sy = y;
-        let is_selected = i as u8 == settings.player_color_index;
-        let is_hovered = mouse.x >= sx && mouse.x <= sx + swatch_size && mouse.y >= sy && mouse.y <= sy + swatch_size;
-
-        draw_rectangle(sx, sy, swatch_size, swatch_size, Color::new(*r, *g, *b, 1.0));
-        if is_selected {
-            draw_rectangle_lines(sx - 2.0, sy - 2.0, swatch_size + 4.0, swatch_size + 4.0, 3.0, WHITE);
-        } else if is_hovered {
-            draw_rectangle_lines(sx - 1.0, sy - 1.0, swatch_size + 2.0, swatch_size + 2.0, 2.0, Color::new(0.7, 0.7, 0.7, 0.8));
-        }
-
-        // Color name below swatch
-        let ndims = crate::ui::measure_scaled_text(name, 11);
-        crate::ui::draw_scaled_text(name, sx + swatch_size / 2.0 - ndims.width / 2.0, sy + swatch_size + 14.0, 11.0, LIGHTGRAY);
-
-        if clicked && is_hovered {
-            settings.player_color_index = i as u8;
-        }
+    if let Some(color_idx) = draw_color_swatches(
+        settings.player_color_index, mouse, clicked,
+        px + panel_w / 2.0, y, swatch_size, swatch_gap, None,
+    ) {
+        settings.player_color_index = color_idx;
     }
 
     // Back button

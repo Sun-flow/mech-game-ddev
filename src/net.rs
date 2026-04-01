@@ -31,6 +31,9 @@ pub enum NetMessage {
         alive_1: u16,
         total_hp_0: i32,
         total_hp_1: i32,
+        // Mutual damage values for timeout rounds (both sides take damage)
+        timeout_dmg_0: i32,
+        timeout_dmg_1: i32,
     },
     /// Host sends state hash to guest every SYNC_INTERVAL frames
     StateHash { frame: u32, hash: u64 },
@@ -88,6 +91,8 @@ pub struct RoundEndData {
     pub loser_team: Option<u8>,
     pub alive_0: u16,
     pub alive_1: u16,
+    pub timeout_dmg_0: i32,
+    pub timeout_dmg_1: i32,
 }
 
 impl NetState {
@@ -145,8 +150,8 @@ impl NetState {
         if let Ok(channel) = self.socket.get_channel_mut(0) {
             let messages = channel.receive();
             for (_from, data) in messages {
-                if let Ok(msg) = bincode::deserialize::<NetMessage>(&data) {
-                    match msg {
+                match bincode::deserialize::<NetMessage>(&data) {
+                    Ok(msg) => match msg {
                         NetMessage::ReadyToStart => {
                             self.peer_ready = true;
                         }
@@ -181,9 +186,9 @@ impl NetState {
                         NetMessage::NameSync(name) => {
                             self.opponent_name = Some(name);
                         }
-                        NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0: _, total_hp_1: _ } => {
+                        NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0: _, total_hp_1: _, timeout_dmg_0, timeout_dmg_1 } => {
                             self.received_round_end = Some(RoundEndData {
-                                winner, lp_damage, loser_team, alive_0, alive_1,
+                                winner, lp_damage, loser_team, alive_0, alive_1, timeout_dmg_0, timeout_dmg_1,
                             });
                         }
                         NetMessage::StateHash { frame, hash } => {
@@ -197,6 +202,9 @@ impl NetState {
                                 frame, units_data, projectiles_data, obstacles_data,
                             });
                         }
+                    },
+                    Err(e) => {
+                        eprintln!("[NET] Failed to deserialize message ({} bytes): {}", data.len(), e);
                     }
                 }
             }
@@ -204,12 +212,23 @@ impl NetState {
     }
 
     pub fn send(&mut self, msg: NetMessage) {
-        if let Some(peer) = self.peer_id {
-            if let Ok(data) = bincode::serialize(&msg) {
-                if let Ok(channel) = self.socket.get_channel_mut(0) {
-                    channel.send(data.into_boxed_slice(), peer);
-                }
+        let peer = match self.peer_id {
+            Some(p) => p,
+            None => {
+                eprintln!("[NET] Cannot send: no peer connected");
+                return;
             }
+        };
+        let data = match bincode::serialize(&msg) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("[NET] Failed to serialize message: {}", e);
+                return;
+            }
+        };
+        match self.socket.get_channel_mut(0) {
+            Ok(channel) => channel.send(data.into_boxed_slice(), peer),
+            Err(e) => eprintln!("[NET] Failed to get channel: {}", e),
         }
     }
 

@@ -40,21 +40,17 @@ pub struct PlacedPack {
 
 impl PlacedPack {
     pub fn effective_rows(&self, pack: &PackDef) -> u8 {
-        if self.rotated { pack.cols } else { pack.rows }
+        pack.effective_dims(self.rotated).0
     }
 
     pub fn effective_cols(&self, pack: &PackDef) -> u8 {
-        if self.rotated { pack.rows } else { pack.cols }
+        pack.effective_dims(self.rotated).1
     }
 
     pub fn bbox_half_size_rotated(pack: &PackDef, rotated: bool) -> Vec2 {
         let stats = pack.kind.stats();
         let grid_gap = stats.size * 2.5;
-        let (rows, cols) = if rotated {
-            (pack.cols, pack.rows)
-        } else {
-            (pack.rows, pack.cols)
-        };
+        let (rows, cols) = pack.effective_dims(rotated);
         let w = (cols as f32 - 1.0) * grid_gap + stats.size * 2.0;
         let h = (rows as f32 - 1.0) * grid_gap + stats.size * 2.0;
         vec2(w / 2.0, h / 2.0)
@@ -229,30 +225,9 @@ impl BuildState {
         };
 
         // Spawn units with tech bonuses applied
-        let mut stats = pack.kind.stats();
-        tech_state.apply_to_stats(pack.kind, &mut stats);
-        let grid_gap = stats.size * 2.5;
-        let grid_w = (pack.cols as f32 - 1.0) * grid_gap;
-        let grid_h = (pack.rows as f32 - 1.0) * grid_gap;
-        let start_x = center.x - grid_w / 2.0;
-        let start_y = center.y - grid_h / 2.0;
-
-        let mut spawned = Vec::new();
-        let mut ids = Vec::new();
-
-        for row in 0..pack.rows {
-            for col in 0..pack.cols {
-                let x = start_x + col as f32 * grid_gap;
-                let y = start_y + row as f32 * grid_gap;
-                let mut unit = Unit::new(self.next_id, pack.kind, vec2(x, y), 0);
-                // Apply tech stat bonuses
-                tech_state.apply_to_stats(pack.kind, &mut unit.stats);
-                unit.hp = unit.stats.max_hp;
-                ids.push(self.next_id);
-                spawned.push(unit);
-                self.next_id += 1;
-            }
-        }
+        let (spawned, ids) = crate::pack::spawn_pack_units(
+            pack, center, false, 0, tech_state, &mut self.next_id,
+        );
 
         self.placed_packs.push(PlacedPack {
             pack_index,

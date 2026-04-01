@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::economy::ArmyBuilder;
 use crate::net::OpponentBuildData;
 use crate::pack::all_packs;
-use crate::tech::{TechId, TechState};
+use crate::tech::TechState;
 use crate::unit::{Unit, UnitKind};
 
 pub const STARTING_LP: i32 = 3000;
@@ -118,40 +118,11 @@ impl MatchProgress {
 
         for opp_pack in &self.opponent_packs {
             let pack = &packs[opp_pack.pack_index];
-            let mut stats = pack.kind.stats();
-            self.opponent_techs.apply_to_stats(pack.kind, &mut stats);
-            let grid_gap = stats.size * 2.5;
-
-            let (eff_rows, eff_cols) = if opp_pack.rotated {
-                (pack.cols, pack.rows)
-            } else {
-                (pack.rows, pack.cols)
-            };
-            let grid_w = (eff_cols as f32 - 1.0) * grid_gap;
-            let grid_h = (eff_rows as f32 - 1.0) * grid_gap;
-            let start_x = opp_pack.center.x - grid_w / 2.0;
-            let start_y = opp_pack.center.y - grid_h / 2.0;
-
-            let mut idx = 0;
-            for row in 0..eff_rows {
-                for col in 0..eff_cols {
-                    if idx < opp_pack.unit_ids.len() {
-                        let uid = opp_pack.unit_ids[idx];
-                        let x = start_x + col as f32 * grid_gap;
-                        let y = start_y + row as f32 * grid_gap;
-                        let mut unit = Unit::new(uid, pack.kind, vec2(x, y), 1);
-                        self.opponent_techs.apply_to_stats(pack.kind, &mut unit.stats);
-                        unit.hp = unit.stats.max_hp;
-                        if unit.kind == UnitKind::Scout
-                            && self.opponent_techs.has_tech(UnitKind::Scout, TechId::ScoutEvasion)
-                        {
-                            unit.evasion_chance = 0.25;
-                        }
-                        units.push(unit);
-                    }
-                    idx += 1;
-                }
-            }
+            let spawned = crate::pack::respawn_pack_units(
+                pack, opp_pack.center, opp_pack.rotated, 1,
+                &self.opponent_techs, &opp_pack.unit_ids,
+            );
+            units.extend(spawned);
         }
 
         units
@@ -180,38 +151,11 @@ impl MatchProgress {
             let mirrored_x = crate::arena::ARENA_W - cx;
             let center = vec2(mirrored_x, cy);
 
-            let mut stats = pack.kind.stats();
-            self.opponent_techs.apply_to_stats(pack.kind, &mut stats);
-            let grid_gap = stats.size * 2.5;
-
-            let (eff_rows, eff_cols) = if rotated {
-                (pack.cols, pack.rows)
-            } else {
-                (pack.rows, pack.cols)
-            };
-            let grid_w = (eff_cols as f32 - 1.0) * grid_gap;
-            let grid_h = (eff_rows as f32 - 1.0) * grid_gap;
-            let start_x = center.x - grid_w / 2.0;
-            let start_y = center.y - grid_h / 2.0;
-
-            let mut ids = Vec::new();
-            for row in 0..eff_rows {
-                for col in 0..eff_cols {
-                    let x = start_x + col as f32 * grid_gap;
-                    let y = start_y + row as f32 * grid_gap;
-                    let mut unit = Unit::new(self.opponent_next_id, pack.kind, vec2(x, y), 1);
-                    self.opponent_techs.apply_to_stats(pack.kind, &mut unit.stats);
-                    unit.hp = unit.stats.max_hp;
-                    if unit.kind == UnitKind::Scout
-                        && self.opponent_techs.has_tech(UnitKind::Scout, TechId::ScoutEvasion)
-                    {
-                        unit.evasion_chance = 0.25;
-                    }
-                    ids.push(self.opponent_next_id);
-                    new_units.push(unit);
-                    self.opponent_next_id += 1;
-                }
-            }
+            let (spawned, ids) = crate::pack::spawn_pack_units(
+                pack, center, rotated, 1,
+                &self.opponent_techs, &mut self.opponent_next_id,
+            );
+            new_units.extend(spawned);
 
             self.opponent_packs.push(OpponentPlacedPack {
                 pack_index,
@@ -243,9 +187,6 @@ impl MatchProgress {
             let pack_index = packs.iter().position(|p| p.name == pack_def.name).unwrap_or(0);
             let pack = &packs[pack_index];
 
-            let mut stats = pack.kind.stats();
-            self.opponent_techs.apply_to_stats(pack.kind, &mut stats);
-            let grid_gap = stats.size * 2.5;
             let center_y = spacing * (pack_idx_in_build as f32 + 1.0);
             let offset_x = macroquad::rand::gen_range(-50.0f32, 50.0);
             let center = vec2(
@@ -253,29 +194,11 @@ impl MatchProgress {
                 center_y,
             );
 
-            let grid_w = (pack.cols as f32 - 1.0) * grid_gap;
-            let grid_h = (pack.rows as f32 - 1.0) * grid_gap;
-            let start_x = center.x - grid_w / 2.0;
-            let start_y = center.y - grid_h / 2.0;
-
-            let mut ids = Vec::new();
-            for row in 0..pack.rows {
-                for col in 0..pack.cols {
-                    let x = start_x + col as f32 * grid_gap;
-                    let y = start_y + row as f32 * grid_gap;
-                    let mut unit = Unit::new(self.opponent_next_id, pack.kind, vec2(x, y), 1);
-                    self.opponent_techs.apply_to_stats(pack.kind, &mut unit.stats);
-                    unit.hp = unit.stats.max_hp;
-                    if unit.kind == UnitKind::Scout
-                        && self.opponent_techs.has_tech(UnitKind::Scout, TechId::ScoutEvasion)
-                    {
-                        unit.evasion_chance = 0.25;
-                    }
-                    ids.push(self.opponent_next_id);
-                    new_units.push(unit);
-                    self.opponent_next_id += 1;
-                }
-            }
+            let (spawned, ids) = crate::pack::spawn_pack_units(
+                pack, center, false, 1,
+                &self.opponent_techs, &mut self.opponent_next_id,
+            );
+            new_units.extend(spawned);
 
             self.opponent_packs.push(OpponentPlacedPack {
                 pack_index,
