@@ -221,3 +221,55 @@ pub fn ai_buy_techs(gold: &mut u32, tech_state: &mut TechState) {
         spent += cost;
     }
 }
+
+/// Start battle in single-player AI mode. Generates AI army and transitions to Battle.
+pub fn start_ai_battle(
+    _build: &mut crate::game_state::BuildState,
+    units: &mut Vec<crate::unit::Unit>,
+    projectiles: &mut Vec<crate::projectile::Projectile>,
+    progress: &mut crate::match_progress::MatchProgress,
+    obstacles: &mut Vec<crate::terrain::Obstacle>,
+    nav_grid: &mut Option<crate::terrain::NavGrid>,
+    game_settings: &crate::settings::GameSettings,
+) -> crate::game_state::GamePhase {
+    use crate::arena::{ARENA_H, ARENA_W};
+    use crate::game_state::GamePhase;
+
+    projectiles.clear();
+
+    // Generate terrain once per match (first round only); subsequent rounds just reset cover HP
+    if obstacles.is_empty() && game_settings.terrain_enabled {
+        *obstacles = crate::terrain::generate_terrain(progress.round, game_settings.terrain_destructible);
+    } else {
+        crate::terrain::reset_cover_hp(obstacles);
+    }
+    *nav_grid = Some(crate::terrain::NavGrid::from_obstacles(obstacles, ARENA_W, ARENA_H, 15.0));
+
+    // Remove old opponent units (they'll be respawned fresh from stored packs)
+    units.retain(|u| u.team_id == 0);
+
+    // Respawn all existing opponent units from previous rounds at full HP
+    units.extend(progress.respawn_opponent_units());
+
+    // AI buys techs, then spawns NEW army for this round
+    let mut ai_gold = progress.round_allowance();
+    ai_buy_techs(&mut ai_gold, &mut progress.opponent_techs);
+    let ai_builder = if game_settings.smart_ai {
+        smart_army(ai_gold, &progress.ai_memory, &progress.banned_kinds)
+    } else {
+        random_army_filtered(ai_gold, &progress.banned_kinds)
+    };
+    let new_opponent_units = progress.spawn_ai_army_from_builder(&ai_builder);
+    units.extend(new_opponent_units);
+
+    // Seed RNG for this round
+    macroquad::rand::srand(progress.round as u64);
+
+    // Reset per-round damage stats
+    for unit in units.iter_mut() {
+        unit.damage_dealt_round = 0.0;
+        unit.damage_soaked_round = 0.0;
+    }
+
+    GamePhase::Battle
+}

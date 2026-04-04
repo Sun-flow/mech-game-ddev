@@ -394,4 +394,17 @@ impl BuildState {
             pack.locked = true;
         }
     }
+
+    /// Respawn all player units from locked packs at full HP with current techs.
+    pub fn respawn_player_units(&self, player_techs: &TechState) -> Vec<Unit> {
+        let mut spawned = Vec::new();
+        for placed in &self.placed_packs {
+            let pack = &all_packs()[placed.pack_index];
+            let units = crate::pack::respawn_pack_units(
+                pack, placed.center, placed.rotated, 0, player_techs, &placed.unit_ids,
+            );
+            spawned.extend(units);
+        }
+        spawned
+    }
 }

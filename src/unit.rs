@@ -405,3 +405,52 @@ impl UnitKind {
         }
     }
 }
+
+pub fn draw_unit_shape(pos: Vec2, size: f32, shape: UnitShape, color: Color) {
+    match shape {
+        UnitShape::Circle => draw_circle(pos.x, pos.y, size, color),
+        UnitShape::Square => {
+            draw_rectangle(pos.x - size, pos.y - size, size * 2.0, size * 2.0, color)
+        }
+        UnitShape::Triangle => {
+            draw_triangle(
+                vec2(pos.x, pos.y - size),
+                vec2(pos.x - size, pos.y + size),
+                vec2(pos.x + size, pos.y + size),
+                color,
+            );
+        }
+        UnitShape::Diamond => {
+            let top = vec2(pos.x, pos.y - size * 1.3);
+            let right = vec2(pos.x + size, pos.y);
+            let bottom = vec2(pos.x, pos.y + size * 1.3);
+            let left = vec2(pos.x - size, pos.y);
+            draw_triangle(top, right, bottom, color);
+            draw_triangle(top, left, bottom, color);
+        }
+        UnitShape::Hexagon => draw_poly(pos.x, pos.y, 6, size, 0.0, color),
+        UnitShape::Pentagon => draw_poly(pos.x, pos.y, 5, size, 0.0, color),
+        UnitShape::Dot => draw_circle(pos.x, pos.y, size, color),
+        UnitShape::Star => {
+            let s = size;
+            draw_triangle(
+                vec2(pos.x, pos.y - s),
+                vec2(pos.x - s * 0.87, pos.y + s * 0.5),
+                vec2(pos.x + s * 0.87, pos.y + s * 0.5),
+                color,
+            );
+            draw_triangle(
+                vec2(pos.x, pos.y + s),
+                vec2(pos.x - s * 0.87, pos.y - s * 0.5),
+                vec2(pos.x + s * 0.87, pos.y - s * 0.5),
+                color,
+            );
+        }
+        UnitShape::Cross => {
+            let arm = size * 0.35;
+            draw_rectangle(pos.x - arm, pos.y - size, arm * 2.0, size * 2.0, color);
+            draw_rectangle(pos.x - size, pos.y - arm, size * 2.0, arm * 2.0, color);
+        }
+        UnitShape::Octagon => draw_poly(pos.x, pos.y, 8, size, 22.5, color),
+    }
+}

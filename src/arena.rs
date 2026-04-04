@@ -1,3 +1,4 @@
+use macroquad::prelude::*;
 use crate::unit::Unit;
 
 pub const ARENA_W: f32 = 1680.0;
@@ -31,5 +32,17 @@ pub fn check_match_state(units: &[Unit]) -> MatchState {
             MatchState::Winner(winner)
         }
         _ => MatchState::InProgress,
+    }
+}
+
+pub fn draw_center_divider() {
+    let dash_len = 10.0;
+    let gap_len = 8.0;
+    let color = Color::new(0.3, 0.3, 0.35, 0.4);
+    let mut y = 0.0;
+    while y < ARENA_H {
+        let end = (y + dash_len).min(ARENA_H);
+        draw_line(HALF_W, y, HALF_W, end, 1.0, color);
+        y += dash_len + gap_len;
     }
 }

@@ -4,6 +4,7 @@ use std::future::Future;
 use matchbox_socket::{PeerId, PeerState, WebRtcSocket};
 use serde::{Serialize, Deserialize};
 
+use crate::game_state::BuildState;
 use crate::tech::TechId;
 use crate::unit::UnitKind;
 
@@ -238,5 +239,29 @@ impl NetState {
 
     pub fn take_opponent_build(&mut self) -> Option<OpponentBuildData> {
         self.opponent_build.take()
+    }
+}
+
+/// Send BuildComplete message over the network with this round's new packs and tech purchases.
+pub fn send_build_complete(
+    net: &mut Option<NetState>,
+    build: &BuildState,
+) {
+    if let Some(ref mut n) = net {
+        // Collect new (unlocked) packs as Vec<(pack_index, center, rotated)>
+        let new_packs: Vec<(usize, (f32, f32), bool)> = build
+            .placed_packs
+            .iter()
+            .filter(|p| !p.locked)
+            .map(|p| (p.pack_index, (p.center.x, p.center.y), p.rotated))
+            .collect();
+
+        let tech_purchases = build.round_tech_purchases.clone();
+
+        n.send(NetMessage::BuildComplete {
+            new_packs,
+            tech_purchases,
+            gold_remaining: build.builder.gold_remaining,
+        });
     }
 }
