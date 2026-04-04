@@ -21,7 +21,6 @@ use macroquad::prelude::*;
 
 use arena::{check_match_state, draw_center_divider, MatchState, ARENA_H, ARENA_W, HALF_W, shop_w};
 use combat::{update_attacks, update_movement, update_projectiles, update_targeting};
-use economy::ai_buy_techs;
 use game_state::{BuildState, GamePhase};
 use match_progress::MatchProgress;
 use pack::all_packs;
@@ -417,11 +416,11 @@ async fn main() {
                 if build.timer <= 0.0 {
                     if net.is_some() {
                         // Multiplayer: send build, transition to waiting
-                        send_build_complete(&mut net, &build);
+                        net::send_build_complete(&mut net, &build);
                         phase = GamePhase::WaitingForOpponent;
                     } else {
                         // Single-player: start battle immediately with AI
-                        phase = start_battle_ai(
+                        phase = economy::start_ai_battle(
                             &mut build,
                             &mut units,
                             &mut projectiles,
@@ -742,11 +741,11 @@ async fn main() {
                 {
                     if net.is_some() {
                         // Multiplayer: send build data, wait for opponent
-                        send_build_complete(&mut net, &build);
+                        net::send_build_complete(&mut net, &build);
                         phase = GamePhase::WaitingForOpponent;
                     } else {
                         // Single-player: start battle with AI
-                        phase = start_battle_ai(
+                        phase = economy::start_ai_battle(
                             &mut build,
                             &mut units,
                             &mut projectiles,
@@ -1973,78 +1972,5 @@ async fn main() {
 
         next_frame().await;
     }
-}
-
-/// Send BuildComplete message over the network with this round's new packs and tech purchases.
-fn send_build_complete(
-    net: &mut Option<net::NetState>,
-    build: &BuildState,
-) {
-    if let Some(ref mut n) = net {
-        // Collect new (unlocked) packs as Vec<(pack_index, center, rotated)>
-        let new_packs: Vec<(usize, (f32, f32), bool)> = build
-            .placed_packs
-            .iter()
-            .filter(|p| !p.locked)
-            .map(|p| (p.pack_index, (p.center.x, p.center.y), p.rotated))
-            .collect();
-
-        let tech_purchases = build.round_tech_purchases.clone();
-
-        n.send(net::NetMessage::BuildComplete {
-            new_packs,
-            tech_purchases,
-            gold_remaining: build.builder.gold_remaining,
-        });
-    }
-}
-
-/// Start battle in single-player AI mode. Generates AI army and transitions to Battle.
-fn start_battle_ai(
-    _build: &mut BuildState,
-    units: &mut Vec<Unit>,
-    projectiles: &mut Vec<Projectile>,
-    progress: &mut MatchProgress,
-    obstacles: &mut Vec<terrain::Obstacle>,
-    nav_grid: &mut Option<terrain::NavGrid>,
-    game_settings: &settings::GameSettings,
-) -> GamePhase {
-    projectiles.clear();
-
-    // Generate terrain once per match (first round only); subsequent rounds just reset cover HP
-    if obstacles.is_empty() && game_settings.terrain_enabled {
-        *obstacles = terrain::generate_terrain(progress.round, game_settings.terrain_destructible);
-    } else {
-        terrain::reset_cover_hp(obstacles);
-    }
-    *nav_grid = Some(terrain::NavGrid::from_obstacles(obstacles, ARENA_W, ARENA_H, 15.0));
-
-    // Remove old opponent units (they'll be respawned fresh from stored packs)
-    units.retain(|u| u.team_id == 0);
-
-    // Respawn all existing opponent units from previous rounds at full HP
-    units.extend(progress.respawn_opponent_units());
-
-    // AI buys techs, then spawns NEW army for this round
-    let mut ai_gold = progress.round_allowance();
-    ai_buy_techs(&mut ai_gold, &mut progress.opponent_techs);
-    let ai_builder = if game_settings.smart_ai {
-        economy::smart_army(ai_gold, &progress.ai_memory, &progress.banned_kinds)
-    } else {
-        economy::random_army_filtered(ai_gold, &progress.banned_kinds)
-    };
-    let new_opponent_units = progress.spawn_ai_army_from_builder(&ai_builder);
-    units.extend(new_opponent_units);
-
-    // Seed RNG for this round
-    macroquad::rand::srand(progress.round as u64);
-
-    // Reset per-round damage stats
-    for unit in units.iter_mut() {
-        unit.damage_dealt_round = 0.0;
-        unit.damage_soaked_round = 0.0;
-    }
-
-    GamePhase::Battle
 }
 
