@@ -20,10 +20,7 @@ pub struct GameContext {
     pub phase: GamePhase,
     pub build: BuildState,
     pub units: Vec<Unit>,
-    pub projectiles: Vec<Projectile>,
     pub net: Option<NetState>,
-    pub obstacles: Vec<terrain::Obstacle>,
-    pub nav_grid: Option<terrain::NavGrid>,
     pub splash_effects: Vec<SplashEffect>,
     pub game_settings: settings::GameSettings,
     pub show_grid: bool,
@@ -35,7 +32,7 @@ pub struct GameContext {
 
 ### `BattleState` (battle-phase-only)
 
-Lives in `src/battle_phase.rs`. Contains state only meaningful during Battle:
+Lives in `src/battle_phase.rs`. Contains state only meaningful during Battle, including entities that are created on battle entry and cleared on exit:
 
 ```rust
 pub struct BattleState {
@@ -46,10 +43,13 @@ pub struct BattleState {
     pub show_surrender_confirm: bool,
     pub waiting_for_round_end: bool,
     pub round_end_timeout: f32,
+    pub projectiles: Vec<Projectile>,
+    pub obstacles: Vec<terrain::Obstacle>,
+    pub nav_grid: Option<terrain::NavGrid>,
 }
 ```
 
-Created once in `main()`, reset when entering Battle phase via a `reset()` method.
+Created once in `main()`, reset when entering Battle phase via a `reset()` method. `projectiles`, `obstacles`, and `nav_grid` follow the battle lifecycle: created when entering battle, used during simulation, cleared on exit. Other phases only `.clear()` them as cleanup, which maps to `BattleState::reset()`.
 
 ### Variables that stay in `main()`
 
@@ -124,7 +124,7 @@ fn main() {
             GamePhase::GameOver(_) => game_over::update(&mut ctx, &mut lobby, ...),
         }
 
-        // rendering (~15 lines of calls)
+        // rendering (~15 lines — projectiles/obstacles/nav_grid come from battle)
         // chat (~4 lines)
         next_frame().await;
     }
@@ -152,4 +152,4 @@ Each phase compiles independently. `cargo check` after each.
 
 **Why keep lobby in main?** Lobby is self-contained (already has `update()` / `draw()` methods) and is the only consumer of `main_settings`. Pulling it into GameContext would add fields that 90% of phases never touch.
 
-**Why separate BattleState from GameContext?** The 7 battle-specific variables are always reset together and only read/written during Battle. Keeping them in a separate struct makes the lifecycle explicit and avoids polluting GameContext with battle-specific concerns.
+**Why separate BattleState from GameContext?** The 10 battle-specific variables (7 simulation locals + projectiles, obstacles, nav_grid) all follow the battle lifecycle: created/reset on entry, used during battle, cleared on exit. Keeping them in a separate struct makes the lifecycle explicit and avoids polluting GameContext with battle-specific concerns. Other phases that previously `.clear()`ed projectiles or set `nav_grid = None` just call `battle.reset()` instead.
