@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Serialize, Deserialize};
 
-use crate::unit::{UnitKind, UnitStats};
+use crate::unit::{Unit, UnitKind, UnitStats};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TechId {
@@ -248,6 +248,26 @@ impl TechState {
                 | TechId::BerserkerLifesteal
                 | TechId::InterceptorDualWeapon => {}
             }
+        }
+    }
+}
+
+/// Refresh all units of a given kind to have updated tech-modified stats.
+pub fn refresh_units_of_kind(units: &mut [Unit], kind: UnitKind, tech_state: &TechState) {
+    for unit in units.iter_mut() {
+        if unit.kind != kind || !unit.alive {
+            continue;
+        }
+        let hp_frac = unit.hp / unit.stats.max_hp;
+        // Reset to base stats, then re-apply techs
+        unit.stats = kind.stats();
+        tech_state.apply_to_stats(kind, &mut unit.stats);
+        unit.hp = unit.stats.max_hp * hp_frac;
+        // Apply evasion
+        if kind == UnitKind::Scout
+            && tech_state.has_tech(UnitKind::Scout, TechId::ScoutEvasion)
+        {
+            unit.evasion_chance = 0.25;
         }
     }
 }

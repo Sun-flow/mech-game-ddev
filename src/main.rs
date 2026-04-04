@@ -8,16 +8,18 @@ mod match_progress;
 mod net;
 mod pack;
 mod projectile;
+mod settings;
 mod shop;
 mod team;
 mod tech;
 mod tech_ui;
+mod terrain;
 mod unit;
 mod sync;
 
 use macroquad::prelude::*;
 
-use arena::{check_match_state, MatchState, ARENA_H, ARENA_W, HALF_W, shop_w};
+use arena::{check_match_state, draw_center_divider, MatchState, ARENA_H, ARENA_W, HALF_W, shop_w};
 use combat::{update_attacks, update_movement, update_projectiles, update_targeting};
 use economy::ai_buy_techs;
 use game_state::{BuildState, GamePhase};
@@ -25,8 +27,7 @@ use match_progress::MatchProgress;
 use pack::all_packs;
 use projectile::{projectile_visual_radius, Projectile};
 use team::{team_color, team_projectile_color};
-use tech::TechState;
-use unit::{ProjectileType, Unit, UnitKind, UnitShape};
+use unit::{draw_unit_shape, ProjectileType, Unit, UnitKind};
 
 const FIXED_DT: f32 = 1.0 / 60.0;
 
@@ -405,7 +406,7 @@ async fn main() {
                                     build.round_tech_purchases.remove(pos);
                                 }
                                 // Refresh units to remove tech effect
-                                refresh_units_of_kind(&mut units, kind, &progress.player_techs);
+                                tech::refresh_units_of_kind(&mut units, kind, &progress.player_techs);
                             }
                         }
                     }
@@ -489,7 +490,7 @@ async fn main() {
                             build.round_tech_purchases.push((kind, tech_id));
                             build.undo_history.push(game_state::UndoEntry::Tech { kind, tech_id });
                             // Refresh ALL units of this kind with new tech stats
-                            refresh_units_of_kind(&mut units, kind, &progress.player_techs);
+                            tech::refresh_units_of_kind(&mut units, kind, &progress.player_techs);
                         }
                     }
                 }
@@ -1140,7 +1141,7 @@ async fn main() {
                         build = BuildState::new_round(progress.round_gold(), locked_packs, next_id);
 
                         // Respawn all locked PLAYER pack units
-                        units.extend(respawn_player_units(&build, &progress));
+                        units.extend(build.respawn_player_units(&progress.player_techs));
 
                         // Restore accumulated stats on respawned units
                         for unit in units.iter_mut() {
@@ -1521,7 +1522,7 @@ async fn main() {
                     let packs = all_packs();
                     build.placed_packs.iter().map(|p| packs[p.pack_index].cost).sum()
                 };
-                draw_hud(&progress, build.builder.gold_remaining, build.timer, army_value, 0.0, &mp_player_name, &mp_opponent_name);
+                ui::draw_hud(&progress, build.builder.gold_remaining, build.timer, army_value, 0.0, &mp_player_name, &mp_opponent_name);
 
                 // Begin Round button (screen-space)
                 let btn_w = crate::ui::s(160.0);
@@ -1567,7 +1568,7 @@ async fn main() {
             }
 
             GamePhase::WaitingForOpponent => {
-                draw_hud(&progress, build.builder.gold_remaining, 0.0, 0, 0.0, &mp_player_name, &mp_opponent_name);
+                ui::draw_hud(&progress, build.builder.gold_remaining, 0.0, 0, 0.0, &mp_player_name, &mp_opponent_name);
 
                 let dots = ".".repeat((get_time() * 2.0) as usize % 4);
                 let wait_text = format!("Waiting for opponent{}", dots);
@@ -1583,7 +1584,7 @@ async fn main() {
 
             GamePhase::Battle => {
                 let remaining = (ROUND_TIMEOUT - battle_timer).max(0.0);
-                draw_hud(&progress, 0, 0.0, 0, remaining, &mp_player_name, &mp_opponent_name);
+                ui::draw_hud(&progress, 0, 0.0, 0, remaining, &mp_player_name, &mp_opponent_name);
 
                 let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count();
                 let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count();
@@ -1676,7 +1677,7 @@ async fn main() {
                 lp_damage,
                 loser_team,
             } => {
-                draw_hud(&progress, 0, 0.0, 0, 0.0, &mp_player_name, &mp_opponent_name);
+                ui::draw_hud(&progress, 0, 0.0, 0, 0.0, &mp_player_name, &mp_opponent_name);
 
                 let text = match match_state {
                     MatchState::Winner(tid) => {
@@ -2047,203 +2048,3 @@ fn start_battle_ai(
     GamePhase::Battle
 }
 
-fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, player_name: &str, opponent_name: &str) {
-    // Background bar (screen-wide)
-    draw_rectangle(
-        0.0,
-        0.0,
-        screen_width(),
-        crate::ui::s(28.0),
-        Color::new(0.05, 0.05, 0.08, 0.85),
-    );
-
-    // Spread HUD elements evenly across available width
-    let hud_left = shop_w() + crate::ui::s(15.0);
-    let hud_y = crate::ui::s(19.0);
-    let gap = crate::ui::s(30.0); // padding between elements
-
-    let mut x = hud_left;
-
-    // Round
-    let round_text = format!("Round: {}", progress.round);
-    let round_w = crate::ui::measure_scaled_text(&round_text, 18).width;
-    crate::ui::draw_scaled_text(&round_text, x, hud_y, 18.0, WHITE);
-    x += round_w + gap;
-
-    // Player LP
-    let player_lp_text = format!("{} LP: {}", player_name, progress.player_lp);
-    let plp_color = if progress.player_lp > 500 {
-        Color::new(0.3, 1.0, 0.4, 1.0)
-    } else if progress.player_lp > 200 {
-        Color::new(1.0, 0.8, 0.2, 1.0)
-    } else {
-        Color::new(1.0, 0.3, 0.2, 1.0)
-    };
-    let plp_w = crate::ui::measure_scaled_text(&player_lp_text, 18).width;
-    crate::ui::draw_scaled_text(&player_lp_text, x, hud_y, 18.0, plp_color);
-    x += plp_w + gap;
-
-    // Opponent LP
-    let opponent_lp_text = format!("{} LP: {}", opponent_name, progress.opponent_lp);
-    let alp_color = if progress.opponent_lp > 500 {
-        Color::new(0.3, 0.6, 1.0, 1.0)
-    } else if progress.opponent_lp > 200 {
-        Color::new(1.0, 0.8, 0.2, 1.0)
-    } else {
-        Color::new(1.0, 0.3, 0.2, 1.0)
-    };
-    let alp_w = crate::ui::measure_scaled_text(&opponent_lp_text, 18).width;
-    crate::ui::draw_scaled_text(&opponent_lp_text, x, hud_y, 18.0, alp_color);
-    x += alp_w + gap;
-
-    // Gold (only during build)
-    if gold > 0 || timer > 0.0 {
-        let gold_text = format!("Gold: {}", gold);
-        let gold_w = crate::ui::measure_scaled_text(&gold_text, 18).width;
-        crate::ui::draw_scaled_text(&gold_text, x, hud_y, 18.0, Color::new(1.0, 0.85, 0.2, 1.0));
-        x += gold_w + gap;
-
-        if army_value > 0 {
-            let army_text = format!("Army: {}g", army_value);
-            let army_w = crate::ui::measure_scaled_text(&army_text, 16).width;
-            crate::ui::draw_scaled_text(&army_text, x, hud_y, 16.0, Color::new(0.7, 0.7, 0.75, 0.8));
-            x += army_w + gap;
-        }
-
-        if timer > 0.0 {
-            let timer_text = format!("Timer: {:.0}s", timer.ceil());
-            crate::ui::draw_scaled_text(&timer_text, x, hud_y, 18.0, WHITE);
-        }
-    }
-
-    // Battle round timer (shown during combat)
-    if battle_remaining > 0.0 && battle_remaining < 90.0 {
-        let timer_color = if battle_remaining < 15.0 { Color::new(1.0, 0.3, 0.2, 1.0) }
-            else if battle_remaining < 30.0 { Color::new(1.0, 0.8, 0.2, 1.0) }
-            else { Color::new(0.7, 0.7, 0.7, 1.0) };
-        let timer_text = format!("Round: {:.0}s", battle_remaining.ceil());
-        crate::ui::draw_scaled_text(&timer_text, x, hud_y, 18.0, timer_color);
-    }
-}
-
-fn draw_center_divider() {
-    let dash_len = 10.0;
-    let gap_len = 8.0;
-    let color = Color::new(0.3, 0.3, 0.35, 0.4);
-    let mut y = 0.0;
-    while y < ARENA_H {
-        let end = (y + dash_len).min(ARENA_H);
-        draw_line(HALF_W, y, HALF_W, end, 1.0, color);
-        y += dash_len + gap_len;
-    }
-}
-
-fn draw_unit_shape(pos: Vec2, size: f32, shape: UnitShape, color: Color) {
-    match shape {
-        UnitShape::Circle => draw_circle(pos.x, pos.y, size, color),
-        UnitShape::Square => {
-            draw_rectangle(pos.x - size, pos.y - size, size * 2.0, size * 2.0, color)
-        }
-        UnitShape::Triangle => {
-            draw_triangle(
-                vec2(pos.x, pos.y - size),
-                vec2(pos.x - size, pos.y + size),
-                vec2(pos.x + size, pos.y + size),
-                color,
-            );
-        }
-        UnitShape::Diamond => {
-            let top = vec2(pos.x, pos.y - size * 1.3);
-            let right = vec2(pos.x + size, pos.y);
-            let bottom = vec2(pos.x, pos.y + size * 1.3);
-            let left = vec2(pos.x - size, pos.y);
-            draw_triangle(top, right, bottom, color);
-            draw_triangle(top, left, bottom, color);
-        }
-        UnitShape::Hexagon => draw_poly(pos.x, pos.y, 6, size, 0.0, color),
-        UnitShape::Pentagon => draw_poly(pos.x, pos.y, 5, size, 0.0, color),
-        UnitShape::Dot => draw_circle(pos.x, pos.y, size, color),
-        UnitShape::Star => {
-            let s = size;
-            draw_triangle(
-                vec2(pos.x, pos.y - s),
-                vec2(pos.x - s * 0.87, pos.y + s * 0.5),
-                vec2(pos.x + s * 0.87, pos.y + s * 0.5),
-                color,
-            );
-            draw_triangle(
-                vec2(pos.x, pos.y + s),
-                vec2(pos.x - s * 0.87, pos.y - s * 0.5),
-                vec2(pos.x + s * 0.87, pos.y - s * 0.5),
-                color,
-            );
-        }
-        UnitShape::Cross => {
-            let arm = size * 0.35;
-            draw_rectangle(pos.x - arm, pos.y - size, arm * 2.0, size * 2.0, color);
-            draw_rectangle(pos.x - size, pos.y - arm, size * 2.0, arm * 2.0, color);
-        }
-        UnitShape::Octagon => draw_poly(pos.x, pos.y, 8, size, 22.5, color),
-    }
-}
-
-/// Respawn all player units from locked packs at full HP with current techs.
-fn respawn_player_units(build: &BuildState, progress: &MatchProgress) -> Vec<Unit> {
-    let mut spawned = Vec::new();
-    for placed in &build.placed_packs {
-        let pack = &all_packs()[placed.pack_index];
-        let stats = pack.kind.stats();
-        let grid_gap = stats.size * 2.5;
-        let eff_rows = placed.effective_rows(pack);
-        let eff_cols = placed.effective_cols(pack);
-        let grid_w = (eff_cols as f32 - 1.0) * grid_gap;
-        let grid_h = (eff_rows as f32 - 1.0) * grid_gap;
-        let start_x = placed.center.x - grid_w / 2.0;
-        let start_y = placed.center.y - grid_h / 2.0;
-
-        let mut idx = 0;
-        for row in 0..eff_rows {
-            for col in 0..eff_cols {
-                if idx < placed.unit_ids.len() {
-                    let uid = placed.unit_ids[idx];
-                    let x = start_x + col as f32 * grid_gap;
-                    let y = start_y + row as f32 * grid_gap;
-                    let mut unit = Unit::new(uid, pack.kind, vec2(x, y), 0);
-                    progress.player_techs.apply_to_stats(pack.kind, &mut unit.stats);
-                    unit.hp = unit.stats.max_hp;
-                    if unit.kind == UnitKind::Scout
-                        && progress
-                            .player_techs
-                            .has_tech(UnitKind::Scout, tech::TechId::ScoutEvasion)
-                    {
-                        unit.evasion_chance = 0.25;
-                    }
-                    spawned.push(unit);
-                }
-                idx += 1;
-            }
-        }
-    }
-    spawned
-}
-
-/// Refresh all units of a given kind to have updated tech-modified stats.
-fn refresh_units_of_kind(units: &mut [Unit], kind: UnitKind, tech_state: &TechState) {
-    for unit in units.iter_mut() {
-        if unit.kind != kind || !unit.alive {
-            continue;
-        }
-        let hp_frac = unit.hp / unit.stats.max_hp;
-        // Reset to base stats, then re-apply techs
-        unit.stats = kind.stats();
-        tech_state.apply_to_stats(kind, &mut unit.stats);
-        unit.hp = unit.stats.max_hp * hp_frac;
-        // Apply evasion
-        if kind == UnitKind::Scout
-            && tech_state.has_tech(UnitKind::Scout, tech::TechId::ScoutEvasion)
-        {
-            unit.evasion_chance = 0.25;
-        }
-    }
-}
-mod settings; mod terrain;
