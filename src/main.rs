@@ -1,4 +1,5 @@
 mod arena;
+mod battle_phase;
 mod chat;
 mod context;
 mod draft_ban;
@@ -29,10 +30,6 @@ use combat::{update_attacks, update_movement, update_projectiles, update_targeti
 use game_state::{BuildState, GamePhase};
 use match_progress::MatchProgress;
 use pack::all_packs;
-use projectile::Projectile;
-use rendering::SplashEffect;
-
-const FIXED_DT: f32 = 1.0 / 60.0;
 
 fn window_conf() -> Conf {
     Conf {
@@ -47,24 +44,13 @@ fn window_conf() -> Conf {
 #[macroquad::main(window_conf)]
 async fn main() {
     let mut ctx = context::GameContext::new(true);
-    let mut projectiles: Vec<Projectile> = Vec::new();
+    let mut battle = battle_phase::BattleState::new();
     let mut lobby = lobby::LobbyState::new();
-    let mut battle_accumulator: f32 = 0.0;
-    let mut battle_timer: f32 = 0.0;
-    let mut battle_frame: u32 = 0;
-    const ROUND_TIMEOUT: f32 = 90.0;
-    const SYNC_INTERVAL: u32 = 4;
-    // Guest keeps recent frame hashes so it can match against the host's frame
-    let mut recent_hashes: std::collections::VecDeque<(u32, u64)> = std::collections::VecDeque::with_capacity(5);
     let mut main_settings = settings::MainSettings::default();
-    let mut show_surrender_confirm = false;
     let mut camera_zoom: f32 = 1.0;
     let mut camera_target = vec2(ARENA_W / 2.0, ARENA_H / 2.0);
     let mut is_fullscreen_mode = false;
-    let mut splash_effects: Vec<SplashEffect> = Vec::new();
     let mut pan_grab_world: Option<Vec2> = None; // world point pinned to cursor during drag
-    let mut waiting_for_round_end = false;
-    let mut round_end_timeout: f32 = 0.0;
 
     loop {
         let dt = get_frame_time().min(0.05);
@@ -287,16 +273,13 @@ async fn main() {
                         ctx.phase = economy::start_ai_battle(
                             &mut ctx.build,
                             &mut ctx.units,
-                            &mut projectiles,
+                            &mut battle.projectiles,
                             &mut ctx.progress,
                             &mut ctx.obstacles,
                             &mut ctx.nav_grid,
                             &ctx.game_settings,
                         );
-                        battle_accumulator = 0.0;
-                        battle_timer = 0.0;
-                        battle_frame = 0;
-                        recent_hashes.clear();
+                        battle.reset();
                     }
                     continue;
                 }
@@ -612,16 +595,13 @@ async fn main() {
                         ctx.phase = economy::start_ai_battle(
                             &mut ctx.build,
                             &mut ctx.units,
-                            &mut projectiles,
+                            &mut battle.projectiles,
                             &mut ctx.progress,
                             &mut ctx.obstacles,
                             &mut ctx.nav_grid,
                             &ctx.game_settings,
                         );
-                        battle_accumulator = 0.0;
-                        battle_timer = 0.0;
-                        battle_frame = 0;
-                        recent_hashes.clear();
+                        battle.reset();
                     }
                     continue;
                 }
@@ -647,8 +627,6 @@ async fn main() {
                         // So we don't need to extend with opp_units separately.
                         let _ = opp_units;
 
-                        projectiles.clear();
-
                         // Generate terrain once per match; subsequent rounds just reset cover HP
                         if ctx.obstacles.is_empty() && ctx.game_settings.terrain_enabled {
                             ctx.obstacles = terrain::generate_terrain(ctx.progress.round, ctx.game_settings.terrain_destructible);
@@ -659,10 +637,7 @@ async fn main() {
 
                         // Seed RNG for deterministic battle
                         macroquad::rand::srand(ctx.progress.round as u64);
-                        battle_accumulator = 0.0;
-                        battle_timer = 0.0;
-                        battle_frame = 0;
-                        recent_hashes.clear();
+                        battle.reset();
 
                         // Reset per-round damage stats
                         for unit in ctx.units.iter_mut() {
@@ -679,7 +654,7 @@ async fn main() {
             GamePhase::Battle => {
                 // Surrender toggle
                 if is_key_pressed(KeyCode::Escape) {
-                    show_surrender_confirm = !show_surrender_confirm;
+                    battle.show_surrender_confirm = !battle.show_surrender_confirm;
                 }
 
                 // Poll network
@@ -687,45 +662,45 @@ async fn main() {
                     n.poll();
                 }
 
-                if show_surrender_confirm {
+                if battle.show_surrender_confirm {
                     // Battle paused while surrender overlay is shown
                 } else if ctx.net.is_some() {
                     // Multiplayer: fixed timestep for determinism
-                    battle_accumulator += dt;
-                    while battle_accumulator >= FIXED_DT {
-                        battle_accumulator -= FIXED_DT;
+                    battle.accumulator += dt;
+                    while battle.accumulator >= battle_phase::FIXED_DT {
+                        battle.accumulator -= battle_phase::FIXED_DT;
                         update_targeting(&mut ctx.units, &ctx.obstacles);
-                        update_movement(&mut ctx.units, FIXED_DT, ARENA_W, ARENA_H, &ctx.obstacles, ctx.nav_grid.as_ref());
+                        update_movement(&mut ctx.units, battle_phase::FIXED_DT, ARENA_W, ARENA_H, &ctx.obstacles, ctx.nav_grid.as_ref());
                         update_attacks(
                             &mut ctx.units,
-                            &mut projectiles,
-                            FIXED_DT,
+                            &mut battle.projectiles,
+                            battle_phase::FIXED_DT,
                             &ctx.progress.player_techs,
                             &ctx.progress.opponent_techs,
-                            &mut splash_effects,
+                            &mut battle.splash_effects,
                         );
-                        update_projectiles(&mut projectiles, &mut ctx.units, FIXED_DT, &mut ctx.obstacles, &mut splash_effects);
+                        update_projectiles(&mut battle.projectiles, &mut ctx.units, battle_phase::FIXED_DT, &mut ctx.obstacles, &mut battle.splash_effects);
                         // Death animation timers (inside fixed timestep for determinism)
                         for unit in ctx.units.iter_mut() {
                             if !unit.alive && unit.death_timer > 0.0 {
-                                unit.death_timer -= FIXED_DT;
+                                unit.death_timer -= battle_phase::FIXED_DT;
                             }
                         }
-                        battle_frame += 1;
+                        battle.frame += 1;
 
                         // --- Sync hashing every SYNC_INTERVAL frames ---
                         if let Some(ref mut n) = ctx.net {
-                            if battle_frame % SYNC_INTERVAL == 0 {
+                            if battle.frame % battle_phase::SYNC_INTERVAL == 0 {
                                 if n.is_host {
-                                    let local_hash = sync::compute_state_hash(&ctx.units, &projectiles, &ctx.obstacles, false);
-                                    n.send(net::NetMessage::StateHash { frame: battle_frame, hash: local_hash });
+                                    let local_hash = sync::compute_state_hash(&ctx.units, &battle.projectiles, &ctx.obstacles, false);
+                                    n.send(net::NetMessage::StateHash { frame: battle.frame, hash: local_hash });
                                 } else {
                                     // Guest: store hash for this frame so we can compare when host's hash arrives
-                                    let local_hash = sync::compute_state_hash(&ctx.units, &projectiles, &ctx.obstacles, true);
-                                    if recent_hashes.len() >= 4 {
-                                        recent_hashes.pop_front();
+                                    let local_hash = sync::compute_state_hash(&ctx.units, &battle.projectiles, &ctx.obstacles, true);
+                                    if battle.recent_hashes.len() >= 4 {
+                                        battle.recent_hashes.pop_front();
                                     }
-                                    recent_hashes.push_back((battle_frame, local_hash));
+                                    battle.recent_hashes.push_back((battle.frame, local_hash));
                                 }
                             }
                         }
@@ -740,11 +715,11 @@ async fn main() {
                             // Host: respond to state request from guest
                             if let Some(_req_frame) = n.received_state_request.take() {
                                 let (units_data, projectiles_data, obstacles_data) =
-                                    sync::serialize_state(&ctx.units, &projectiles, &ctx.obstacles);
+                                    sync::serialize_state(&ctx.units, &battle.projectiles, &ctx.obstacles);
                                 eprintln!("[SYNC] Host sending full state at frame {} ({} + {} + {} bytes)",
-                                    battle_frame, units_data.len(), projectiles_data.len(), obstacles_data.len());
+                                    battle.frame, units_data.len(), projectiles_data.len(), obstacles_data.len());
                                 n.send(net::NetMessage::StateSync {
-                                    frame: battle_frame,
+                                    frame: battle.frame,
                                     units_data,
                                     projectiles_data,
                                     obstacles_data,
@@ -753,24 +728,24 @@ async fn main() {
                         } else {
                             // Guest: check hash from host against our stored hash for that frame
                             if let Some((host_frame, host_hash)) = n.received_state_hash.take() {
-                                if let Some(pos) = recent_hashes.iter().position(|(f, _)| *f == host_frame) {
-                                    let (_, local_hash) = recent_hashes[pos];
+                                if let Some(pos) = battle.recent_hashes.iter().position(|(f, _)| *f == host_frame) {
+                                    let (_, local_hash) = battle.recent_hashes[pos];
                                     if host_hash != local_hash {
                                         eprintln!("[DESYNC] Hash mismatch at frame {}! Requesting state.", host_frame);
-                                        n.send(net::NetMessage::StateRequest { frame: battle_frame });
+                                        n.send(net::NetMessage::StateRequest { frame: battle.frame });
                                     }
                                     // Remove this and older hashes
-                                    recent_hashes.drain(..=pos);
+                                    battle.recent_hashes.drain(..=pos);
                                 }
                             }
 
                             // Guest: apply state correction from host immediately (mirror positions)
                             if let Some(sync_data) = n.received_state_sync.take() {
                                 eprintln!("[SYNC] Guest applying host state correction (host frame {}, local frame {})",
-                                    sync_data.frame, battle_frame);
+                                    sync_data.frame, battle.frame);
                                 sync::apply_state_sync(
                                     &mut ctx.units,
-                                    &mut projectiles,
+                                    &mut battle.projectiles,
                                     &mut ctx.obstacles,
                                     &sync_data.units_data,
                                     &sync_data.projectiles_data,
@@ -786,13 +761,13 @@ async fn main() {
                     update_movement(&mut ctx.units, dt, ARENA_W, ARENA_H, &ctx.obstacles, ctx.nav_grid.as_ref());
                     update_attacks(
                         &mut ctx.units,
-                        &mut projectiles,
+                        &mut battle.projectiles,
                         dt,
                         &ctx.progress.player_techs,
                         &ctx.progress.opponent_techs,
-                        &mut splash_effects,
+                        &mut battle.splash_effects,
                     );
-                    update_projectiles(&mut projectiles, &mut ctx.units, dt, &mut ctx.obstacles, &mut splash_effects);
+                    update_projectiles(&mut battle.projectiles, &mut ctx.units, dt, &mut ctx.obstacles, &mut battle.splash_effects);
                     // Death animation timers
                     for unit in ctx.units.iter_mut() {
                         if !unit.alive && unit.death_timer > 0.0 {
@@ -802,7 +777,7 @@ async fn main() {
                 }
 
                 // Surrender confirmation handling
-                if show_surrender_confirm && is_mouse_button_pressed(MouseButton::Left) {
+                if battle.show_surrender_confirm && is_mouse_button_pressed(MouseButton::Left) {
                     let btn_w = crate::ui::s(120.0);
                     let btn_h = crate::ui::s(40.0);
                     let cx = screen_width() / 2.0;
@@ -812,29 +787,29 @@ async fn main() {
                     let yes_y = cy + crate::ui::s(10.0);
                     if screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h {
                         ctx.progress.player_lp = 0;
-                        show_surrender_confirm = false;
+                        battle.show_surrender_confirm = false;
                         ctx.phase = GamePhase::GameOver(1);
                     }
                     // "Cancel" button
                     let no_x = cx + crate::ui::s(10.0);
                     let no_y = cy + crate::ui::s(10.0);
                     if screen_mouse.x >= no_x && screen_mouse.x <= no_x + btn_w && screen_mouse.y >= no_y && screen_mouse.y <= no_y + btn_h {
-                        show_surrender_confirm = false;
+                        battle.show_surrender_confirm = false;
                     }
                 }
 
                 // Round timeout
-                battle_timer += dt;
-                let timed_out = battle_timer >= ROUND_TIMEOUT;
+                battle.timer += dt;
+                let timed_out = battle.timer >= battle_phase::ROUND_TIMEOUT;
 
                 let state = check_match_state(&ctx.units);
                 let is_multiplayer = ctx.net.is_some();
                 let is_host_game = ctx.net.as_ref().map_or(true, |n| n.is_host);
-                let battle_ended = (state != MatchState::InProgress && projectiles.is_empty()) || timed_out;
+                let battle_ended = (state != MatchState::InProgress && battle.projectiles.is_empty()) || timed_out;
 
                 // Guest waiting for host's authoritative round result
-                if waiting_for_round_end {
-                    round_end_timeout -= dt;
+                if battle.waiting_for_round_end {
+                    battle.round_end_timeout -= dt;
                     if let Some(ref mut n) = ctx.net {
                         if let Some(rd) = n.received_round_end.take() {
                             // Flip host's perspective to guest's: host team 0 = guest team 1
@@ -866,23 +841,23 @@ async fn main() {
                                 }
                             }
 
-                            waiting_for_round_end = false;
-                            show_surrender_confirm = false;
+                            battle.waiting_for_round_end = false;
+                            battle.show_surrender_confirm = false;
                             ctx.phase = GamePhase::RoundResult {
                                 match_state: final_state,
                                 lp_damage: rd.lp_damage,
                                 loser_team: flipped_loser,
                             };
-                        } else if round_end_timeout <= 0.0 {
+                        } else if battle.round_end_timeout <= 0.0 {
                             // Timeout — fall back to local computation
                             eprintln!("[DESYNC] Timeout waiting for host RoundEnd, using local values");
-                            waiting_for_round_end = false;
+                            battle.waiting_for_round_end = false;
                             // Fall through to local computation below
                         }
                     }
                 }
 
-                if battle_ended && !waiting_for_round_end {
+                if battle_ended && !battle.waiting_for_round_end {
                     let final_state = if timed_out { MatchState::Draw } else { check_match_state(&ctx.units) };
 
                     // Record AI memory for counter-picking
@@ -915,8 +890,8 @@ async fn main() {
 
                     if is_multiplayer && !is_host_game {
                         // Guest: wait for host's authoritative result
-                        waiting_for_round_end = true;
-                        round_end_timeout = 5.0;
+                        battle.waiting_for_round_end = true;
+                        battle.round_end_timeout = 5.0;
                     } else {
                         // Host or single-player: we are authoritative
                         if is_multiplayer {
@@ -950,7 +925,7 @@ async fn main() {
                             }
                         }
 
-                        show_surrender_confirm = false;
+                        battle.show_surrender_confirm = false;
                         ctx.phase = GamePhase::RoundResult {
                             match_state: final_state,
                             lp_damage,
@@ -1021,7 +996,7 @@ async fn main() {
                         // Works for both single-player (AI packs) and multiplayer (network packs).
                         ctx.units.extend(ctx.progress.respawn_opponent_units());
 
-                        projectiles.clear();
+                        battle.projectiles.clear();
                         ctx.phase = GamePhase::Build;
                     }
                 }
@@ -1033,7 +1008,7 @@ async fn main() {
                     ctx.phase = GamePhase::Lobby;
                     ctx.build = BuildState::new(ctx.progress.round_gold(), true);
                     ctx.units.clear();
-                    projectiles.clear();
+                    battle.projectiles.clear();
                     ctx.net = None;
                     lobby.reset();
                 }
@@ -1053,13 +1028,10 @@ async fn main() {
                     ctx.progress = MatchProgress::new(is_host);
                     ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
                     ctx.units.clear();
-                    projectiles.clear();
                     ctx.obstacles.clear();
                     ctx.nav_grid = None;
-                    show_surrender_confirm = false;
                     ctx.chat = chat::ChatState::new();
-                    splash_effects.clear();
-                    waiting_for_round_end = false;
+                    battle.reset();
                     ctx.phase = if ctx.game_settings.draft_ban_enabled {
                         GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None }
                     } else {
@@ -1069,7 +1041,7 @@ async fn main() {
             }
         }
 
-        rendering::update_splash_effects(&mut splash_effects, dt);
+        rendering::update_splash_effects(&mut battle.splash_effects, dt);
 
         // === Render ===
         clear_background(Color::new(0.1, 0.1, 0.12, 1.0));
@@ -1084,7 +1056,7 @@ async fn main() {
         set_camera(&arena_camera);
 
         rendering::draw_world(
-            &ctx.units, &projectiles, &ctx.obstacles, &splash_effects,
+            &ctx.units, &battle.projectiles, &ctx.obstacles, &battle.splash_effects,
             &ctx.build, &ctx.progress, ctx.show_grid,
             matches!(ctx.phase, GamePhase::Build),
             world_mouse,
@@ -1106,7 +1078,7 @@ async fn main() {
             }
 
             GamePhase::Battle => {
-                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle_timer, ROUND_TIMEOUT, show_surrender_confirm, screen_mouse, world_mouse, &ctx.mp_player_name, &ctx.mp_opponent_name);
+                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, battle.show_surrender_confirm, screen_mouse, world_mouse, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
 
             GamePhase::RoundResult { match_state, lp_damage, loser_team } => {
@@ -1128,7 +1100,7 @@ async fn main() {
                     ctx.phase = GamePhase::Lobby;
                     ctx.build = BuildState::new(ctx.progress.round_gold(), true);
                     ctx.units.clear();
-                    projectiles.clear();
+                    battle.projectiles.clear();
                     ctx.net = None;
                     lobby.reset();
                 }
