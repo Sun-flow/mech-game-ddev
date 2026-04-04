@@ -6,6 +6,7 @@ mod context;
 mod draft_ban;
 mod combat;
 mod economy;
+mod game_over;
 mod game_state;
 mod lobby;
 pub mod ui;
@@ -14,6 +15,7 @@ mod net;
 mod pack;
 mod projectile;
 mod rendering;
+mod round_result;
 mod settings;
 mod shop;
 mod team;
@@ -23,6 +25,7 @@ mod terrain;
 mod unit;
 mod sync;
 mod phase_ui;
+mod waiting_phase;
 
 use macroquad::prelude::*;
 
@@ -203,46 +206,8 @@ async fn main() {
             }
 
             GamePhase::WaitingForOpponent => {
-                // Poll network
-                if let Some(ref mut n) = ctx.net {
-                    n.poll();
-
-                    // Check if opponent ctx.build data arrived
-                    if let Some(opp_build) = n.take_opponent_build() {
-                        // Apply opponent ctx.build
-                        let opp_units = ctx.progress.apply_opponent_build(&opp_build);
-
-                        // Remove old opponent ctx.units, respawn from stored packs
-                        ctx.units.retain(|u| u.team_id == 0);
-                        ctx.units.extend(ctx.progress.respawn_opponent_units());
-
-                        // Also add any newly spawned opponent ctx.units from this round
-                        // (apply_opponent_build already added them to opponent_packs,
-                        //  respawn_opponent_units covers all stored packs including new ones)
-                        // So we don't need to extend with opp_units separately.
-                        let _ = opp_units;
-
-                        // Generate terrain once per match; subsequent rounds just reset cover HP
-                        if ctx.obstacles.is_empty() && ctx.game_settings.terrain_enabled {
-                            ctx.obstacles = terrain::generate_terrain(ctx.progress.round, ctx.game_settings.terrain_destructible);
-                        } else {
-                            terrain::reset_cover_hp(&mut ctx.obstacles);
-                        }
-                        ctx.nav_grid = Some(terrain::NavGrid::from_obstacles(&ctx.obstacles, ARENA_W, ARENA_H, 15.0));
-
-                        // Seed RNG for deterministic battle
-                        macroquad::rand::srand(ctx.progress.round as u64);
-                        battle.reset();
-
-                        // Reset per-round damage stats
-                        for unit in ctx.units.iter_mut() {
-                            unit.damage_dealt_round = 0.0;
-                            unit.damage_soaked_round = 0.0;
-                        }
-
-                        ctx.phase = GamePhase::Battle;
-                        continue;
-                    }
+                if waiting_phase::update(&mut ctx, &mut battle) {
+                    continue;
                 }
             }
 
@@ -251,108 +216,11 @@ async fn main() {
             }
 
             GamePhase::RoundResult { .. } => {
-                // Poll network
-                if let Some(ref mut n) = ctx.net {
-                    n.poll();
-                }
-
-                if is_key_pressed(KeyCode::Space) {
-                    if ctx.progress.is_game_over() {
-                        ctx.phase = GamePhase::GameOver(ctx.progress.game_winner().unwrap_or(0));
-                    } else {
-                        // Save leftover gold for next round
-                        ctx.progress.player_saved_gold = ctx.build.builder.gold_remaining;
-
-                        // Advance to next round
-                        ctx.progress.advance_round();
-
-                        // Lock all current player packs
-                        ctx.build.lock_current_packs();
-                        let locked_packs: Vec<_> = ctx.build.placed_packs.clone();
-                        let next_id = ctx.build.next_id;
-
-                        // Save accumulated stats before clearing
-                        let old_stats: std::collections::HashMap<u64, (f32, f32, f32, f32, u32)> =
-                            ctx.units
-                                .iter()
-                                .map(|u| {
-                                    (
-                                        u.id,
-                                        (
-                                            u.damage_dealt_total,
-                                            u.damage_soaked_total,
-                                            u.damage_dealt_round,
-                                            u.damage_soaked_round,
-                                            u.kills_total,
-                                        ),
-                                    )
-                                })
-                                .collect();
-
-                        // Clear ctx.units and respawn all from locked packs
-                        ctx.units.clear();
-                        ctx.build = BuildState::new_round(ctx.progress.round_gold(), locked_packs, next_id);
-
-                        // Respawn all locked PLAYER pack ctx.units
-                        ctx.units.extend(ctx.build.respawn_player_units(&ctx.progress.player_techs));
-
-                        // Restore accumulated stats on respawned ctx.units
-                        for unit in ctx.units.iter_mut() {
-                            if let Some(&(ddt, dst, ddr, dsr, kt)) = old_stats.get(&unit.id) {
-                                unit.damage_dealt_total = ddt;
-                                unit.damage_soaked_total = dst;
-                                unit.damage_dealt_round = ddr;
-                                unit.damage_soaked_round = dsr;
-                                unit.kills_total = kt;
-                            }
-                        }
-
-                        // Respawn opponent ctx.units from stored packs (visible during ctx.build ctx.phase).
-                        // Works for both single-player (AI packs) and multiplayer (network packs).
-                        ctx.units.extend(ctx.progress.respawn_opponent_units());
-
-                        battle.projectiles.clear();
-                        ctx.phase = GamePhase::Build;
-                    }
-                }
+                round_result::update(&mut ctx, &mut battle);
             }
 
             GamePhase::GameOver(_) => {
-                if is_key_pressed(KeyCode::R) {
-                    ctx.progress = MatchProgress::new(true);
-                    ctx.phase = GamePhase::Lobby;
-                    ctx.build = BuildState::new(ctx.progress.round_gold(), true);
-                    ctx.units.clear();
-                    battle.projectiles.clear();
-                    ctx.net = None;
-                    lobby.reset();
-                }
-
-                // Rematch button click — position must match render (panel_y + panel_h + 8 + 15)
-                let rmatch_w = crate::ui::s(160.0);
-                let rmatch_h = crate::ui::s(40.0);
-                let rmatch_x = screen_width() / 2.0 - rmatch_w / 2.0;
-                let rmatch_panel_y = screen_height() / 2.0 + 10.0;
-                let rmatch_panel_h = crate::ui::s(140.0);
-                let rmatch_y = rmatch_panel_y + rmatch_panel_h + crate::ui::s(8.0) + crate::ui::s(15.0);
-                if left_click && screen_mouse.x >= rmatch_x && screen_mouse.x <= rmatch_x + rmatch_w
-                    && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
-                {
-                    // Reset for rematch (skip lobby, go straight to Build)
-                    let is_host = ctx.net.as_ref().map_or(true, |n| n.is_host);
-                    ctx.progress = MatchProgress::new(is_host);
-                    ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
-                    ctx.units.clear();
-                    ctx.obstacles.clear();
-                    ctx.nav_grid = None;
-                    ctx.chat = chat::ChatState::new();
-                    battle.reset();
-                    ctx.phase = if ctx.game_settings.draft_ban_enabled {
-                        GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None }
-                    } else {
-                        GamePhase::Build
-                    };
-                }
+                game_over::update(&mut ctx, &mut battle, &mut lobby, screen_mouse, left_click);
             }
         }
 
