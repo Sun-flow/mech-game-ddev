@@ -1,5 +1,6 @@
 mod arena;
 mod chat;
+mod context;
 mod draft_ban;
 mod combat;
 mod economy;
@@ -30,7 +31,6 @@ use match_progress::MatchProgress;
 use pack::all_packs;
 use projectile::Projectile;
 use rendering::SplashEffect;
-use unit::Unit;
 
 const FIXED_DT: f32 = 1.0 / 60.0;
 
@@ -46,12 +46,8 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut progress = MatchProgress::new(true);
-    let mut phase = GamePhase::Lobby;
-    let mut build = BuildState::new(progress.round_gold(), true);
-    let mut units: Vec<Unit> = Vec::new();
+    let mut ctx = context::GameContext::new(true);
     let mut projectiles: Vec<Projectile> = Vec::new();
-    let mut net: Option<net::NetState> = None;
     let mut lobby = lobby::LobbyState::new();
     let mut battle_accumulator: f32 = 0.0;
     let mut battle_timer: f32 = 0.0;
@@ -60,15 +56,8 @@ async fn main() {
     const SYNC_INTERVAL: u32 = 4;
     // Guest keeps recent frame hashes so it can match against the host's frame
     let mut recent_hashes: std::collections::VecDeque<(u32, u64)> = std::collections::VecDeque::with_capacity(5);
-    let mut game_settings = settings::GameSettings::default();
     let mut main_settings = settings::MainSettings::default();
-    let mut obstacles: Vec<terrain::Obstacle> = Vec::new();
     let mut show_surrender_confirm = false;
-    let mut mp_player_name = String::from("Player");
-    let mut mp_opponent_name = String::from("Opponent");
-    let mut chat = chat::ChatState::new();
-    let mut show_grid = false;
-    let mut nav_grid: Option<terrain::NavGrid> = None;
     let mut camera_zoom: f32 = 1.0;
     let mut camera_target = vec2(ARENA_W / 2.0, ARENA_H / 2.0);
     let mut is_fullscreen_mode = false;
@@ -83,10 +72,10 @@ async fn main() {
         let left_click = is_mouse_button_pressed(MouseButton::Left);
         let right_click = is_mouse_button_pressed(MouseButton::Right);
         let middle_click = is_mouse_button_pressed(MouseButton::Middle);
-        team::set_player_color(game_settings.player_color_index);
+        team::set_player_color(ctx.game_settings.player_color_index);
         ui::set_text_scale(main_settings.ui_scale);
         // Apply opponent color if received
-        if let Some(ref n) = net {
+        if let Some(ref n) = ctx.net {
             if let Some(opp_color) = n.opponent_color {
                 team::set_opponent_color(opp_color);
             }
@@ -100,7 +89,7 @@ async fn main() {
         };
         let world_mouse = arena_camera.screen_to_world(screen_mouse);
         // For UI elements that need screen coords, use screen_mouse
-        let mouse = if matches!(phase, GamePhase::Lobby) { screen_mouse } else { world_mouse };
+        let mouse = if matches!(ctx.phase, GamePhase::Lobby) { screen_mouse } else { world_mouse };
 
         // Fullscreen toggle (F11)
         if is_key_pressed(KeyCode::F11) {
@@ -109,7 +98,7 @@ async fn main() {
         }
 
         // Camera zoom/pan (available in all non-lobby phases)
-        if !matches!(phase, GamePhase::Lobby) {
+        if !matches!(ctx.phase, GamePhase::Lobby) {
             // Smooth multiplicative zoom — ~100+ steps between min/max
             let wheel = mouse_wheel().1;
             if wheel != 0.0 {
@@ -138,70 +127,70 @@ async fn main() {
             camera_target.y = camera_target.y.clamp(-margin_y, ARENA_H + margin_y);
         }
 
-        match &mut phase {
+        match &mut ctx.phase {
             GamePhase::Lobby => {
-                match lobby.update(&mut game_settings, &mut main_settings) {
+                match lobby.update(&mut ctx.game_settings, &mut main_settings) {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
-                        net = lobby.net.take();
-                        if let Some(ref mut n) = net {
+                        ctx.net = lobby.net.take();
+                        if let Some(ref mut n) = ctx.net {
                             n.is_host = is_host;
-                            mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
+                            ctx.mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
                         }
-                        mp_player_name = lobby.player_name.clone();
-                        progress = MatchProgress::new(is_host);
-                        build = BuildState::new(progress.round_gold(), is_host);
-                        if game_settings.draft_ban_enabled {
-                            phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
+                        ctx.mp_player_name = lobby.player_name.clone();
+                        ctx.progress = MatchProgress::new(is_host);
+                        ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
+                        if ctx.game_settings.draft_ban_enabled {
+                            ctx.phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
-                            phase = GamePhase::Build;
+                            ctx.phase = GamePhase::Build;
                         }
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
-                        net = None;
-                        mp_player_name = lobby.player_name.clone();
-                        mp_opponent_name = "AI".to_string();
-                        progress = MatchProgress::new(true);
-                        build = BuildState::new(progress.round_gold(), true);
-                        if game_settings.draft_ban_enabled {
-                            phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
+                        ctx.net = None;
+                        ctx.mp_player_name = lobby.player_name.clone();
+                        ctx.mp_opponent_name = "AI".to_string();
+                        ctx.progress = MatchProgress::new(true);
+                        ctx.build = BuildState::new(ctx.progress.round_gold(), true);
+                        if ctx.game_settings.draft_ban_enabled {
+                            ctx.phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
-                            phase = GamePhase::Build;
+                            ctx.phase = GamePhase::Build;
                         }
                         continue;
                     }
                     lobby::LobbyResult::Waiting => {}
                 }
 
-                match lobby.draw(&mut game_settings, &mut main_settings) {
+                match lobby.draw(&mut ctx.game_settings, &mut main_settings) {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
-                        net = lobby.net.take();
-                        if let Some(ref mut n) = net {
+                        ctx.net = lobby.net.take();
+                        if let Some(ref mut n) = ctx.net {
                             n.is_host = is_host;
-                            mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
+                            ctx.mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
                         }
-                        mp_player_name = lobby.player_name.clone();
-                        progress = MatchProgress::new(is_host);
-                        build = BuildState::new(progress.round_gold(), is_host);
-                        if game_settings.draft_ban_enabled {
-                            phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
+                        ctx.mp_player_name = lobby.player_name.clone();
+                        ctx.progress = MatchProgress::new(is_host);
+                        ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
+                        if ctx.game_settings.draft_ban_enabled {
+                            ctx.phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
-                            phase = GamePhase::Build;
+                            ctx.phase = GamePhase::Build;
                         }
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
-                        net = None;
-                        mp_player_name = lobby.player_name.clone();
-                        mp_opponent_name = "AI".to_string();
-                        progress = MatchProgress::new(true);
-                        build = BuildState::new(progress.round_gold(), true);
-                        if game_settings.draft_ban_enabled {
-                            phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
+                        ctx.net = None;
+                        ctx.mp_player_name = lobby.player_name.clone();
+                        ctx.mp_opponent_name = "AI".to_string();
+                        ctx.progress = MatchProgress::new(true);
+                        ctx.build = BuildState::new(ctx.progress.round_gold(), true);
+                        if ctx.game_settings.draft_ban_enabled {
+                            ctx.phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
                         } else {
-                            phase = GamePhase::Build;
+                            ctx.phase = GamePhase::Build;
                         }
                         continue;
                     }
@@ -213,11 +202,11 @@ async fn main() {
             }
 
             GamePhase::DraftBan { ref mut bans, ref mut confirmed, ref mut opponent_bans } => {
-                match draft_ban::update_and_draw(bans, confirmed, opponent_bans, &mut net, screen_mouse, left_click) {
+                match draft_ban::update_and_draw(bans, confirmed, opponent_bans, &mut ctx.net, screen_mouse, left_click) {
                     draft_ban::DraftBanResult::Waiting => {}
                     draft_ban::DraftBanResult::Done(all_bans) => {
-                        progress.banned_kinds = all_bans;
-                        phase = GamePhase::Build;
+                        ctx.progress.banned_kinds = all_bans;
+                        ctx.phase = GamePhase::Build;
                     }
                 }
                 next_frame().await;
@@ -226,83 +215,83 @@ async fn main() {
 
             GamePhase::Build => {
                 // Poll network
-                if let Some(ref mut n) = net {
+                if let Some(ref mut n) = ctx.net {
                     n.poll();
                 }
 
                 // Grid toggle
                 if is_key_pressed(KeyCode::G) {
-                    show_grid = !show_grid;
+                    ctx.show_grid = !ctx.show_grid;
                 }
 
                 // Undo (Ctrl+Z)
-                if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::Z) && build.dragging.is_none() {
-                    if let Some(entry) = build.undo_history.pop() {
+                if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::Z) && ctx.build.dragging.is_none() {
+                    if let Some(entry) = ctx.build.undo_history.pop() {
                         match entry {
                             game_state::UndoEntry::Place { placed_index } => {
-                                if placed_index < build.placed_packs.len() {
-                                    if let Some((_refund, removed_ids)) = build.sell_pack(placed_index) {
-                                        units.retain(|u| !removed_ids.contains(&u.id));
+                                if placed_index < ctx.build.placed_packs.len() {
+                                    if let Some((_refund, removed_ids)) = ctx.build.sell_pack(placed_index) {
+                                        ctx.units.retain(|u| !removed_ids.contains(&u.id));
                                     }
                                 }
                             }
                             game_state::UndoEntry::Move { placed_index, old_center } => {
-                                if placed_index < build.placed_packs.len() {
-                                    build.placed_packs[placed_index].center = old_center;
-                                    build.reposition_pack_units(placed_index, &mut units);
+                                if placed_index < ctx.build.placed_packs.len() {
+                                    ctx.build.placed_packs[placed_index].center = old_center;
+                                    ctx.build.reposition_pack_units(placed_index, &mut ctx.units);
                                 }
                             }
                             game_state::UndoEntry::Rotate { placed_index, was_rotated, old_center } => {
-                                if placed_index < build.placed_packs.len() {
-                                    build.placed_packs[placed_index].rotated = was_rotated;
-                                    build.placed_packs[placed_index].center = old_center;
-                                    build.reposition_pack_units(placed_index, &mut units);
+                                if placed_index < ctx.build.placed_packs.len() {
+                                    ctx.build.placed_packs[placed_index].rotated = was_rotated;
+                                    ctx.build.placed_packs[placed_index].center = old_center;
+                                    ctx.build.reposition_pack_units(placed_index, &mut ctx.units);
                                 }
                             }
                             game_state::UndoEntry::MultiMove { indices, old_centers } => {
                                 for (i, &idx) in indices.iter().enumerate() {
-                                    if idx < build.placed_packs.len() {
-                                        build.placed_packs[idx].center = old_centers[i];
-                                        build.reposition_pack_units(idx, &mut units);
+                                    if idx < ctx.build.placed_packs.len() {
+                                        ctx.build.placed_packs[idx].center = old_centers[i];
+                                        ctx.build.reposition_pack_units(idx, &mut ctx.units);
                                     }
                                 }
                             }
                             game_state::UndoEntry::Tech { kind, tech_id } => {
                                 // Refund tech cost
-                                let cost = progress.player_techs.effective_cost(kind);
+                                let cost = ctx.progress.player_techs.effective_cost(kind);
                                 // unpurchase first so effective_cost returns the right amount next time
-                                progress.player_techs.unpurchase(kind, tech_id);
+                                ctx.progress.player_techs.unpurchase(kind, tech_id);
                                 // Refund: cost was (100 + N*100) where N was count before purchase
                                 // After unpurchase, effective_cost gives the old cost, so just refund that
-                                build.builder.gold_remaining += cost;
+                                ctx.build.builder.gold_remaining += cost;
                                 // Remove from round tech purchases
-                                if let Some(pos) = build.round_tech_purchases.iter().rposition(|(k, t)| *k == kind && *t == tech_id) {
-                                    build.round_tech_purchases.remove(pos);
+                                if let Some(pos) = ctx.build.round_tech_purchases.iter().rposition(|(k, t)| *k == kind && *t == tech_id) {
+                                    ctx.build.round_tech_purchases.remove(pos);
                                 }
-                                // Refresh units to remove tech effect
-                                tech::refresh_units_of_kind(&mut units, kind, &progress.player_techs);
+                                // Refresh ctx.units to remove tech effect
+                                tech::refresh_units_of_kind(&mut ctx.units, kind, &ctx.progress.player_techs);
                             }
                         }
                     }
                 }
 
                 // Timer countdown
-                build.timer -= dt;
-                if build.timer <= 0.0 {
-                    if net.is_some() {
-                        // Multiplayer: send build, transition to waiting
-                        net::send_build_complete(&mut net, &build);
-                        phase = GamePhase::WaitingForOpponent;
+                ctx.build.timer -= dt;
+                if ctx.build.timer <= 0.0 {
+                    if ctx.net.is_some() {
+                        // Multiplayer: send ctx.build, transition to waiting
+                        net::send_build_complete(&mut ctx.net, &ctx.build);
+                        ctx.phase = GamePhase::WaitingForOpponent;
                     } else {
                         // Single-player: start battle immediately with AI
-                        phase = economy::start_ai_battle(
-                            &mut build,
-                            &mut units,
+                        ctx.phase = economy::start_ai_battle(
+                            &mut ctx.build,
+                            &mut ctx.units,
                             &mut projectiles,
-                            &mut progress,
-                            &mut obstacles,
-                            &mut nav_grid,
-                            &game_settings,
+                            &mut ctx.progress,
+                            &mut ctx.obstacles,
+                            &mut ctx.nav_grid,
+                            &ctx.game_settings,
                         );
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
@@ -313,32 +302,32 @@ async fn main() {
                 }
 
                 // Shop interaction (left click in shop area, only when not holding a pack)
-                if left_click && screen_mouse.x < shop_w() && build.dragging.is_none() {
+                if left_click && screen_mouse.x < shop_w() && ctx.build.dragging.is_none() {
                     if let Some(pack_idx) =
-                        shop::draw_shop(build.builder.gold_remaining, screen_mouse, true, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round)
+                        shop::draw_shop(ctx.build.builder.gold_remaining, screen_mouse, true, &ctx.progress.banned_kinds, game_state::BUILD_LIMIT - ctx.build.packs_bought_this_round)
                     {
-                        if let Some(new_units) = build.purchase_pack(
+                        if let Some(new_units) = ctx.build.purchase_pack(
                             pack_idx,
-                            progress.round,
-                            &progress.player_techs,
+                            ctx.progress.round,
+                            &ctx.progress.player_techs,
                         ) {
-                            units.extend(new_units);
+                            ctx.units.extend(new_units);
                         }
                     }
                 }
 
                 // Tech panel interaction (when a pack is selected)
                 let mut click_consumed = false;
-                if left_click && build.selected_pack.is_some() {
-                    let sel_idx = build.selected_pack.unwrap();
-                    let placed = &build.placed_packs[sel_idx];
+                if left_click && ctx.build.selected_pack.is_some() {
+                    let sel_idx = ctx.build.selected_pack.unwrap();
+                    let placed = &ctx.build.placed_packs[sel_idx];
                     let kind = all_packs()[placed.pack_index].kind;
-                    let cs = tech_ui::PackCombatStats::from_units(&units, &placed.unit_ids);
+                    let cs = tech_ui::PackCombatStats::from_units(&ctx.units, &placed.unit_ids);
 
                     // Check if mouse is in the tech panel area (consume click to prevent drag)
                     // Compute actual panel height to avoid blocking clicks in the entire column
-                    let available_count = progress.player_techs.available_techs(kind).len();
-                    let purchased_count = progress.player_techs.tech_count(kind);
+                    let available_count = ctx.progress.player_techs.available_techs(kind).len();
+                    let purchased_count = ctx.progress.player_techs.tech_count(kind);
                     let has_combat = cs.damage_dealt_total > 0.0 || cs.damage_soaked_total > 0.0;
                     let combat_extra = if has_combat { 5.0 * 15.0 + 30.0 } else { 0.0 };
                     let panel_h = crate::ui::s(120.0) + (available_count + purchased_count) as f32 * crate::ui::s(35.0) + crate::ui::s(combat_extra) + crate::ui::s(20.0);
@@ -350,51 +339,51 @@ async fn main() {
 
                     if let Some(tech_id) = tech_ui::draw_tech_panel(
                         kind,
-                        &progress.player_techs,
-                        build.builder.gold_remaining,
+                        &ctx.progress.player_techs,
+                        ctx.build.builder.gold_remaining,
                         screen_mouse,
                         true,
                         Some(&cs),
                     ) {
-                        let cost = progress.player_techs.effective_cost(kind);
-                        if build.builder.gold_remaining >= cost {
-                            build.builder.gold_remaining -= cost;
-                            progress.player_techs.purchase(kind, tech_id);
+                        let cost = ctx.progress.player_techs.effective_cost(kind);
+                        if ctx.build.builder.gold_remaining >= cost {
+                            ctx.build.builder.gold_remaining -= cost;
+                            ctx.progress.player_techs.purchase(kind, tech_id);
                             // Track tech purchase for network sync and undo
-                            build.round_tech_purchases.push((kind, tech_id));
-                            build.undo_history.push(game_state::UndoEntry::Tech { kind, tech_id });
-                            // Refresh ALL units of this kind with new tech stats
-                            tech::refresh_units_of_kind(&mut units, kind, &progress.player_techs);
+                            ctx.build.round_tech_purchases.push((kind, tech_id));
+                            ctx.build.undo_history.push(game_state::UndoEntry::Tech { kind, tech_id });
+                            // Refresh ALL ctx.units of this kind with new tech stats
+                            tech::refresh_units_of_kind(&mut ctx.units, kind, &ctx.progress.player_techs);
                         }
                     }
                 }
 
                 // Right-click: sell if on unlocked pack, otherwise deselect
-                if right_click && screen_mouse.x > shop_w() && build.dragging.is_none() {
+                if right_click && screen_mouse.x > shop_w() && ctx.build.dragging.is_none() {
                     let mut sold = false;
-                    if let Some(placed_idx) = build.pack_at(mouse) {
-                        if !build.placed_packs[placed_idx].locked {
-                            if let Some((_, removed_ids)) = build.sell_pack(placed_idx) {
-                                units.retain(|u| !removed_ids.contains(&u.id));
+                    if let Some(placed_idx) = ctx.build.pack_at(mouse) {
+                        if !ctx.build.placed_packs[placed_idx].locked {
+                            if let Some((_, removed_ids)) = ctx.build.sell_pack(placed_idx) {
+                                ctx.units.retain(|u| !removed_ids.contains(&u.id));
                                 sold = true;
                             }
                         }
                     }
                     if !sold {
                         // Deselect on right-click in empty space or on locked pack
-                        build.selected_pack = None;
+                        ctx.build.selected_pack = None;
                     }
                 }
 
                 // Middle-click to rotate (only unlocked)
                 if middle_click && screen_mouse.x > shop_w() {
-                    if let Some(drag_idx) = build.dragging {
-                        if !build.placed_packs[drag_idx].locked {
-                            build.rotate_pack(drag_idx, &mut units);
+                    if let Some(drag_idx) = ctx.build.dragging {
+                        if !ctx.build.placed_packs[drag_idx].locked {
+                            ctx.build.rotate_pack(drag_idx, &mut ctx.units);
                         }
-                    } else if let Some(placed_idx) = build.pack_at(mouse) {
-                        if !build.placed_packs[placed_idx].locked {
-                            build.rotate_pack(placed_idx, &mut units);
+                    } else if let Some(placed_idx) = ctx.build.pack_at(mouse) {
+                        if !ctx.build.placed_packs[placed_idx].locked {
+                            ctx.build.rotate_pack(placed_idx, &mut ctx.units);
                         }
                     }
                 }
@@ -403,33 +392,33 @@ async fn main() {
                 let left_released = is_mouse_button_released(MouseButton::Left);
 
                 // Active multi-drag: move all packs together
-                if !build.multi_dragging.is_empty() {
+                if !ctx.build.multi_dragging.is_empty() {
                     let grid = terrain::GRID_CELL;
                     let snapped_mouse = vec2(
                         (mouse.x / grid).round() * grid,
                         (mouse.y / grid).round() * grid,
                     );
-                    for (i, &pack_idx) in build.multi_dragging.clone().iter().enumerate() {
-                        let offset = build.multi_drag_offsets[i];
+                    for (i, &pack_idx) in ctx.build.multi_dragging.clone().iter().enumerate() {
+                        let offset = ctx.build.multi_drag_offsets[i];
                         let new_center = snapped_mouse + offset;
-                        let pack = &all_packs()[build.placed_packs[pack_idx].pack_index];
-                        let half = build.placed_packs[pack_idx].bbox_half_size_for(pack);
+                        let pack = &all_packs()[ctx.build.placed_packs[pack_idx].pack_index];
+                        let half = ctx.build.placed_packs[pack_idx].bbox_half_size_for(pack);
                         let clamped = vec2(
                             new_center.x.clamp(half.x, HALF_W - half.x),
                             new_center.y.clamp(half.y, ARENA_H - half.y),
                         );
-                        build.placed_packs[pack_idx].center = clamped;
-                        build.reposition_pack_units(pack_idx, &mut units);
+                        ctx.build.placed_packs[pack_idx].center = clamped;
+                        ctx.build.reposition_pack_units(pack_idx, &mut ctx.units);
                     }
 
                     if left_click {
                         // Drop all — check overlaps
-                        let dragging_set: Vec<usize> = build.multi_dragging.clone();
+                        let dragging_set: Vec<usize> = ctx.build.multi_dragging.clone();
                         let mut any_overlap = false;
                         for &pack_idx in &dragging_set {
-                            let placed = &build.placed_packs[pack_idx];
+                            let placed = &ctx.build.placed_packs[pack_idx];
                             // Check overlap against non-dragged packs
-                            for (j, other) in build.placed_packs.iter().enumerate() {
+                            for (j, other) in ctx.build.placed_packs.iter().enumerate() {
                                 if dragging_set.contains(&j) { continue; }
                                 let p1 = &all_packs()[placed.pack_index];
                                 let p2 = &all_packs()[other.pack_index];
@@ -444,44 +433,44 @@ async fn main() {
                         if any_overlap {
                             // Revert all to pre-centers
                             for (i, &pack_idx) in dragging_set.iter().enumerate() {
-                                build.placed_packs[pack_idx].center = build.multi_drag_pre_centers[i];
-                                build.reposition_pack_units(pack_idx, &mut units);
+                                ctx.build.placed_packs[pack_idx].center = ctx.build.multi_drag_pre_centers[i];
+                                ctx.build.reposition_pack_units(pack_idx, &mut ctx.units);
                             }
                         } else {
                             // Check if any actually moved
                             let mut any_moved = false;
                             for (i, &pack_idx) in dragging_set.iter().enumerate() {
-                                if build.placed_packs[pack_idx].center != build.multi_drag_pre_centers[i] {
+                                if ctx.build.placed_packs[pack_idx].center != ctx.build.multi_drag_pre_centers[i] {
                                     any_moved = true;
                                     break;
                                 }
                             }
                             if any_moved {
-                                build.undo_history.push(game_state::UndoEntry::MultiMove {
+                                ctx.build.undo_history.push(game_state::UndoEntry::MultiMove {
                                     indices: dragging_set.clone(),
-                                    old_centers: build.multi_drag_pre_centers.clone(),
+                                    old_centers: ctx.build.multi_drag_pre_centers.clone(),
                                 });
                             }
                         }
-                        build.multi_dragging.clear();
-                        build.multi_drag_offsets.clear();
-                        build.multi_drag_pre_centers.clear();
+                        ctx.build.multi_dragging.clear();
+                        ctx.build.multi_drag_offsets.clear();
+                        ctx.build.multi_drag_pre_centers.clear();
                     }
 
                     if right_click {
                         // Cancel — revert all
-                        let dragging_set: Vec<usize> = build.multi_dragging.clone();
+                        let dragging_set: Vec<usize> = ctx.build.multi_dragging.clone();
                         for (i, &pack_idx) in dragging_set.iter().enumerate() {
-                            build.placed_packs[pack_idx].center = build.multi_drag_pre_centers[i];
-                            build.reposition_pack_units(pack_idx, &mut units);
+                            ctx.build.placed_packs[pack_idx].center = ctx.build.multi_drag_pre_centers[i];
+                            ctx.build.reposition_pack_units(pack_idx, &mut ctx.units);
                         }
-                        build.multi_dragging.clear();
-                        build.multi_drag_offsets.clear();
-                        build.multi_drag_pre_centers.clear();
+                        ctx.build.multi_dragging.clear();
+                        ctx.build.multi_drag_offsets.clear();
+                        ctx.build.multi_drag_pre_centers.clear();
                     }
                 }
                 // Drag-box: track while held, complete on release
-                else if let Some(box_start) = build.drag_box_start {
+                else if let Some(box_start) = ctx.build.drag_box_start {
                     if left_released {
                         let box_end = mouse;
                         let min_x = box_start.x.min(box_end.x);
@@ -493,7 +482,7 @@ async fn main() {
                         if (max_x - min_x) > 5.0 || (max_y - min_y) > 5.0 {
                             let packs = all_packs();
                             let mut selected_indices = Vec::new();
-                            for (i, placed) in build.placed_packs.iter().enumerate() {
+                            for (i, placed) in ctx.build.placed_packs.iter().enumerate() {
                                 if placed.locked { continue; }
                                 let pack = &packs[placed.pack_index];
                                 let half = placed.bbox_half_size_for(pack);
@@ -511,36 +500,36 @@ async fn main() {
                                 let mut offsets = Vec::new();
                                 let mut pre_centers = Vec::new();
                                 for &idx in &selected_indices {
-                                    offsets.push(build.placed_packs[idx].center - anchor);
-                                    pre_centers.push(build.placed_packs[idx].center);
+                                    offsets.push(ctx.build.placed_packs[idx].center - anchor);
+                                    pre_centers.push(ctx.build.placed_packs[idx].center);
                                 }
-                                build.multi_dragging = selected_indices;
-                                build.multi_drag_offsets = offsets;
-                                build.multi_drag_pre_centers = pre_centers;
-                                build.selected_pack = None;
+                                ctx.build.multi_dragging = selected_indices;
+                                ctx.build.multi_drag_offsets = offsets;
+                                ctx.build.multi_drag_pre_centers = pre_centers;
+                                ctx.build.selected_pack = None;
                             }
                         }
-                        build.drag_box_start = None;
+                        ctx.build.drag_box_start = None;
                     }
                     // Right-click cancels the drag box
                     if right_click {
-                        build.drag_box_start = None;
+                        ctx.build.drag_box_start = None;
                     }
                 }
                 // Start drag-box when clicking empty space (not on a pack, not on UI)
                 else if left_click && screen_mouse.x > shop_w() && !click_consumed
-                    && build.dragging.is_none() && build.multi_dragging.is_empty()
-                    && build.pack_at(mouse).is_none() && build.selected_pack.is_none()
+                    && ctx.build.dragging.is_none() && ctx.build.multi_dragging.is_empty()
+                    && ctx.build.pack_at(mouse).is_none() && ctx.build.selected_pack.is_none()
                 {
-                    build.drag_box_start = Some(mouse);
+                    ctx.build.drag_box_start = Some(mouse);
                 }
 
                 // === Single-pack click-to-hold/place logic ===
-                if build.multi_dragging.is_empty() && build.drag_box_start.is_none() {
-                if let Some(drag_idx) = build.dragging {
+                if ctx.build.multi_dragging.is_empty() && ctx.build.drag_box_start.is_none() {
+                if let Some(drag_idx) = ctx.build.dragging {
                     // Currently holding a pack — follow mouse
-                    let pack = &all_packs()[build.placed_packs[drag_idx].pack_index];
-                    let half = build.placed_packs[drag_idx].bbox_half_size_for(pack);
+                    let pack = &all_packs()[ctx.build.placed_packs[drag_idx].pack_index];
+                    let half = ctx.build.placed_packs[drag_idx].bbox_half_size_for(pack);
                     let clamped = vec2(
                         mouse.x.clamp(half.x, HALF_W - half.x),
                         mouse.y.clamp(half.y, ARENA_H - half.y),
@@ -551,53 +540,53 @@ async fn main() {
                         (clamped.x / grid).round() * grid,
                         (clamped.y / grid).round() * grid,
                     );
-                    build.placed_packs[drag_idx].center = snapped;
-                    build.reposition_pack_units(drag_idx, &mut units);
+                    ctx.build.placed_packs[drag_idx].center = snapped;
+                    ctx.build.reposition_pack_units(drag_idx, &mut ctx.units);
 
                     if left_click {
-                        let placed = &build.placed_packs[drag_idx];
+                        let placed = &ctx.build.placed_packs[drag_idx];
                         let pack_index = placed.pack_index;
                         let rotated = placed.rotated;
                         let old_center = placed.pre_drag_center;
-                        if build.would_overlap(placed.center, pack_index, Some(drag_idx), rotated) {
-                            build.placed_packs[drag_idx].center = old_center;
-                            build.reposition_pack_units(drag_idx, &mut units);
-                        } else if build.placed_packs[drag_idx].center != old_center {
-                            build.undo_history.push(game_state::UndoEntry::Move { placed_index: drag_idx, old_center });
+                        if ctx.build.would_overlap(placed.center, pack_index, Some(drag_idx), rotated) {
+                            ctx.build.placed_packs[drag_idx].center = old_center;
+                            ctx.build.reposition_pack_units(drag_idx, &mut ctx.units);
+                        } else if ctx.build.placed_packs[drag_idx].center != old_center {
+                            ctx.build.undo_history.push(game_state::UndoEntry::Move { placed_index: drag_idx, old_center });
                         }
-                        build.dragging = None;
+                        ctx.build.dragging = None;
                     }
 
                     if right_click {
-                        let prev = build.placed_packs[drag_idx].pre_drag_center;
-                        build.placed_packs[drag_idx].center = prev;
-                        build.reposition_pack_units(drag_idx, &mut units);
-                        build.dragging = None;
+                        let prev = ctx.build.placed_packs[drag_idx].pre_drag_center;
+                        ctx.build.placed_packs[drag_idx].center = prev;
+                        ctx.build.reposition_pack_units(drag_idx, &mut ctx.units);
+                        ctx.build.dragging = None;
                     }
                 } else if left_click && screen_mouse.x > shop_w() && !click_consumed {
                     // Not holding — selection logic
-                    if let Some(placed_idx) = build.pack_at(mouse) {
-                        if build.selected_pack == Some(placed_idx) {
+                    if let Some(placed_idx) = ctx.build.pack_at(mouse) {
+                        if ctx.build.selected_pack == Some(placed_idx) {
                             // Already selected -> pick up (if not locked)
-                            if !build.placed_packs[placed_idx].locked {
-                                build.placed_packs[placed_idx].pre_drag_center =
-                                    build.placed_packs[placed_idx].center;
-                                build.dragging = Some(placed_idx);
-                                build.selected_pack = None;
+                            if !ctx.build.placed_packs[placed_idx].locked {
+                                ctx.build.placed_packs[placed_idx].pre_drag_center =
+                                    ctx.build.placed_packs[placed_idx].center;
+                                ctx.build.dragging = Some(placed_idx);
+                                ctx.build.selected_pack = None;
                             }
                         } else {
                             // Select this pack
-                            build.selected_pack = Some(placed_idx);
+                            ctx.build.selected_pack = Some(placed_idx);
                         }
-                    } else if let Some(sel_idx) = build.selected_pack {
+                    } else if let Some(sel_idx) = ctx.build.selected_pack {
                         // Clicked empty space with a selected pack -> pick it up (if not locked)
-                        if !build.placed_packs[sel_idx].locked {
-                            build.placed_packs[sel_idx].pre_drag_center =
-                                build.placed_packs[sel_idx].center;
-                            build.dragging = Some(sel_idx);
-                            build.selected_pack = None;
+                        if !ctx.build.placed_packs[sel_idx].locked {
+                            ctx.build.placed_packs[sel_idx].pre_drag_center =
+                                ctx.build.placed_packs[sel_idx].center;
+                            ctx.build.dragging = Some(sel_idx);
+                            ctx.build.selected_pack = None;
                         } else {
-                            build.selected_pack = None;
+                            ctx.build.selected_pack = None;
                         }
                     }
                 }
@@ -614,20 +603,20 @@ async fn main() {
                     && screen_mouse.y >= btn_y
                     && screen_mouse.y <= btn_y + btn_h
                 {
-                    if net.is_some() {
-                        // Multiplayer: send build data, wait for opponent
-                        net::send_build_complete(&mut net, &build);
-                        phase = GamePhase::WaitingForOpponent;
+                    if ctx.net.is_some() {
+                        // Multiplayer: send ctx.build data, wait for opponent
+                        net::send_build_complete(&mut ctx.net, &ctx.build);
+                        ctx.phase = GamePhase::WaitingForOpponent;
                     } else {
                         // Single-player: start battle with AI
-                        phase = economy::start_ai_battle(
-                            &mut build,
-                            &mut units,
+                        ctx.phase = economy::start_ai_battle(
+                            &mut ctx.build,
+                            &mut ctx.units,
                             &mut projectiles,
-                            &mut progress,
-                            &mut obstacles,
-                            &mut nav_grid,
-                            &game_settings,
+                            &mut ctx.progress,
+                            &mut ctx.obstacles,
+                            &mut ctx.nav_grid,
+                            &ctx.game_settings,
                         );
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
@@ -640,19 +629,19 @@ async fn main() {
 
             GamePhase::WaitingForOpponent => {
                 // Poll network
-                if let Some(ref mut n) = net {
+                if let Some(ref mut n) = ctx.net {
                     n.poll();
 
-                    // Check if opponent build data arrived
+                    // Check if opponent ctx.build data arrived
                     if let Some(opp_build) = n.take_opponent_build() {
-                        // Apply opponent build
-                        let opp_units = progress.apply_opponent_build(&opp_build);
+                        // Apply opponent ctx.build
+                        let opp_units = ctx.progress.apply_opponent_build(&opp_build);
 
-                        // Remove old opponent units, respawn from stored packs
-                        units.retain(|u| u.team_id == 0);
-                        units.extend(progress.respawn_opponent_units());
+                        // Remove old opponent ctx.units, respawn from stored packs
+                        ctx.units.retain(|u| u.team_id == 0);
+                        ctx.units.extend(ctx.progress.respawn_opponent_units());
 
-                        // Also add any newly spawned opponent units from this round
+                        // Also add any newly spawned opponent ctx.units from this round
                         // (apply_opponent_build already added them to opponent_packs,
                         //  respawn_opponent_units covers all stored packs including new ones)
                         // So we don't need to extend with opp_units separately.
@@ -661,27 +650,27 @@ async fn main() {
                         projectiles.clear();
 
                         // Generate terrain once per match; subsequent rounds just reset cover HP
-                        if obstacles.is_empty() && game_settings.terrain_enabled {
-                            obstacles = terrain::generate_terrain(progress.round, game_settings.terrain_destructible);
+                        if ctx.obstacles.is_empty() && ctx.game_settings.terrain_enabled {
+                            ctx.obstacles = terrain::generate_terrain(ctx.progress.round, ctx.game_settings.terrain_destructible);
                         } else {
-                            terrain::reset_cover_hp(&mut obstacles);
+                            terrain::reset_cover_hp(&mut ctx.obstacles);
                         }
-                        nav_grid = Some(terrain::NavGrid::from_obstacles(&obstacles, ARENA_W, ARENA_H, 15.0));
+                        ctx.nav_grid = Some(terrain::NavGrid::from_obstacles(&ctx.obstacles, ARENA_W, ARENA_H, 15.0));
 
                         // Seed RNG for deterministic battle
-                        macroquad::rand::srand(progress.round as u64);
+                        macroquad::rand::srand(ctx.progress.round as u64);
                         battle_accumulator = 0.0;
                         battle_timer = 0.0;
                         battle_frame = 0;
                         recent_hashes.clear();
 
                         // Reset per-round damage stats
-                        for unit in units.iter_mut() {
+                        for unit in ctx.units.iter_mut() {
                             unit.damage_dealt_round = 0.0;
                             unit.damage_soaked_round = 0.0;
                         }
 
-                        phase = GamePhase::Battle;
+                        ctx.phase = GamePhase::Battle;
                         continue;
                     }
                 }
@@ -694,30 +683,30 @@ async fn main() {
                 }
 
                 // Poll network
-                if let Some(ref mut n) = net {
+                if let Some(ref mut n) = ctx.net {
                     n.poll();
                 }
 
                 if show_surrender_confirm {
                     // Battle paused while surrender overlay is shown
-                } else if net.is_some() {
+                } else if ctx.net.is_some() {
                     // Multiplayer: fixed timestep for determinism
                     battle_accumulator += dt;
                     while battle_accumulator >= FIXED_DT {
                         battle_accumulator -= FIXED_DT;
-                        update_targeting(&mut units, &obstacles);
-                        update_movement(&mut units, FIXED_DT, ARENA_W, ARENA_H, &obstacles, nav_grid.as_ref());
+                        update_targeting(&mut ctx.units, &ctx.obstacles);
+                        update_movement(&mut ctx.units, FIXED_DT, ARENA_W, ARENA_H, &ctx.obstacles, ctx.nav_grid.as_ref());
                         update_attacks(
-                            &mut units,
+                            &mut ctx.units,
                             &mut projectiles,
                             FIXED_DT,
-                            &progress.player_techs,
-                            &progress.opponent_techs,
+                            &ctx.progress.player_techs,
+                            &ctx.progress.opponent_techs,
                             &mut splash_effects,
                         );
-                        update_projectiles(&mut projectiles, &mut units, FIXED_DT, &mut obstacles, &mut splash_effects);
+                        update_projectiles(&mut projectiles, &mut ctx.units, FIXED_DT, &mut ctx.obstacles, &mut splash_effects);
                         // Death animation timers (inside fixed timestep for determinism)
-                        for unit in units.iter_mut() {
+                        for unit in ctx.units.iter_mut() {
                             if !unit.alive && unit.death_timer > 0.0 {
                                 unit.death_timer -= FIXED_DT;
                             }
@@ -725,14 +714,14 @@ async fn main() {
                         battle_frame += 1;
 
                         // --- Sync hashing every SYNC_INTERVAL frames ---
-                        if let Some(ref mut n) = net {
+                        if let Some(ref mut n) = ctx.net {
                             if battle_frame % SYNC_INTERVAL == 0 {
                                 if n.is_host {
-                                    let local_hash = sync::compute_state_hash(&units, &projectiles, &obstacles, false);
+                                    let local_hash = sync::compute_state_hash(&ctx.units, &projectiles, &ctx.obstacles, false);
                                     n.send(net::NetMessage::StateHash { frame: battle_frame, hash: local_hash });
                                 } else {
                                     // Guest: store hash for this frame so we can compare when host's hash arrives
-                                    let local_hash = sync::compute_state_hash(&units, &projectiles, &obstacles, true);
+                                    let local_hash = sync::compute_state_hash(&ctx.units, &projectiles, &ctx.obstacles, true);
                                     if recent_hashes.len() >= 4 {
                                         recent_hashes.pop_front();
                                     }
@@ -744,14 +733,14 @@ async fn main() {
 
                     // --- Desync detection & state sync (outside fixed-timestep loop) ---
                     // Poll network again to pick up any messages that arrived during simulation
-                    if let Some(ref mut n) = net {
+                    if let Some(ref mut n) = ctx.net {
                         n.poll();
 
                         if n.is_host {
                             // Host: respond to state request from guest
                             if let Some(_req_frame) = n.received_state_request.take() {
                                 let (units_data, projectiles_data, obstacles_data) =
-                                    sync::serialize_state(&units, &projectiles, &obstacles);
+                                    sync::serialize_state(&ctx.units, &projectiles, &ctx.obstacles);
                                 eprintln!("[SYNC] Host sending full state at frame {} ({} + {} + {} bytes)",
                                     battle_frame, units_data.len(), projectiles_data.len(), obstacles_data.len());
                                 n.send(net::NetMessage::StateSync {
@@ -780,9 +769,9 @@ async fn main() {
                                 eprintln!("[SYNC] Guest applying host state correction (host frame {}, local frame {})",
                                     sync_data.frame, battle_frame);
                                 sync::apply_state_sync(
-                                    &mut units,
+                                    &mut ctx.units,
                                     &mut projectiles,
-                                    &mut obstacles,
+                                    &mut ctx.obstacles,
                                     &sync_data.units_data,
                                     &sync_data.projectiles_data,
                                     &sync_data.obstacles_data,
@@ -793,19 +782,19 @@ async fn main() {
                     }
                 } else {
                     // Single-player: variable timestep (original behavior)
-                    update_targeting(&mut units, &obstacles);
-                    update_movement(&mut units, dt, ARENA_W, ARENA_H, &obstacles, nav_grid.as_ref());
+                    update_targeting(&mut ctx.units, &ctx.obstacles);
+                    update_movement(&mut ctx.units, dt, ARENA_W, ARENA_H, &ctx.obstacles, ctx.nav_grid.as_ref());
                     update_attacks(
-                        &mut units,
+                        &mut ctx.units,
                         &mut projectiles,
                         dt,
-                        &progress.player_techs,
-                        &progress.opponent_techs,
+                        &ctx.progress.player_techs,
+                        &ctx.progress.opponent_techs,
                         &mut splash_effects,
                     );
-                    update_projectiles(&mut projectiles, &mut units, dt, &mut obstacles, &mut splash_effects);
+                    update_projectiles(&mut projectiles, &mut ctx.units, dt, &mut ctx.obstacles, &mut splash_effects);
                     // Death animation timers
-                    for unit in units.iter_mut() {
+                    for unit in ctx.units.iter_mut() {
                         if !unit.alive && unit.death_timer > 0.0 {
                             unit.death_timer -= dt;
                         }
@@ -822,9 +811,9 @@ async fn main() {
                     let yes_x = cx - btn_w - crate::ui::s(10.0);
                     let yes_y = cy + crate::ui::s(10.0);
                     if screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h {
-                        progress.player_lp = 0;
+                        ctx.progress.player_lp = 0;
                         show_surrender_confirm = false;
-                        phase = GamePhase::GameOver(1);
+                        ctx.phase = GamePhase::GameOver(1);
                     }
                     // "Cancel" button
                     let no_x = cx + crate::ui::s(10.0);
@@ -838,15 +827,15 @@ async fn main() {
                 battle_timer += dt;
                 let timed_out = battle_timer >= ROUND_TIMEOUT;
 
-                let state = check_match_state(&units);
-                let is_multiplayer = net.is_some();
-                let is_host_game = net.as_ref().map_or(true, |n| n.is_host);
+                let state = check_match_state(&ctx.units);
+                let is_multiplayer = ctx.net.is_some();
+                let is_host_game = ctx.net.as_ref().map_or(true, |n| n.is_host);
                 let battle_ended = (state != MatchState::InProgress && projectiles.is_empty()) || timed_out;
 
                 // Guest waiting for host's authoritative round result
                 if waiting_for_round_end {
                     round_end_timeout -= dt;
-                    if let Some(ref mut n) = net {
+                    if let Some(ref mut n) = ctx.net {
                         if let Some(rd) = n.received_round_end.take() {
                             // Flip host's perspective to guest's: host team 0 = guest team 1
                             let flipped_winner = rd.winner.map(|w| 1 - w);
@@ -858,8 +847,8 @@ async fn main() {
                             };
 
                             // Log desync check (flip host counts to match guest perspective)
-                            let local_alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count() as u16;
-                            let local_alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count() as u16;
+                            let local_alive_0 = ctx.units.iter().filter(|u| u.alive && u.team_id == 0).count() as u16;
+                            let local_alive_1 = ctx.units.iter().filter(|u| u.alive && u.team_id == 1).count() as u16;
                             if local_alive_0 != rd.alive_1 || local_alive_1 != rd.alive_0 {
                                 eprintln!("[DESYNC] Unit count mismatch! Local: {}/{} Host(flipped): {}/{}", local_alive_0, local_alive_1, rd.alive_1, rd.alive_0);
                             }
@@ -867,19 +856,19 @@ async fn main() {
                             // Apply timeout mutual damage (flipped for guest perspective)
                             if rd.timeout_dmg_0 > 0 || rd.timeout_dmg_1 > 0 {
                                 // Host's team 0 = guest's team 1, so flip
-                                progress.player_lp -= rd.timeout_dmg_1;
-                                progress.opponent_lp -= rd.timeout_dmg_0;
+                                ctx.progress.player_lp -= rd.timeout_dmg_1;
+                                ctx.progress.opponent_lp -= rd.timeout_dmg_0;
                             } else if let Some(loser) = flipped_loser {
                                 if loser == 0 {
-                                    progress.player_lp -= rd.lp_damage;
+                                    ctx.progress.player_lp -= rd.lp_damage;
                                 } else {
-                                    progress.opponent_lp -= rd.lp_damage;
+                                    ctx.progress.opponent_lp -= rd.lp_damage;
                                 }
                             }
 
                             waiting_for_round_end = false;
                             show_surrender_confirm = false;
-                            phase = GamePhase::RoundResult {
+                            ctx.phase = GamePhase::RoundResult {
                                 match_state: final_state,
                                 lp_damage: rd.lp_damage,
                                 loser_team: flipped_loser,
@@ -894,28 +883,28 @@ async fn main() {
                 }
 
                 if battle_ended && !waiting_for_round_end {
-                    let final_state = if timed_out { MatchState::Draw } else { check_match_state(&units) };
+                    let final_state = if timed_out { MatchState::Draw } else { check_match_state(&ctx.units) };
 
                     // Record AI memory for counter-picking
                     let ai_won = match &final_state {
                         MatchState::Winner(w) => *w == 1,
                         _ => false,
                     };
-                    progress.ai_memory.record_round(&units, ai_won);
+                    ctx.progress.ai_memory.record_round(&ctx.units, ai_won);
 
                     // Calculate LP damage
-                    let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count() as i32;
-                    let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count() as i32;
+                    let alive_0 = ctx.units.iter().filter(|u| u.alive && u.team_id == 0).count() as i32;
+                    let alive_1 = ctx.units.iter().filter(|u| u.alive && u.team_id == 1).count() as i32;
 
                     // Compute damage and loser — but DON'T apply yet (guest needs
                     // the same values from the network message).
                     let (lp_damage, loser_team, timeout_dmg_0, timeout_dmg_1) = if timed_out {
-                        // Timeout: both players take damage equal to opponent's surviving units
+                        // Timeout: both players take damage equal to opponent's surviving ctx.units
                         (0, None, alive_1, alive_0)
                     } else {
                         match &final_state {
                             MatchState::Winner(winner) => {
-                                let damage = MatchProgress::calculate_lp_damage(&units, *winner);
+                                let damage = MatchProgress::calculate_lp_damage(&ctx.units, *winner);
                                 let loser = if *winner == 0 { 1u8 } else { 0u8 };
                                 (damage, Some(loser), 0, 0)
                             }
@@ -934,13 +923,13 @@ async fn main() {
                             // Host sends round result to guest
                             let alive_0 = alive_0 as u16;
                             let alive_1 = alive_1 as u16;
-                            let total_hp_0: i32 = units.iter().filter(|u| u.alive && u.team_id == 0).map(|u| u.hp as i32).sum();
-                            let total_hp_1: i32 = units.iter().filter(|u| u.alive && u.team_id == 1).map(|u| u.hp as i32).sum();
+                            let total_hp_0: i32 = ctx.units.iter().filter(|u| u.alive && u.team_id == 0).map(|u| u.hp as i32).sum();
+                            let total_hp_1: i32 = ctx.units.iter().filter(|u| u.alive && u.team_id == 1).map(|u| u.hp as i32).sum();
                             let winner = match &final_state {
                                 MatchState::Winner(w) => Some(*w),
                                 _ => None,
                             };
-                            if let Some(ref mut n) = net {
+                            if let Some(ref mut n) = ctx.net {
                                 n.send(net::NetMessage::RoundEnd {
                                     winner, lp_damage, loser_team,
                                     alive_0, alive_1, total_hp_0, total_hp_1,
@@ -951,18 +940,18 @@ async fn main() {
 
                         // Apply LP damage
                         if timed_out {
-                            progress.player_lp -= timeout_dmg_0;
-                            progress.opponent_lp -= timeout_dmg_1;
+                            ctx.progress.player_lp -= timeout_dmg_0;
+                            ctx.progress.opponent_lp -= timeout_dmg_1;
                         } else if let Some(loser) = loser_team {
                             if loser == 0 {
-                                progress.player_lp -= lp_damage;
+                                ctx.progress.player_lp -= lp_damage;
                             } else {
-                                progress.opponent_lp -= lp_damage;
+                                ctx.progress.opponent_lp -= lp_damage;
                             }
                         }
 
                         show_surrender_confirm = false;
-                        phase = GamePhase::RoundResult {
+                        ctx.phase = GamePhase::RoundResult {
                             match_state: final_state,
                             lp_damage,
                             loser_team,
@@ -973,28 +962,28 @@ async fn main() {
 
             GamePhase::RoundResult { .. } => {
                 // Poll network
-                if let Some(ref mut n) = net {
+                if let Some(ref mut n) = ctx.net {
                     n.poll();
                 }
 
                 if is_key_pressed(KeyCode::Space) {
-                    if progress.is_game_over() {
-                        phase = GamePhase::GameOver(progress.game_winner().unwrap_or(0));
+                    if ctx.progress.is_game_over() {
+                        ctx.phase = GamePhase::GameOver(ctx.progress.game_winner().unwrap_or(0));
                     } else {
                         // Save leftover gold for next round
-                        progress.player_saved_gold = build.builder.gold_remaining;
+                        ctx.progress.player_saved_gold = ctx.build.builder.gold_remaining;
 
                         // Advance to next round
-                        progress.advance_round();
+                        ctx.progress.advance_round();
 
                         // Lock all current player packs
-                        build.lock_current_packs();
-                        let locked_packs: Vec<_> = build.placed_packs.clone();
-                        let next_id = build.next_id;
+                        ctx.build.lock_current_packs();
+                        let locked_packs: Vec<_> = ctx.build.placed_packs.clone();
+                        let next_id = ctx.build.next_id;
 
                         // Save accumulated stats before clearing
                         let old_stats: std::collections::HashMap<u64, (f32, f32, f32, f32, u32)> =
-                            units
+                            ctx.units
                                 .iter()
                                 .map(|u| {
                                     (
@@ -1010,15 +999,15 @@ async fn main() {
                                 })
                                 .collect();
 
-                        // Clear units and respawn all from locked packs
-                        units.clear();
-                        build = BuildState::new_round(progress.round_gold(), locked_packs, next_id);
+                        // Clear ctx.units and respawn all from locked packs
+                        ctx.units.clear();
+                        ctx.build = BuildState::new_round(ctx.progress.round_gold(), locked_packs, next_id);
 
-                        // Respawn all locked PLAYER pack units
-                        units.extend(build.respawn_player_units(&progress.player_techs));
+                        // Respawn all locked PLAYER pack ctx.units
+                        ctx.units.extend(ctx.build.respawn_player_units(&ctx.progress.player_techs));
 
-                        // Restore accumulated stats on respawned units
-                        for unit in units.iter_mut() {
+                        // Restore accumulated stats on respawned ctx.units
+                        for unit in ctx.units.iter_mut() {
                             if let Some(&(ddt, dst, ddr, dsr, kt)) = old_stats.get(&unit.id) {
                                 unit.damage_dealt_total = ddt;
                                 unit.damage_soaked_total = dst;
@@ -1028,24 +1017,24 @@ async fn main() {
                             }
                         }
 
-                        // Respawn opponent units from stored packs (visible during build phase).
+                        // Respawn opponent ctx.units from stored packs (visible during ctx.build ctx.phase).
                         // Works for both single-player (AI packs) and multiplayer (network packs).
-                        units.extend(progress.respawn_opponent_units());
+                        ctx.units.extend(ctx.progress.respawn_opponent_units());
 
                         projectiles.clear();
-                        phase = GamePhase::Build;
+                        ctx.phase = GamePhase::Build;
                     }
                 }
             }
 
             GamePhase::GameOver(_) => {
                 if is_key_pressed(KeyCode::R) {
-                    progress = MatchProgress::new(true);
-                    phase = GamePhase::Lobby;
-                    build = BuildState::new(progress.round_gold(), true);
-                    units.clear();
+                    ctx.progress = MatchProgress::new(true);
+                    ctx.phase = GamePhase::Lobby;
+                    ctx.build = BuildState::new(ctx.progress.round_gold(), true);
+                    ctx.units.clear();
                     projectiles.clear();
-                    net = None;
+                    ctx.net = None;
                     lobby.reset();
                 }
 
@@ -1060,18 +1049,18 @@ async fn main() {
                     && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
                 {
                     // Reset for rematch (skip lobby, go straight to Build)
-                    let is_host = net.as_ref().map_or(true, |n| n.is_host);
-                    progress = MatchProgress::new(is_host);
-                    build = BuildState::new(progress.round_gold(), is_host);
-                    units.clear();
+                    let is_host = ctx.net.as_ref().map_or(true, |n| n.is_host);
+                    ctx.progress = MatchProgress::new(is_host);
+                    ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
+                    ctx.units.clear();
                     projectiles.clear();
-                    obstacles.clear();
-                    nav_grid = None;
+                    ctx.obstacles.clear();
+                    ctx.nav_grid = None;
                     show_surrender_confirm = false;
-                    chat = chat::ChatState::new();
+                    ctx.chat = chat::ChatState::new();
                     splash_effects.clear();
                     waiting_for_round_end = false;
-                    phase = if game_settings.draft_ban_enabled {
+                    ctx.phase = if ctx.game_settings.draft_ban_enabled {
                         GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None }
                     } else {
                         GamePhase::Build
@@ -1085,8 +1074,8 @@ async fn main() {
         // === Render ===
         clear_background(Color::new(0.1, 0.1, 0.12, 1.0));
 
-        // Skip normal rendering for Lobby phase (it draws its own UI above)
-        if matches!(phase, GamePhase::Lobby) {
+        // Skip normal rendering for Lobby ctx.phase (it draws its own UI above)
+        if matches!(ctx.phase, GamePhase::Lobby) {
             next_frame().await;
             continue;
         }
@@ -1095,9 +1084,9 @@ async fn main() {
         set_camera(&arena_camera);
 
         rendering::draw_world(
-            &units, &projectiles, &obstacles, &splash_effects,
-            &build, &progress, show_grid,
-            matches!(phase, GamePhase::Build),
+            &ctx.units, &projectiles, &ctx.obstacles, &splash_effects,
+            &ctx.build, &ctx.progress, ctx.show_grid,
+            matches!(ctx.phase, GamePhase::Build),
             world_mouse,
         );
 
@@ -1105,52 +1094,52 @@ async fn main() {
         set_default_camera();
 
         // === Phase-specific UI (screen-space) ===
-        match &phase {
+        match &ctx.phase {
             GamePhase::Lobby | GamePhase::DraftBan { .. } => {}
 
             GamePhase::Build => {
-                phase_ui::draw_build_ui(&build, &progress, &units, screen_mouse, &arena_camera, &mp_player_name, &mp_opponent_name);
+                phase_ui::draw_build_ui(&ctx.build, &ctx.progress, &ctx.units, screen_mouse, &arena_camera, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
 
             GamePhase::WaitingForOpponent => {
-                phase_ui::draw_waiting_ui(&progress, &build, &mp_player_name, &mp_opponent_name);
+                phase_ui::draw_waiting_ui(&ctx.progress, &ctx.build, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
 
             GamePhase::Battle => {
-                phase_ui::draw_battle_ui(&progress, &units, &obstacles, battle_timer, ROUND_TIMEOUT, show_surrender_confirm, screen_mouse, world_mouse, &mp_player_name, &mp_opponent_name);
+                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle_timer, ROUND_TIMEOUT, show_surrender_confirm, screen_mouse, world_mouse, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
 
             GamePhase::RoundResult { match_state, lp_damage, loser_team } => {
-                phase_ui::draw_round_result_ui(&progress, match_state, *lp_damage, *loser_team, &game_settings, &net, &mp_player_name, &mp_opponent_name);
+                phase_ui::draw_round_result_ui(&ctx.progress, match_state, *lp_damage, *loser_team, &ctx.game_settings, &ctx.net, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
 
             GamePhase::GameOver(winner) => {
-                phase_ui::draw_game_over_ui(*winner, &progress, &units, &game_settings, &net, screen_mouse, &mp_player_name, &mp_opponent_name);
+                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, &ctx.game_settings, &ctx.net, screen_mouse, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
         }
 
 
-        // Disconnection overlay (shown over any phase if net is disconnected)
-        if let Some(ref n) = net {
+        // Disconnection overlay (shown over any ctx.phase if ctx.net is disconnected)
+        if let Some(ref n) = ctx.net {
             if n.disconnected {
                 phase_ui::draw_disconnect_overlay();
                 if is_key_pressed(KeyCode::R) {
-                    progress = MatchProgress::new(true);
-                    phase = GamePhase::Lobby;
-                    build = BuildState::new(progress.round_gold(), true);
-                    units.clear();
+                    ctx.progress = MatchProgress::new(true);
+                    ctx.phase = GamePhase::Lobby;
+                    ctx.build = BuildState::new(ctx.progress.round_gold(), true);
+                    ctx.units.clear();
                     projectiles.clear();
-                    net = None;
+                    ctx.net = None;
                     lobby.reset();
                 }
             }
         }
 
         // Chat system
-        chat.receive_from_net(&mut net);
-        chat.update(&phase, &mut net, &mp_player_name);
-        chat.tick(dt);
-        chat.draw(&phase, &mp_player_name);
+        ctx.chat.receive_from_net(&mut ctx.net);
+        ctx.chat.update(&ctx.phase, &mut ctx.net, &ctx.mp_player_name);
+        ctx.chat.tick(dt);
+        ctx.chat.draw(&ctx.phase, &ctx.mp_player_name);
 
         next_frame().await;
     }
