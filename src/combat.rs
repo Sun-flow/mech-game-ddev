@@ -200,7 +200,7 @@ pub fn update_attacks(
     dt: f32,
     player_techs: &TechState,
     ai_techs: &TechState,
-    splash_effects: &mut Vec<crate::SplashEffect>,
+    splash_effects: &mut Vec<crate::rendering::SplashEffect>,
 ) {
     // Update cooldowns
     for unit in units.iter_mut() {
@@ -384,7 +384,7 @@ pub fn update_attacks(
                 }
                 // Splash damage
                 if splash_radius > 0.0 {
-                    splash_effects.push(crate::SplashEffect {
+                    splash_effects.push(crate::rendering::SplashEffect {
                         pos: target_pos,
                         radius: splash_radius,
                         timer: 0.3,
@@ -452,7 +452,7 @@ pub fn update_attacks(
 }
 
 /// Update projectiles with shield interception, evasion, pierce, and slow.
-pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32, obstacles: &mut [Obstacle], splash_effects: &mut Vec<crate::SplashEffect>) {
+pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32, obstacles: &mut [Obstacle], splash_effects: &mut Vec<crate::rendering::SplashEffect>) {
     let shields: Vec<(u64, u8, Vec2, f32, bool)> = units
         .iter()
         .filter(|u| u.is_shield() && u.alive)
@@ -562,7 +562,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
 
         // Splash damage
         if hit && proj.splash_radius > 0.0 {
-            splash_effects.push(crate::SplashEffect {
+            splash_effects.push(crate::rendering::SplashEffect {
                 pos: impact_pos,
                 radius: proj.splash_radius,
                 timer: 0.3,
