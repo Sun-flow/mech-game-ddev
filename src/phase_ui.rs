@@ -16,7 +16,6 @@ pub fn draw_build_ui(
     units: &[Unit],
     screen_mouse: Vec2,
     arena_camera: &Camera2D,
-    game_settings: &settings::GameSettings,
     mp_player_name: &str,
     mp_opponent_name: &str,
 ) {

@@ -1110,7 +1110,7 @@ async fn main() {
             GamePhase::Lobby | GamePhase::DraftBan { .. } => {}
 
             GamePhase::Build => {
-                phase_ui::draw_build_ui(&build, &progress, &units, screen_mouse, &arena_camera, &game_settings, &mp_player_name, &mp_opponent_name);
+                phase_ui::draw_build_ui(&build, &progress, &units, screen_mouse, &arena_camera, &mp_player_name, &mp_opponent_name);
             }
 
             GamePhase::WaitingForOpponent => {
