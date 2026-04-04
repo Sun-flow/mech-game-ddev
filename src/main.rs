@@ -1,4 +1,5 @@
 mod arena;
+mod chat;
 mod combat;
 mod economy;
 mod game_state;
@@ -64,9 +65,7 @@ async fn main() {
     let mut show_surrender_confirm = false;
     let mut mp_player_name = String::from("Player");
     let mut mp_opponent_name = String::from("Opponent");
-    let mut chat_messages: Vec<(String, String, u8, f32)> = Vec::new(); // (name, text, team_id, lifetime)
-    let mut chat_input = String::new();
-    let mut chat_open = false;
+    let mut chat = chat::ChatState::new();
     let mut show_grid = false;
     let mut nav_grid: Option<terrain::NavGrid> = None;
     let mut camera_zoom: f32 = 1.0;
@@ -1186,7 +1185,7 @@ async fn main() {
                     obstacles.clear();
                     nav_grid = None;
                     show_surrender_confirm = false;
-                    chat_messages.clear();
+                    chat = chat::ChatState::new();
                     splash_effects.clear();
                     waiting_for_round_end = false;
                     phase = if game_settings.draft_ban_enabled {
@@ -1632,105 +1631,11 @@ async fn main() {
             }
         }
 
-        // === Chat System ===
-        let player_name = lobby.player_name.clone();
-
-        // Receive chat messages from network
-        if let Some(ref mut n) = net {
-            for (name, text) in n.received_chats.drain(..) {
-                chat_messages.push((name, text, 1, 5.0));
-            }
-        }
-
-        // Chat input (available in Build, Battle, RoundResult)
-        let chat_allowed = matches!(phase, GamePhase::Build | GamePhase::Battle | GamePhase::RoundResult { .. });
-        if chat_allowed {
-            if is_key_pressed(KeyCode::Enter) {
-                if chat_open {
-                    // Send message
-                    if !chat_input.is_empty() {
-                        let text = if chat_input.len() > 100 { chat_input[..100].to_string() } else { chat_input.clone() };
-                        chat_messages.push((player_name.clone(), text.clone(), 0, 5.0));
-                        if let Some(ref mut n) = net {
-                            n.send(net::NetMessage::ChatMessage(player_name.clone(), text));
-                        }
-                    }
-                    chat_input.clear();
-                    chat_open = false;
-                } else {
-                    chat_open = true;
-                }
-            }
-            if chat_open {
-                if is_key_pressed(KeyCode::Escape) {
-                    chat_open = false;
-                    chat_input.clear();
-                }
-                while let Some(ch) = get_char_pressed() {
-                    if ch == '\r' || ch == '\n' { continue; }
-                    if ch == '\u{8}' { // backspace
-                        chat_input.pop();
-                    } else if chat_input.len() < 100 && (ch.is_ascii_graphic() || ch == ' ') {
-                        chat_input.push(ch);
-                    }
-                }
-            }
-        }
-
-        // Update chat lifetimes
-        for (_, _, _, lifetime) in chat_messages.iter_mut() {
-            *lifetime -= dt;
-        }
-        chat_messages.retain(|(_, _, _, lt)| *lt > 0.0);
-
-        // Render chat messages (floating at top of arena)
-        let chat_x = screen_width() / 2.0;
-        let mut chat_y = crate::ui::s(45.0);
-        for (name, text, team_id, lifetime) in chat_messages.iter().rev().take(5).collect::<Vec<_>>().into_iter().rev() {
-            let alpha = (*lifetime / 5.0).min(1.0);
-            let color = if *team_id == 0 {
-                team::team_color(0)
-            } else {
-                team::team_color(1)
-            };
-            let display_color = Color::new(color.r, color.g, color.b, alpha);
-
-            // Check for emotes
-            let is_emote = text.starts_with('/');
-            let display_text = match text.as_str() {
-                "/gg" => "GG".to_string(),
-                "/gl" => "Good Luck!".to_string(),
-                "/nice" => "Nice!".to_string(),
-                "/wow" => "Wow!".to_string(),
-                _ => text.clone(),
-            };
-            let full_display = if is_emote {
-                format!("{}: {}", name, display_text)
-            } else {
-                format!("{}: {}", name, display_text)
-            };
-            let font_size = if is_emote { 20.0 } else { 15.0 };
-            let dims = crate::ui::measure_scaled_text(&full_display, font_size as u16);
-            crate::ui::draw_scaled_text(&full_display, chat_x - dims.width / 2.0, chat_y, font_size, display_color);
-            chat_y += font_size + 4.0;
-        }
-
-        // Render chat input box
-        if chat_open {
-            let input_y = screen_height() - crate::ui::s(45.0);
-            let input_w = crate::ui::s(450.0);
-            let input_x = screen_width() / 2.0 - input_w / 2.0;
-            let input_h = crate::ui::s(30.0);
-            draw_rectangle(input_x, input_y, input_w, input_h, Color::new(0.05, 0.05, 0.1, 0.92));
-            draw_rectangle_lines(input_x, input_y, input_w, input_h, 1.5, Color::new(0.4, 0.5, 0.6, 0.9));
-            let name_prefix = format!("{}: ", player_name);
-            let name_w = crate::ui::measure_scaled_text(&name_prefix, 15).width;
-            crate::ui::draw_scaled_text(&name_prefix, input_x + 8.0, input_y + 20.0, 15.0, Color::new(0.6, 0.8, 1.0, 0.9));
-            let cursor = if (get_time() * 2.0) as u32 % 2 == 0 { "|" } else { "" };
-            crate::ui::draw_scaled_text(&format!("{}{}", chat_input, cursor), input_x + 8.0 + name_w, input_y + 20.0, 15.0, WHITE);
-        } else if chat_allowed {
-            crate::ui::draw_scaled_text("Enter: Chat", screen_width() - crate::ui::s(100.0), screen_height() - crate::ui::s(5.0), 12.0, Color::new(0.4, 0.4, 0.4, 0.6));
-        }
+        // Chat system
+        chat.receive_from_net(&mut net);
+        chat.update(&phase, &mut net, &mp_player_name);
+        chat.tick(dt);
+        chat.draw(&phase, &mp_player_name);
 
         next_frame().await;
     }
