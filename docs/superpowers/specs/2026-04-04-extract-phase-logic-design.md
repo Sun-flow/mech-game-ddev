@@ -23,7 +23,6 @@ pub struct GameContext {
     pub net: Option<NetState>,
     pub obstacles: Vec<terrain::Obstacle>,
     pub nav_grid: Option<terrain::NavGrid>,
-    pub splash_effects: Vec<SplashEffect>,
     pub game_settings: settings::GameSettings,
     pub show_grid: bool,
     pub mp_player_name: String,
@@ -50,10 +49,11 @@ pub struct BattleState {
     pub waiting_for_round_end: bool,
     pub round_end_timeout: f32,
     pub projectiles: Vec<Projectile>,
+    pub splash_effects: Vec<SplashEffect>,
 }
 ```
 
-`projectiles` are here because they're created during battle simulation and cleared on every phase transition — true battle-only lifecycle. Reset via `reset()` method when entering battle.
+`projectiles` and `splash_effects` are here because they're created during battle simulation and should not carry over between phases. Reset via `reset()` method when entering battle.
 
 #### Other phases
 
@@ -132,7 +132,7 @@ fn main() {
             GamePhase::GameOver(_) => game_over::update(&mut ctx, &mut lobby, ...),
         }
 
-        // rendering (~15 lines — obstacles from ctx, projectiles from battle)
+        // rendering (~15 lines — obstacles from ctx; projectiles, splash from battle)
         // chat (~4 lines)
         next_frame().await;
     }
@@ -160,6 +160,6 @@ Each phase compiles independently. `cargo check` after each.
 
 **Why keep lobby in main?** Lobby is self-contained (already has `update()` / `draw()` methods) and is the only consumer of `main_settings`. Pulling it into GameContext would add fields that 90% of phases never touch.
 
-**Why separate BattleState from GameContext?** The 8 battle-specific variables (7 simulation locals + projectiles) follow the battle lifecycle: reset on entry, used during simulation, cleared on exit. Keeping them separate makes the lifecycle explicit. `obstacles` and `nav_grid` stay in GameContext because obstacles persist across rounds (generated once per match, cover HP reset each round).
+**Why separate BattleState from GameContext?** The 9 battle-specific variables (7 simulation locals + projectiles + splash_effects) follow the battle lifecycle: reset on entry, used during simulation, cleared on exit. No particle effects or projectiles should carry over between phases. `obstacles` and `nav_grid` stay in GameContext because obstacles persist across rounds (generated once per match, cover HP reset each round).
 
 **Why not per-phase structs for every phase?** Only Battle needs its own state struct. Build-phase state already lives in `BuildState` (in GameContext). RoundResult, WaitingForOpponent, and GameOver are stateless update functions that just read/write GameContext fields.
