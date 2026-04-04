@@ -30,8 +30,7 @@ use match_progress::MatchProgress;
 use pack::all_packs;
 use projectile::Projectile;
 use rendering::SplashEffect;
-use team::team_color;
-use unit::{Unit, UnitKind};
+use unit::Unit;
 
 const FIXED_DT: f32 = 1.0 / 60.0;
 
