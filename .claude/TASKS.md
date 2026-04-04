@@ -12,6 +12,9 @@ _(No active tasks)_
 
 - [x] Set up and integrate claude-toolkit skills into project file structure
 - [x] Create README.md for the repository
+- [x] Condensation report — identify duplicate code, unused files, redundant patterns
+- [x] Decompose main.rs Round 1 — extract rendering, phase UI, chat, draft/ban, helpers (2,249 → 1,158 lines)
+- [x] Decompose main.rs Round 2 — GameContext/BattleState structs, extract all phase logic (1,158 → 302 lines)
 
 ## Session Log
 
