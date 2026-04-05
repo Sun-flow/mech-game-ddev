@@ -79,9 +79,9 @@ impl LobbyState {
             .collect()
     }
 
-    pub fn update(&mut self, game_settings: &mut crate::settings::GameSettings, _main_settings: &mut crate::settings::MainSettings) -> LobbyResult {
-        let mouse = vec2(mouse_position().0, mouse_position().1);
-        let left_click = is_mouse_button_pressed(MouseButton::Left);
+    pub fn update(&mut self, game_settings: &mut crate::settings::GameSettings, _main_settings: &mut crate::settings::MainSettings, ms: &crate::input::MouseState) -> LobbyResult {
+        let mouse = ms.screen_mouse;
+        let left_click = ms.left_click;
 
         let btn_w = s(240.0);
         let btn_h = s(45.0);
@@ -101,7 +101,7 @@ impl LobbyState {
                 } else if left_click {
                     self.name_editing = false;
                 }
-                if is_mouse_button_pressed(MouseButton::Right) && name_hovered {
+                if ms.right_click && name_hovered {
                     self.player_name.clear();
                     self.name_editing = true;
                 }
@@ -279,7 +279,7 @@ impl LobbyState {
         LobbyResult::Waiting
     }
 
-    pub fn draw(&mut self, game_settings: &mut crate::settings::GameSettings, main_settings: &mut crate::settings::MainSettings) -> LobbyResult {
+    pub fn draw(&mut self, game_settings: &mut crate::settings::GameSettings, main_settings: &mut crate::settings::MainSettings, ms: &crate::input::MouseState) -> LobbyResult {
         clear_background(Color::new(0.08, 0.08, 0.1, 1.0));
 
         let title = "RTS Unit Arena";
@@ -290,7 +290,7 @@ impl LobbyState {
         let sdims = crate::ui::measure_scaled_text(subtitle, 24);
         crate::ui::draw_scaled_text(subtitle, sw() / 2.0 - sdims.width / 2.0, sh() / 2.0 - s(105.0), 24.0, Color::new(0.5, 0.7, 1.0, 1.0));
 
-        let mouse = vec2(mouse_position().0, mouse_position().1);
+        let mouse = ms.screen_mouse;
         let btn_w = s(240.0);
         let btn_h = s(45.0);
         let btn_x = sw() / 2.0 - btn_w / 2.0;
@@ -307,7 +307,7 @@ impl LobbyState {
                 draw_rectangle(name_x, name_y, name_w, name_h, name_bg);
                 let border_color = if self.name_editing { Color::new(0.4, 0.7, 1.0, 1.0) } else { Color::new(0.3, 0.3, 0.4, 0.8) };
                 draw_rectangle_lines(name_x, name_y, name_w, name_h, 1.0, border_color);
-                let cursor = if self.name_editing && (get_time() * 2.0) as u32 % 2 == 0 { "|" } else { "" };
+                let cursor = if self.name_editing && ((get_time() * 2.0) as u32).is_multiple_of(2) { "|" } else { "" };
                 crate::ui::draw_scaled_text(&format!("{}{}", self.player_name, cursor), name_x + s(6.0), name_y + s(20.0), 16.0, WHITE);
 
                 let create_y = sh() / 2.0 - s(25.0);
@@ -364,17 +364,14 @@ impl LobbyState {
                 let tdims = crate::ui::measure_scaled_text(title, 24);
                 crate::ui::draw_scaled_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
 
-                let mouse = vec2(mouse_position().0, mouse_position().1);
-                let clicked = is_mouse_button_pressed(MouseButton::Left);
-                crate::settings::draw_ui_scale_slider(main_settings, mouse, clicked, px, py + 55.0);
+                crate::settings::draw_ui_scale_slider(main_settings, ms.screen_mouse, ms.left_click, ms.left_down, px, py + 55.0);
 
                 crate::ui::draw_scaled_text("Press Escape to go back", sw() / 2.0 - 100.0, py + panel_h + 20.0, 14.0, DARKGRAY);
             }
 
             LobbyMode::MatchSettings { ref next_action } => {
                 let next = next_action.clone();
-                let left_click = is_mouse_button_pressed(MouseButton::Left);
-                if crate::settings::draw_settings_panel(game_settings, mouse, left_click) {
+                if crate::settings::draw_settings_panel(game_settings, ms.screen_mouse, ms.left_click) {
                     match next {
                         MatchSettingsNext::CreateRoom => {
                             self.is_room_creator = true;
@@ -441,7 +438,7 @@ impl LobbyState {
             }
 
             LobbyMode::ColorPick => {
-                let left_click = is_mouse_button_pressed(MouseButton::Left);
+                let left_click = ms.left_click;
                 let host_color = self.host_color_index.unwrap_or(255);
 
                 let pick_title = "Choose Your Team Color";

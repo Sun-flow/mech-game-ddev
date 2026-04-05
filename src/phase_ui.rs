@@ -24,7 +24,7 @@ pub fn draw_build_ui(
     // Pack labels (drawn in screen-space so text isn't distorted by camera zoom)
     {
         let packs = all_packs();
-        for (_i, placed) in build.placed_packs.iter().enumerate() {
+        for placed in build.placed_packs.iter() {
             let pack = &packs[placed.pack_index];
             let half = placed.bbox_half_size_for(pack);
             let world_pos = vec2(placed.center.x - half.x + 2.0, placed.center.y - half.y - 2.0);
@@ -73,7 +73,7 @@ pub fn draw_build_ui(
         let packs = all_packs();
         build.placed_packs.iter().map(|p| packs[p.pack_index].cost).sum()
     };
-    crate::ui::draw_hud(&progress, build.builder.gold_remaining, build.timer, army_value, 0.0, mp_player_name, mp_opponent_name);
+    crate::ui::draw_hud(progress, build.builder.gold_remaining, build.timer, army_value, 0.0, mp_player_name, mp_opponent_name);
 
     // Begin Round button (screen-space)
     let btn_w = crate::ui::s(160.0);
@@ -124,7 +124,7 @@ pub fn draw_waiting_ui(
     mp_player_name: &str,
     mp_opponent_name: &str,
 ) {
-    crate::ui::draw_hud(&progress, build.builder.gold_remaining, 0.0, 0, 0.0, mp_player_name, mp_opponent_name);
+    crate::ui::draw_hud(progress, build.builder.gold_remaining, 0.0, 0, 0.0, mp_player_name, mp_opponent_name);
 
     let dots = ".".repeat((get_time() * 2.0) as usize % 4);
     let wait_text = format!("Waiting for opponent{}", dots);
@@ -151,7 +151,7 @@ pub fn draw_battle_ui(
     mp_opponent_name: &str,
 ) {
     let remaining = (round_timeout - battle_timer).max(0.0);
-    crate::ui::draw_hud(&progress, 0, 0.0, 0, remaining, mp_player_name, mp_opponent_name);
+    crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, mp_player_name, mp_opponent_name);
 
     let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count();
     let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count();
@@ -249,7 +249,7 @@ pub fn draw_round_result_ui(
     mp_player_name: &str,
     mp_opponent_name: &str,
 ) {
-    crate::ui::draw_hud(&progress, 0, 0.0, 0, 0.0, mp_player_name, mp_opponent_name);
+    crate::ui::draw_hud(progress, 0, 0.0, 0, 0.0, mp_player_name, mp_opponent_name);
 
     let text = match match_state {
         MatchState::Winner(tid) => {

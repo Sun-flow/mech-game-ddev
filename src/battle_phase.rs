@@ -54,7 +54,8 @@ impl BattleState {
     }
 }
 
-pub fn update(ctx: &mut GameContext, battle: &mut BattleState, screen_mouse: Vec2, dt: f32) {
+pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input::MouseState, dt: f32) {
+    let screen_mouse = ms.screen_mouse;
     // Surrender toggle
     if is_key_pressed(KeyCode::Escape) {
         battle.show_surrender_confirm = !battle.show_surrender_confirm;
@@ -93,7 +94,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, screen_mouse: Vec
 
             // --- Sync hashing every SYNC_INTERVAL frames ---
             if let Some(ref mut n) = ctx.net {
-                if battle.frame % SYNC_INTERVAL == 0 {
+                if battle.frame.is_multiple_of(SYNC_INTERVAL) {
                     if n.is_host {
                         let local_hash = sync::compute_state_hash(&ctx.units, &battle.projectiles, &ctx.obstacles, false);
                         n.send(net::NetMessage::StateHash { frame: battle.frame, hash: local_hash });
@@ -180,7 +181,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, screen_mouse: Vec
     }
 
     // Surrender confirmation handling
-    if battle.show_surrender_confirm && is_mouse_button_pressed(MouseButton::Left) {
+    if battle.show_surrender_confirm && ms.left_click {
         let btn_w = crate::ui::s(120.0);
         let btn_h = crate::ui::s(40.0);
         let cx = screen_width() / 2.0;
@@ -207,7 +208,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, screen_mouse: Vec
 
     let state = check_match_state(&ctx.units);
     let is_multiplayer = ctx.net.is_some();
-    let is_host_game = ctx.net.as_ref().map_or(true, |n| n.is_host);
+    let is_host_game = ctx.net.as_ref().is_none_or(|n| n.is_host);
     let battle_ended = (state != MatchState::InProgress && battle.projectiles.is_empty()) || timed_out;
 
     // Guest waiting for host's authoritative round result

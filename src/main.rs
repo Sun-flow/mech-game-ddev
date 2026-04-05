@@ -8,6 +8,7 @@ mod combat;
 mod economy;
 mod game_over;
 mod game_state;
+mod input;
 mod lobby;
 pub mod ui;
 mod match_progress;
@@ -59,7 +60,6 @@ async fn main() {
         let screen_mouse = vec2(mouse_position().0, mouse_position().1);
         let left_click = is_mouse_button_pressed(MouseButton::Left);
         let right_click = is_mouse_button_pressed(MouseButton::Right);
-        let middle_click = is_mouse_button_pressed(MouseButton::Middle);
         team::set_player_color(ctx.game_settings.player_color_index);
         ui::set_text_scale(main_settings.ui_scale);
         // Apply opponent color if received
@@ -76,8 +76,16 @@ async fn main() {
             ..Default::default()
         };
         let world_mouse = arena_camera.screen_to_world(screen_mouse);
-        // For UI elements that need screen coords, use screen_mouse
-        let mouse = if matches!(ctx.phase, GamePhase::Lobby) { screen_mouse } else { world_mouse };
+        let mouse = input::MouseState {
+            screen_mouse,
+            world_mouse,
+            left_click,
+            right_click,
+            middle_click: is_mouse_button_pressed(MouseButton::Middle),
+            left_down: is_mouse_button_down(MouseButton::Left),
+            middle_down: is_mouse_button_down(MouseButton::Middle),
+            scroll: mouse_wheel().1,
+        };
 
         // Fullscreen toggle (F11)
         if is_key_pressed(KeyCode::F11) {
@@ -88,20 +96,19 @@ async fn main() {
         // Camera zoom/pan (available in all non-lobby phases)
         if !matches!(ctx.phase, GamePhase::Lobby) {
             // Smooth multiplicative zoom — ~100+ steps between min/max
-            let wheel = mouse_wheel().1;
-            if wheel != 0.0 {
-                let zoom_factor = 1.0 + wheel.signum() * 0.04; // ~4% per scroll tick
+            if mouse.scroll != 0.0 {
+                let zoom_factor = 1.0 + mouse.scroll.signum() * 0.04; // ~4% per scroll tick
                 camera_zoom = (camera_zoom * zoom_factor).clamp(0.3, 5.0);
             }
             // "Grab the ground" pan: pin a world point to the cursor
-            if is_mouse_button_down(MouseButton::Middle) {
+            if mouse.middle_down {
                 if pan_grab_world.is_none() {
                     // On drag start, record the world point under the cursor
-                    pan_grab_world = Some(arena_camera.screen_to_world(screen_mouse));
+                    pan_grab_world = Some(arena_camera.screen_to_world(mouse.screen_mouse));
                 }
                 if let Some(grab_pt) = pan_grab_world {
                     // Where is the cursor pointing now in world coords?
-                    let current_world = arena_camera.screen_to_world(screen_mouse);
+                    let current_world = arena_camera.screen_to_world(mouse.screen_mouse);
                     // Adjust camera so the grabbed point stays under the cursor
                     camera_target += grab_pt - current_world;
                 }
@@ -117,7 +124,7 @@ async fn main() {
 
         match &mut ctx.phase {
             GamePhase::Lobby => {
-                match lobby.update(&mut ctx.game_settings, &mut main_settings) {
+                match lobby.update(&mut ctx.game_settings, &mut main_settings, &mouse) {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
                         ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
@@ -131,7 +138,7 @@ async fn main() {
                     lobby::LobbyResult::Waiting => {}
                 }
 
-                match lobby.draw(&mut ctx.game_settings, &mut main_settings) {
+                match lobby.draw(&mut ctx.game_settings, &mut main_settings, &mouse) {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
                         ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
@@ -150,7 +157,7 @@ async fn main() {
             }
 
             GamePhase::DraftBan { ref mut bans, ref mut confirmed, ref mut opponent_bans } => {
-                match draft_ban::update_and_draw(bans, confirmed, opponent_bans, &mut ctx.net, screen_mouse, left_click) {
+                match draft_ban::update_and_draw(bans, confirmed, opponent_bans, &mut ctx.net, mouse.screen_mouse, mouse.left_click) {
                     draft_ban::DraftBanResult::Waiting => {}
                     draft_ban::DraftBanResult::Done(all_bans) => {
                         ctx.progress.banned_kinds = all_bans;
@@ -162,7 +169,7 @@ async fn main() {
             }
 
             GamePhase::Build => {
-                build_phase::update(&mut ctx, &mut battle, screen_mouse, mouse, left_click, right_click, middle_click, dt);
+                build_phase::update(&mut ctx, &mut battle, &mouse, dt);
             }
 
             GamePhase::WaitingForOpponent => {
@@ -172,7 +179,7 @@ async fn main() {
             }
 
             GamePhase::Battle => {
-                battle_phase::update(&mut ctx, &mut battle, screen_mouse, dt);
+                battle_phase::update(&mut ctx, &mut battle, &mouse, dt);
             }
 
             GamePhase::RoundResult { .. } => {
@@ -180,7 +187,7 @@ async fn main() {
             }
 
             GamePhase::GameOver(_) => {
-                game_over::update(&mut ctx, &mut battle, &mut lobby, screen_mouse, left_click);
+                game_over::update(&mut ctx, &mut battle, &mut lobby, mouse.screen_mouse, mouse.left_click);
             }
         }
 
@@ -198,12 +205,15 @@ async fn main() {
         // Always use Camera2D for world-space rendering
         set_camera(&arena_camera);
 
+        let is_build = matches!(ctx.phase, GamePhase::Build);
         rendering::draw_world(
             &ctx.units, &battle.projectiles, &ctx.obstacles, &battle.splash_effects,
-            &ctx.build, &ctx.progress, ctx.show_grid,
-            matches!(ctx.phase, GamePhase::Build),
-            world_mouse,
+            ctx.show_grid && is_build,
         );
+
+        if is_build {
+            rendering::draw_build_overlays(&ctx.build, &ctx.progress, mouse.world_mouse);
+        }
 
         // Reset camera for UI overlays (screen-space)
         set_default_camera();
@@ -213,7 +223,7 @@ async fn main() {
             GamePhase::Lobby | GamePhase::DraftBan { .. } => {}
 
             GamePhase::Build => {
-                phase_ui::draw_build_ui(&ctx.build, &ctx.progress, &ctx.units, screen_mouse, &arena_camera, &ctx.mp_player_name, &ctx.mp_opponent_name);
+                phase_ui::draw_build_ui(&ctx.build, &ctx.progress, &ctx.units, mouse.screen_mouse, &arena_camera, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
 
             GamePhase::WaitingForOpponent => {
@@ -221,7 +231,7 @@ async fn main() {
             }
 
             GamePhase::Battle => {
-                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, battle.show_surrender_confirm, screen_mouse, world_mouse, &ctx.mp_player_name, &ctx.mp_opponent_name);
+                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, battle.show_surrender_confirm, mouse.screen_mouse, mouse.world_mouse, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
 
             GamePhase::RoundResult { match_state, lp_damage, loser_team } => {
@@ -229,7 +239,7 @@ async fn main() {
             }
 
             GamePhase::GameOver(winner) => {
-                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, &ctx.game_settings, &ctx.net, screen_mouse, &ctx.mp_player_name, &ctx.mp_opponent_name);
+                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, &ctx.game_settings, &ctx.net, mouse.screen_mouse, &ctx.mp_player_name, &ctx.mp_opponent_name);
             }
         }
 

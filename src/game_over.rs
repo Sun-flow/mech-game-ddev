@@ -33,7 +33,7 @@ pub fn update(
     if left_click && screen_mouse.x >= rmatch_x && screen_mouse.x <= rmatch_x + rmatch_w
         && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
     {
-        let is_host = ctx.net.as_ref().map_or(true, |n| n.is_host);
+        let is_host = ctx.net.as_ref().is_none_or(|n| n.is_host);
         ctx.progress = MatchProgress::new(is_host);
         ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
         ctx.units.clear();

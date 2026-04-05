@@ -259,9 +259,9 @@ pub fn serialize_state(
 /// When `mirror` is true (guest), translates host positions via (-1)*x
 /// (ARENA_W - x) and swaps team_ids to maintain the guest's perspective.
 pub fn apply_state_sync(
-    units: &mut Vec<Unit>,
+    units: &mut [Unit],
     projectiles: &mut Vec<Projectile>,
-    obstacles: &mut Vec<Obstacle>,
+    obstacles: &mut [Obstacle],
     units_data: &[u8],
     projectiles_data: &[u8],
     obstacles_data: &[u8],

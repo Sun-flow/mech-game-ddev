@@ -175,7 +175,7 @@ impl ChatState {
                 15.0,
                 Color::new(0.6, 0.8, 1.0, 0.9),
             );
-            let cursor = if (get_time() * 2.0) as u32 % 2 == 0 {
+            let cursor = if ((get_time() * 2.0) as u32).is_multiple_of(2) {
                 "|"
             } else {
                 ""

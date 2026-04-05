@@ -2,21 +2,27 @@
 
 ## Current Phase: Codebase Refinement
 
-**Goal:** Continue improving code quality, address duplicate code patterns, and plan next features.
+**Goal:** Continue improving code quality and plan next features.
 
 ### Completed Phases
 
 1. **Project Tooling Setup** — Claude workflow infrastructure, context documents, skills
 2. **main.rs Decomposition (Round 1)** — Extract rendering, phase UI, chat, draft/ban from main.rs (2,249 → 1,158 lines)
 3. **main.rs Decomposition (Round 2)** — Introduce GameContext/BattleState, extract all phase logic (1,158 → 302 lines)
+4. **Duplicate Code Consolidation** — 6 patterns deduplicated across 7 files (pack spawn, ray-AABB, damage tracking, tiebreak, Vec2 conversions, lobby transitions)
+5. **Clippy Cleanup + MouseState** — Fixed 26 clippy warnings, introduced `MouseState` struct centralizing all mouse input queries (32 → 5 warnings, remaining are `too_many_arguments`)
 
 ### Next Up
 
-- [ ] Address duplicate code patterns from condensation report (pack spawning, damage tracking, ray-AABB intersection)
-- [ ] PlayerState struct refactor (see backlog)
+- [ ] R key to rotate packs (gameplay feature)
+- [ ] Pause/options menu (gameplay feature)
+- [ ] rendering::draw_world signature refactor
+- [ ] PlayerState struct refactor (includes phase_ui `too_many_arguments` fixes)
 
 ## Roadmap
 
-1. Duplicate code consolidation (pack spawning × 4 locations, damage tracking × 3, ray-AABB × 2)
-2. PlayerState struct — unify per-player state
-3. Gameplay features (TBD)
+1. ~~Duplicate code consolidation~~ (done)
+2. ~~Clippy cleanup + input centralization~~ (done)
+3. Small gameplay features (R-to-rotate, pause menu)
+4. PlayerState struct — unify per-player state
+5. Gameplay features (TBD)

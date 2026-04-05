@@ -15,13 +15,14 @@ use crate::terrain;
 pub fn update(
     ctx: &mut GameContext,
     battle: &mut BattleState,
-    screen_mouse: Vec2,
-    mouse: Vec2,
-    left_click: bool,
-    right_click: bool,
-    middle_click: bool,
+    ms: &crate::input::MouseState,
     dt: f32,
 ) {
+    let screen_mouse = ms.screen_mouse;
+    let mouse = ms.world_mouse;
+    let left_click = ms.left_click;
+    let right_click = ms.right_click;
+    let middle_click = ms.middle_click;
     // Poll network
     if let Some(ref mut n) = ctx.net {
         n.poll();
@@ -123,8 +124,8 @@ pub fn update(
 
     // Tech panel interaction (when a pack is selected)
     let mut click_consumed = false;
-    if left_click && ctx.build.selected_pack.is_some() {
-        let sel_idx = ctx.build.selected_pack.unwrap();
+    if left_click {
+        if let Some(sel_idx) = ctx.build.selected_pack {
         let placed = &ctx.build.placed_packs[sel_idx];
         let kind = all_packs()[placed.pack_index].kind;
         let cs = tech_ui::PackCombatStats::from_units(&ctx.units, &placed.unit_ids);
@@ -161,6 +162,7 @@ pub fn update(
                 tech::refresh_units_of_kind(&mut ctx.units, kind, &ctx.progress.player_techs);
             }
         }
+    }
     }
 
     // Right-click: sell if on unlocked pack, otherwise deselect

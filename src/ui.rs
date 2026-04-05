@@ -5,7 +5,7 @@ use crate::arena::shop_w;
 use crate::match_progress::MatchProgress;
 
 thread_local! {
-    static TEXT_SCALE: Cell<f32> = Cell::new(1.0);
+    static TEXT_SCALE: Cell<f32> = const { Cell::new(1.0) };
 }
 
 /// Reference resolution the UI was designed for.

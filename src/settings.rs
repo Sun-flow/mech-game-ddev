@@ -15,7 +15,7 @@ impl MainSettings {
 }
 
 /// Draw a slider for UI scale in the lobby settings screen. Returns true if value changed.
-pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, clicked: bool, panel_x: f32, y: f32) {
+pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, clicked: bool, left_down: bool, panel_x: f32, y: f32) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static SLIDER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -47,7 +47,7 @@ pub fn draw_ui_scale_slider(main_settings: &mut MainSettings, mouse: Vec2, click
     if clicked && on_slider {
         SLIDER_ACTIVE.store(true, Ordering::Relaxed);
     }
-    if !is_mouse_button_down(MouseButton::Left) {
+    if !left_down {
         SLIDER_ACTIVE.store(false, Ordering::Relaxed);
     }
 

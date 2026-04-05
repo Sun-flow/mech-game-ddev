@@ -180,7 +180,7 @@ impl TechState {
     pub fn has_tech(&self, kind: UnitKind, tech_id: TechId) -> bool {
         self.purchased
             .get(&kind)
-            .map_or(false, |v| v.contains(&tech_id))
+            .is_some_and(|v| v.contains(&tech_id))
     }
 
     pub fn purchase(&mut self, kind: UnitKind, tech_id: TechId) -> bool {
@@ -189,7 +189,7 @@ impl TechState {
         }
         self.purchased
             .entry(kind)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(tech_id);
         true
     }

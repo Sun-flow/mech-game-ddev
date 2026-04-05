@@ -4,6 +4,9 @@ use std::cmp::Ordering;
 
 use crate::arena::{ARENA_H, ARENA_W, HALF_W};
 
+/// (x, y, half_w, half_h, team_id) for cover placement configs.
+type CoverEntry = (f32, f32, f32, f32, u8);
+
 pub const GRID_CELL: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -207,7 +210,7 @@ pub fn generate_terrain(round: u32, destructible: bool) -> Vec<Obstacle> {
 
     // Add destructible cover if enabled
     if destructible {
-        let cover_configs: &[&[(f32, f32, f32, f32, u8)]] = &[
+        let cover_configs: &[&[CoverEntry]] = &[
             // (x, y, hw, hh, team_id)
             &[(350.0, ARENA_H * 0.4, 25.0, 20.0, 0), (ARENA_W - 350.0, ARENA_H * 0.4, 25.0, 20.0, 1),
               (350.0, ARENA_H * 0.6, 25.0, 20.0, 0), (ARENA_W - 350.0, ARENA_H * 0.6, 25.0, 20.0, 1)],
@@ -375,14 +378,8 @@ pub fn find_path(grid: &NavGrid, from: Vec2, to: Vec2) -> Option<Vec<Vec2>> {
     let start = world_to_grid(from);
     let goal = world_to_grid(to);
 
-    let start = match nearest_passable(grid, start) {
-        Some(s) => s,
-        None => return None,
-    };
-    let goal = match nearest_passable(grid, goal) {
-        Some(g) => g,
-        None => return None,
-    };
+    let start = nearest_passable(grid, start)?;
+    let goal = nearest_passable(grid, goal)?;
 
     if start == goal {
         return Some(vec![to]);
@@ -426,9 +423,8 @@ pub fn find_path(grid: &NavGrid, from: Vec2, to: Vec2) -> Option<Vec<Vec2>> {
             let (nx, ny) = (nx as usize, ny as usize);
             if !grid.passable(nx, ny) { continue; }
 
-            if dx != 0 && dy != 0 {
-                if !grid.passable(cx, ny) || !grid.passable(nx, cy) { continue; }
-            }
+            if dx != 0 && dy != 0
+                && (!grid.passable(cx, ny) || !grid.passable(nx, cy)) { continue; }
 
             let cost = if dx != 0 && dy != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
             let new_g = current.g + cost;
@@ -446,9 +442,9 @@ pub fn find_path(grid: &NavGrid, from: Vec2, to: Vec2) -> Option<Vec<Vec2>> {
 
 fn nearest_passable(grid: &NavGrid, pos: (usize, usize)) -> Option<(usize, usize)> {
     if grid.passable(pos.0, pos.1) { return Some(pos); }
-    for r in 1..20 {
-        for dx in -(r as i32)..=(r as i32) {
-            for dy in -(r as i32)..=(r as i32) {
+    for r in 1i32..20 {
+        for dx in -r..=r {
+            for dy in -r..=r {
                 if dx.abs() != r && dy.abs() != r { continue; }
                 let nx = pos.0 as i32 + dx;
                 let ny = pos.1 as i32 + dy;
@@ -468,6 +464,7 @@ fn smooth_path(grid: &NavGrid, start: Vec2, path: &[Vec2]) -> Vec<Vec2> {
     let mut i = 0;
     while i < path.len() {
         let mut farthest = i;
+        #[allow(clippy::needless_range_loop)]
         for j in (i + 1)..path.len() {
             if grid_line_clear(grid, current, path[j]) {
                 farthest = j;

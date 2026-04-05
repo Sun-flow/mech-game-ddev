@@ -71,7 +71,7 @@ pub fn draw_tech_panel(
 
     let available = tech_state.available_techs(kind);
     let purchased_count = tech_state.tech_count(kind);
-    let has_combat_stats = combat_stats.map_or(false, |cs| cs.damage_dealt_total > 0.0 || cs.damage_soaked_total > 0.0);
+    let has_combat_stats = combat_stats.is_some_and(|cs| cs.damage_dealt_total > 0.0 || cs.damage_soaked_total > 0.0);
     let combat_lines = if has_combat_stats { 5 } else { 0 };
     let ph = s(120.0)
         + (available.len() + purchased_count) as f32 * (ih + im)

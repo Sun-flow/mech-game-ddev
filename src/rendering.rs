@@ -30,17 +30,13 @@ pub fn draw_world(
     projectiles: &[Projectile],
     obstacles: &[crate::terrain::Obstacle],
     splash_effects: &[SplashEffect],
-    build: &BuildState,
-    progress: &crate::match_progress::MatchProgress,
     show_grid: bool,
-    is_build_phase: bool,
-    world_mouse: Vec2,
 ) {
     draw_rectangle_lines(0.0, 0.0, ARENA_W, ARENA_H, 2.0, GRAY);
     draw_center_divider();
     terrain::draw_obstacles(obstacles);
 
-    if show_grid && is_build_phase {
+    if show_grid {
         draw_grid();
     }
 
@@ -48,10 +44,6 @@ pub fn draw_world(
     draw_units(units);
     draw_projectiles(projectiles);
     draw_splash_effects(splash_effects);
-
-    if is_build_phase {
-        draw_build_overlays(build, progress, world_mouse);
-    }
 }
 
 fn draw_grid() {
@@ -195,7 +187,7 @@ fn draw_splash_effects(effects: &[SplashEffect]) {
     }
 }
 
-fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_mouse: Vec2) {
+pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_mouse: Vec2) {
     // Placement zone overlay
     draw_rectangle(0.0, 0.0, HALF_W, ARENA_H, Color::new(0.2, 0.3, 0.5, 0.05));
     draw_rectangle(HALF_W, 0.0, HALF_W, ARENA_H, Color::new(0.5, 0.2, 0.2, 0.05));
