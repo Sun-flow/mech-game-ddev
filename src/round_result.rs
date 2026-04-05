@@ -13,9 +13,14 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
         if ctx.progress.is_game_over() {
             ctx.phase = GamePhase::GameOver(ctx.progress.game_winner().unwrap_or(0));
         } else {
-            ctx.progress.player_saved_gold = ctx.build.builder.gold_remaining;
+            let role = ctx.role;
+
+            // Save gold carry-over
+            ctx.progress.player_mut(role).gold = ctx.build.builder.gold_remaining;
+
             ctx.progress.advance_round();
 
+            // Lock current packs on the player's state
             ctx.build.lock_current_packs();
             let locked_packs: Vec<_> = ctx.build.placed_packs.clone();
             let next_id = ctx.build.next_id;
@@ -38,8 +43,11 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
                     .collect();
 
             ctx.units.clear();
-            ctx.build = BuildState::new_round(ctx.progress.round_gold(), locked_packs, next_id);
-            ctx.units.extend(ctx.build.respawn_player_units(&ctx.progress.player_techs));
+
+            // New round gold = saved gold + round allowance
+            let round_gold = ctx.progress.player(role).gold + ctx.progress.round_allowance();
+            ctx.build = BuildState::new_round(round_gold, locked_packs, next_id);
+            ctx.units.extend(ctx.build.respawn_player_units(&ctx.progress.player(role).techs));
 
             for unit in ctx.units.iter_mut() {
                 if let Some(&(ddt, dst, ddr, dsr, kt)) = old_stats.get(&unit.id) {
@@ -51,7 +59,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
                 }
             }
 
-            ctx.units.extend(ctx.progress.respawn_opponent_units());
+            ctx.units.extend(ctx.progress.opponent(role).respawn_units());
 
             battle.projectiles.clear();
             ctx.phase = GamePhase::Build;

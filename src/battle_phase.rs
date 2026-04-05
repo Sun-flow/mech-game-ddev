@@ -56,6 +56,8 @@ impl BattleState {
 
 pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input::MouseState, dt: f32) {
     let screen_mouse = ms.screen_mouse;
+    let role = ctx.role;
+
     // Surrender toggle
     if is_key_pressed(KeyCode::Escape) {
         battle.show_surrender_confirm = !battle.show_surrender_confirm;
@@ -79,8 +81,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 &mut ctx.units,
                 &mut battle.projectiles,
                 FIXED_DT,
-                &ctx.progress.player_techs,
-                &ctx.progress.opponent_techs,
+                &ctx.progress.host.techs,
+                &ctx.progress.guest.techs,
                 &mut battle.splash_effects,
             );
             update_projectiles(&mut battle.projectiles, &mut ctx.units, FIXED_DT, &mut ctx.obstacles, &mut battle.splash_effects);
@@ -167,8 +169,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
             &mut ctx.units,
             &mut battle.projectiles,
             dt,
-            &ctx.progress.player_techs,
-            &ctx.progress.opponent_techs,
+            &ctx.progress.host.techs,
+            &ctx.progress.guest.techs,
             &mut battle.splash_effects,
         );
         update_projectiles(&mut battle.projectiles, &mut ctx.units, dt, &mut ctx.obstacles, &mut battle.splash_effects);
@@ -190,9 +192,9 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         let yes_x = cx - btn_w - crate::ui::s(10.0);
         let yes_y = cy + crate::ui::s(10.0);
         if screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h {
-            ctx.progress.player_lp = 0;
+            ctx.progress.player_mut(role).lp = 0;
             battle.show_surrender_confirm = false;
-            ctx.phase = GamePhase::GameOver(1);
+            ctx.phase = GamePhase::GameOver(role.opponent_id());
         }
         // "Cancel" button
         let no_x = cx + crate::ui::s(10.0);
@@ -233,15 +235,21 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 }
 
                 // Apply timeout mutual damage (flipped for guest perspective)
+                // Host team 0 = host, team 1 = guest. Guest sees team 0 = guest, team 1 = host.
                 if rd.timeout_dmg_0 > 0 || rd.timeout_dmg_1 > 0 {
-                    // Host's team 0 = guest's team 1, so flip
-                    ctx.progress.player_lp -= rd.timeout_dmg_1;
-                    ctx.progress.opponent_lp -= rd.timeout_dmg_0;
+                    // Host's team 0 = host, so timeout_dmg_0 applies to host LP
+                    // Host's team 1 = guest, so timeout_dmg_1 applies to guest LP
+                    ctx.progress.host.lp -= rd.timeout_dmg_0;
+                    ctx.progress.guest.lp -= rd.timeout_dmg_1;
                 } else if let Some(loser) = flipped_loser {
+                    // loser is from guest's perspective (0=guest local, 1=opponent)
+                    // But we use canonical host/guest now
+                    // flipped_loser 0 means guest lost, flipped_loser 1 means host lost
                     if loser == 0 {
-                        ctx.progress.player_lp -= rd.lp_damage;
+                        // Guest's "team 0" lost — that's the guest in guest perspective
+                        ctx.progress.guest.lp -= rd.lp_damage;
                     } else {
-                        ctx.progress.opponent_lp -= rd.lp_damage;
+                        ctx.progress.host.lp -= rd.lp_damage;
                     }
                 }
 
@@ -269,7 +277,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
             MatchState::Winner(w) => *w == 1,
             _ => false,
         };
-        ctx.progress.ai_memory.record_round(&ctx.units, ai_won);
+        ctx.progress.guest.ai_memory.record_round(&ctx.units, ai_won);
 
         // Calculate LP damage
         let alive_0 = ctx.units.iter().filter(|u| u.alive && u.team_id == 0).count() as i32;
@@ -278,7 +286,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         // Compute damage and loser — but DON'T apply yet (guest needs
         // the same values from the network message).
         let (lp_damage, loser_team, timeout_dmg_0, timeout_dmg_1) = if timed_out {
-            // Timeout: both players take damage equal to opponent's surviving ctx.units
+            // Timeout: both players take damage equal to opponent's surviving units
             (0, None, alive_1, alive_0)
         } else {
             match &final_state {
@@ -317,15 +325,18 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 }
             }
 
-            // Apply LP damage
+            // Apply LP damage using canonical host/guest
             if timed_out {
-                ctx.progress.player_lp -= timeout_dmg_0;
-                ctx.progress.opponent_lp -= timeout_dmg_1;
+                // timeout_dmg_0 = alive_1 (damage to host from guest survivors)
+                // timeout_dmg_1 = alive_0 (damage to guest from host survivors)
+                ctx.progress.host.lp -= timeout_dmg_0;
+                ctx.progress.guest.lp -= timeout_dmg_1;
             } else if let Some(loser) = loser_team {
+                // loser 0 = host lost, loser 1 = guest lost
                 if loser == 0 {
-                    ctx.progress.player_lp -= lp_damage;
+                    ctx.progress.host.lp -= lp_damage;
                 } else {
-                    ctx.progress.opponent_lp -= lp_damage;
+                    ctx.progress.guest.lp -= lp_damage;
                 }
             }
 

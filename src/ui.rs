@@ -3,6 +3,7 @@ use std::cell::Cell;
 
 use crate::arena::shop_w;
 use crate::match_progress::MatchProgress;
+use crate::role::Role;
 
 thread_local! {
     static TEXT_SCALE: Cell<f32> = const { Cell::new(1.0) };
@@ -45,7 +46,10 @@ pub fn measure_scaled_text(text: &str, base_font_size: u16) -> TextDimensions {
     measure_text(text, None, scaled, 1.0)
 }
 
-pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, player_name: &str, opponent_name: &str) {
+pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, player_name: &str, opponent_name: &str, role: Role) {
+    let player_lp = progress.player(role).lp;
+    let opponent_lp = progress.opponent(role).lp;
+
     // Background bar (screen-wide)
     draw_rectangle(
         0.0,
@@ -69,10 +73,10 @@ pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32
     x += round_w + gap;
 
     // Player LP
-    let player_lp_text = format!("{} LP: {}", player_name, progress.player_lp);
-    let plp_color = if progress.player_lp > 500 {
+    let player_lp_text = format!("{} LP: {}", player_name, player_lp);
+    let plp_color = if player_lp > 500 {
         Color::new(0.3, 1.0, 0.4, 1.0)
-    } else if progress.player_lp > 200 {
+    } else if player_lp > 200 {
         Color::new(1.0, 0.8, 0.2, 1.0)
     } else {
         Color::new(1.0, 0.3, 0.2, 1.0)
@@ -82,10 +86,10 @@ pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32
     x += plp_w + gap;
 
     // Opponent LP
-    let opponent_lp_text = format!("{} LP: {}", opponent_name, progress.opponent_lp);
-    let alp_color = if progress.opponent_lp > 500 {
+    let opponent_lp_text = format!("{} LP: {}", opponent_name, opponent_lp);
+    let alp_color = if opponent_lp > 500 {
         Color::new(0.3, 0.6, 1.0, 1.0)
-    } else if progress.opponent_lp > 200 {
+    } else if opponent_lp > 200 {
         Color::new(1.0, 0.8, 0.2, 1.0)
     } else {
         Color::new(1.0, 0.3, 0.2, 1.0)

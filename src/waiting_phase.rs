@@ -12,10 +12,12 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) -> bool {
         n.poll();
 
         if let Some(opp_build) = n.take_opponent_build() {
-            let opp_units = ctx.progress.apply_opponent_build(&opp_build);
+            let role = ctx.role;
+            let opp_units = ctx.progress.apply_opponent_build(&opp_build, role);
 
-            ctx.units.retain(|u| u.team_id == 0);
-            ctx.units.extend(ctx.progress.respawn_opponent_units());
+            let opp_id = role.opponent_id();
+            ctx.units.retain(|u| u.team_id != opp_id);
+            ctx.units.extend(ctx.progress.opponent(role).respawn_units());
 
             let _ = opp_units;
 
