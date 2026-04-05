@@ -226,8 +226,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 };
 
                 // Log desync check (flip host counts to match guest perspective)
-                let local_alive_0 = ctx.units.iter().filter(|u| u.alive && u.team_id == 0).count() as u16;
-                let local_alive_1 = ctx.units.iter().filter(|u| u.alive && u.team_id == 1).count() as u16;
+                let local_alive_0 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).count() as u16;
+                let local_alive_1 = ctx.units.iter().filter(|u| u.alive && u.player_id == 1).count() as u16;
                 if local_alive_0 != rd.alive_1 || local_alive_1 != rd.alive_0 {
                     eprintln!("[DESYNC] Unit count mismatch! Local: {}/{} Host(flipped): {}/{}", local_alive_0, local_alive_1, rd.alive_1, rd.alive_0);
                 }
@@ -272,8 +272,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         ctx.progress.ai_memory.record_round(&ctx.units, ai_won);
 
         // Calculate LP damage
-        let alive_0 = ctx.units.iter().filter(|u| u.alive && u.team_id == 0).count() as i32;
-        let alive_1 = ctx.units.iter().filter(|u| u.alive && u.team_id == 1).count() as i32;
+        let alive_0 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).count() as i32;
+        let alive_1 = ctx.units.iter().filter(|u| u.alive && u.player_id == 1).count() as i32;
 
         // Compute damage and loser — but DON'T apply yet (guest needs
         // the same values from the network message).
@@ -302,8 +302,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 // Host sends round result to guest
                 let alive_0 = alive_0 as u16;
                 let alive_1 = alive_1 as u16;
-                let total_hp_0: i32 = ctx.units.iter().filter(|u| u.alive && u.team_id == 0).map(|u| u.hp as i32).sum();
-                let total_hp_1: i32 = ctx.units.iter().filter(|u| u.alive && u.team_id == 1).map(|u| u.hp as i32).sum();
+                let total_hp_0: i32 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).map(|u| u.hp as i32).sum();
+                let total_hp_1: i32 = ctx.units.iter().filter(|u| u.alive && u.player_id == 1).map(|u| u.hp as i32).sum();
                 let winner = match &final_state {
                     MatchState::Winner(w) => Some(*w),
                     _ => None,

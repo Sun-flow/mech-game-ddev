@@ -25,7 +25,7 @@ pub struct SyncUnit {
     pub kind: UnitKind,
     pub hp: f32,
     pub pos: (f32, f32),
-    pub team_id: u8,
+    pub player_id: u8,
     pub target_id: Option<u64>,
     pub attack_cooldown: f32,
     pub alive: bool,
@@ -49,7 +49,7 @@ pub struct SyncProjectile {
     pub origin: (f32, f32),
     pub max_range: f32,
     pub damage: f32,
-    pub team_id: u8,
+    pub player_id: u8,
     pub splash_radius: f32,
     pub alive: bool,
     pub proj_type: ProjectileType,
@@ -64,7 +64,7 @@ pub struct SyncObstacle {
     pub pos: (f32, f32),
     pub half_size: (f32, f32),
     pub hp: f32,
-    pub team_id: u8,
+    pub player_id: u8,
     pub alive: bool,
 }
 
@@ -79,7 +79,7 @@ impl SyncUnit {
             kind: u.kind,
             hp: u.hp,
             pos: t2(u.pos),
-            team_id: u.team_id,
+            player_id: u.player_id,
             target_id: u.target_id,
             attack_cooldown: u.attack_cooldown,
             alive: u.alive,
@@ -126,7 +126,7 @@ impl SyncProjectile {
             origin: t2(p.origin),
             max_range: p.max_range,
             damage: p.damage,
-            team_id: p.team_id,
+            player_id: p.player_id,
             splash_radius: p.splash_radius,
             alive: p.alive,
             proj_type: p.proj_type,
@@ -144,7 +144,7 @@ impl SyncProjectile {
             origin: v2(self.origin),
             max_range: self.max_range,
             damage: self.damage,
-            team_id: self.team_id,
+            player_id: self.player_id,
             splash_radius: self.splash_radius,
             alive: self.alive,
             proj_type: self.proj_type,
@@ -162,7 +162,7 @@ impl SyncObstacle {
             pos: t2(o.pos),
             half_size: t2(o.half_size),
             hp: o.hp,
-            team_id: o.team_id,
+            player_id: o.player_id,
             alive: o.alive,
         }
     }
@@ -180,7 +180,7 @@ impl SyncObstacle {
 
 /// Compute a hash of gameplay-relevant state.
 /// When `mirror` is true (guest), hashes with mirrored x positions and swapped
-/// team_ids so the result matches the host's hash for the same physical state.
+/// player_ids so the result matches the host's hash for the same physical state.
 pub fn compute_state_hash(
     units: &[Unit],
     projectiles: &[Projectile],
@@ -202,7 +202,7 @@ pub fn compute_state_hash(
         let x = if mirror { arena_w - u.pos.x } else { u.pos.x };
         x.to_bits().hash(&mut hasher);
         u.pos.y.to_bits().hash(&mut hasher);
-        let team = if mirror { 1 - u.team_id } else { u.team_id };
+        let team = if mirror { 1 - u.player_id } else { u.player_id };
         team.hash(&mut hasher);
         // NOTE: target_id excluded — targeting can diverge due to tie-breaking without
         // meaning the simulation is desynced (positions/hp are what matter)
@@ -220,7 +220,7 @@ pub fn compute_state_hash(
         p.vel.y.to_bits().hash(&mut hasher);
         p.alive.hash(&mut hasher);
         p.damage.to_bits().hash(&mut hasher);
-        let team = if mirror { 1 - p.team_id } else { p.team_id };
+        let team = if mirror { 1 - p.player_id } else { p.player_id };
         team.hash(&mut hasher);
     }
 
@@ -257,7 +257,7 @@ pub fn serialize_state(
 
 /// Apply host's authoritative state to local game state.
 /// When `mirror` is true (guest), translates host positions via (-1)*x
-/// (ARENA_W - x) and swaps team_ids to maintain the guest's perspective.
+/// (ARENA_W - x) and swaps player_ids to maintain the guest's perspective.
 pub fn apply_state_sync(
     units: &mut [Unit],
     projectiles: &mut Vec<Projectile>,
@@ -276,7 +276,7 @@ pub fn apply_state_sync(
         for mut su in sync_units {
             if mirror {
                 su.pos.0 = arena_w - su.pos.0;
-                su.team_id = 1 - su.team_id;
+                su.player_id = 1 - su.player_id;
                 su.path = su.path.iter().map(|&(px, py)| (arena_w - px, py)).collect();
             }
             if let Some(u) = units.iter_mut().find(|u| u.id == su.id) {
@@ -293,7 +293,7 @@ pub fn apply_state_sync(
                 p.pos.x = arena_w - p.pos.x;
                 p.vel.x = -p.vel.x;
                 p.origin.x = arena_w - p.origin.x;
-                p.team_id = 1 - p.team_id;
+                p.player_id = 1 - p.player_id;
             }
             p
         }).collect();
@@ -307,8 +307,8 @@ pub fn apply_state_sync(
         for (mut so, o) in sync_obs.into_iter().zip(obstacles.iter_mut()) {
             if mirror {
                 so.pos.0 = arena_w - so.pos.0;
-                if so.team_id != 255 {
-                    so.team_id = 1 - so.team_id;
+                if so.player_id != 255 {
+                    so.player_id = 1 - so.player_id;
                 }
             }
             so.apply_to(o);

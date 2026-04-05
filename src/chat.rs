@@ -7,7 +7,7 @@ use crate::team;
 pub struct ChatMessage {
     pub name: String,
     pub text: String,
-    pub team_id: u8,
+    pub player_id: u8,
     pub lifetime: f32,
 }
 
@@ -33,7 +33,7 @@ impl ChatState {
                 self.messages.push(ChatMessage {
                     name,
                     text,
-                    team_id: 1,
+                    player_id: 1,
                     lifetime: 5.0,
                 });
             }
@@ -66,7 +66,7 @@ impl ChatState {
                     self.messages.push(ChatMessage {
                         name: player_name.to_string(),
                         text: text.clone(),
-                        team_id: 0,
+                        player_id: 0,
                         lifetime: 5.0,
                     });
                     if let Some(ref mut n) = net {
@@ -121,7 +121,7 @@ impl ChatState {
             .rev()
         {
             let alpha = (msg.lifetime / 5.0).min(1.0);
-            let color = team::team_color(msg.team_id);
+            let color = team::team_color(msg.player_id);
             let display_color = Color::new(color.r, color.g, color.b, alpha);
 
             let is_emote = msg.text.starts_with('/');

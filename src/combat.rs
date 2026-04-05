@@ -29,7 +29,7 @@ fn is_closer(dist: f32, id: u64, best_dist: f32, best_id: Option<u64>) -> bool {
 pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
     let positions: Vec<(u64, u8, Vec2, bool)> = units
         .iter()
-        .map(|u| (u.id, u.team_id, u.pos, u.alive))
+        .map(|u| (u.id, u.player_id, u.pos, u.alive))
         .collect();
 
     for unit in units.iter_mut() {
@@ -43,7 +43,7 @@ pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
         let mut best_any_id = None;
 
         for &(eid, eteam, epos, ealive) in &positions {
-            if !ealive || eteam == unit.team_id {
+            if !ealive || eteam == unit.player_id {
                 continue;
             }
             let d = unit.pos.distance(epos);
@@ -226,8 +226,8 @@ pub fn update_attacks(
     }
 
     // Helper to get the right tech state for a team
-    let tech_for_team = |team_id: u8| -> &TechState {
-        if team_id == 0 { player_techs } else { ai_techs }
+    let tech_for_team = |player_id: u8| -> &TechState {
+        if player_id == 0 { player_techs } else { ai_techs }
     };
 
     // === Interceptor rocket interception ===
@@ -239,7 +239,7 @@ pub fn update_attacks(
             }
             let mut best_rocket: Option<(usize, f32)> = None;
             for (pi, proj) in projectiles.iter().enumerate() {
-                if !proj.alive || proj.team_id == unit.team_id || !proj.is_rocket() {
+                if !proj.alive || proj.player_id == unit.player_id || !proj.is_rocket() {
                     continue;
                 }
                 let dist = unit.pos.distance(proj.pos);
@@ -253,7 +253,7 @@ pub fn update_attacks(
                 }
             }
             if let Some((pi, _)) = best_rocket {
-                actions.push((unit.id, pi, unit.team_id));
+                actions.push((unit.id, pi, unit.player_id));
                 unit.reset_cooldown();
             }
         }
@@ -281,7 +281,7 @@ pub fn update_attacks(
     let chaff_positions: Vec<(Vec2, u8)> = units
         .iter()
         .filter(|u| u.alive && u.kind == UnitKind::Chaff)
-        .map(|u| (u.pos, u.team_id))
+        .map(|u| (u.pos, u.player_id))
         .collect();
 
     // === Normal attacks ===
@@ -290,7 +290,7 @@ pub fn update_attacks(
     {
         let snapshot: Vec<(u64, Vec2, f32, bool, u8)> = units
             .iter()
-            .map(|u| (u.id, u.pos, u.stats.size, u.alive, u.team_id))
+            .map(|u| (u.id, u.pos, u.stats.size, u.alive, u.player_id))
             .collect();
 
         for unit in units.iter_mut() {
@@ -321,13 +321,13 @@ pub fn update_attacks(
             }
 
             unit.reset_cooldown();
-            let techs = tech_for_team(unit.team_id);
+            let techs = tech_for_team(unit.player_id);
 
             // Calculate bonus damage from Chaff Overwhelm tech
             let mut bonus_damage = 0.0;
             if unit.kind == UnitKind::Chaff && techs.has_tech(UnitKind::Chaff, TechId::ChaffOverwhelm) {
                 for &(cpos, cteam) in &chaff_positions {
-                    if cteam == unit.team_id && cpos.distance(unit.pos) < 50.0 && cpos != unit.pos {
+                    if cteam == unit.player_id && cpos.distance(unit.pos) < 50.0 && cpos != unit.pos {
                         bonus_damage += 2.0;
                     }
                 }
@@ -347,7 +347,7 @@ pub fn update_attacks(
                     target_pos: target.1,
                     damage: total_damage,
                     splash_radius: unit.stats.splash_radius,
-                    attacker_team: unit.team_id,
+                    attacker_team: unit.player_id,
                     lifesteal: has_lifesteal,
                     attacker_hp_frac: unit.hp / unit.stats.max_hp,
                     cleave_ignores_armor,
@@ -365,7 +365,7 @@ pub fn update_attacks(
                     target_pos: target.1,
                     speed: unit.stats.projectile_speed,
                     damage: total_damage,
-                    team_id: unit.team_id,
+                    player_id: unit.player_id,
                     splash_radius: unit.stats.splash_radius,
                     proj_type: unit.stats.projectile_type,
                     armor_pierce,
@@ -405,10 +405,10 @@ pub fn update_attacks(
                         radius: splash_radius,
                         timer: 0.3,
                         max_timer: 0.3,
-                        team_id: attacker_team,
+                        player_id: attacker_team,
                     });
                     for unit in units.iter_mut() {
-                        if !unit.alive || unit.id == target_id || unit.team_id == attacker_team {
+                        if !unit.alive || unit.id == target_id || unit.player_id == attacker_team {
                             continue;
                         }
                         if unit.pos.distance(target_pos) < splash_radius {
@@ -435,7 +435,7 @@ pub fn update_attacks(
                 target_pos,
                 speed,
                 damage,
-                team_id,
+                player_id,
                 splash_radius,
                 proj_type,
                 armor_pierce,
@@ -447,7 +447,7 @@ pub fn update_attacks(
                     target_pos,
                     speed,
                     damage,
-                    team_id,
+                    player_id,
                     splash_radius,
                     proj_type,
                 );
@@ -466,7 +466,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
     let shields: Vec<(u64, u8, Vec2, f32, bool)> = units
         .iter()
         .filter(|u| u.is_shield() && u.alive)
-        .map(|u| (u.id, u.team_id, u.pos, u.stats.shield_radius, u.shield_hp > 0.0))
+        .map(|u| (u.id, u.player_id, u.pos, u.stats.shield_radius, u.shield_hp > 0.0))
         .collect();
 
     for proj in projectiles.iter_mut() {
@@ -477,7 +477,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         proj.update(dt);
 
         // Swept collision — check if the ray from old_pos to new pos crosses any blocking obstacle
-        if crate::terrain::ray_hits_blocking_obstacle(old_pos, proj.pos, proj.team_id, obstacles) {
+        if crate::terrain::ray_hits_blocking_obstacle(old_pos, proj.pos, proj.player_id, obstacles) {
             proj.alive = false;
             continue;
         }
@@ -486,7 +486,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         let mut hit_obstacle = false;
         for obs in obstacles.iter_mut() {
             if !obs.alive { continue; }
-            if !obs.blocks_projectile(proj.team_id) { continue; }
+            if !obs.blocks_projectile(proj.player_id) { continue; }
             if obs.intersects_circle(proj.pos, crate::projectile::PROJECTILE_RADIUS) {
                 // Destructible cover takes damage
                 obs.take_damage(proj.damage);
@@ -501,7 +501,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         let mut intercepted_by_shield: Option<u64> = None;
         let mut best_shield_dist = f32::MAX;
         for &(shield_id, shield_team, shield_pos, shield_radius, has_shield_hp) in &shields {
-            if shield_team == proj.team_id || !has_shield_hp {
+            if shield_team == proj.player_id || !has_shield_hp {
                 continue;
             }
             let dist = proj.pos.distance(shield_pos);
@@ -530,7 +530,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         let attacker_id = proj.attacker_id;
 
         for unit in units.iter_mut() {
-            if !unit.alive || unit.team_id == proj.team_id {
+            if !unit.alive || unit.player_id == proj.player_id {
                 continue;
             }
             let dist = proj.pos.distance(unit.pos);
@@ -571,10 +571,10 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
                 radius: proj.splash_radius,
                 timer: 0.3,
                 max_timer: 0.3,
-                team_id: proj.team_id,
+                player_id: proj.player_id,
             });
             for unit in units.iter_mut() {
-                if !unit.alive || unit.team_id == proj.team_id {
+                if !unit.alive || unit.player_id == proj.player_id {
                     continue;
                 }
                 let dist = unit.pos.distance(impact_pos);
@@ -620,7 +620,7 @@ enum AttackEvent {
         target_pos: Vec2,
         speed: f32,
         damage: f32,
-        team_id: u8,
+        player_id: u8,
         splash_radius: f32,
         proj_type: crate::unit::ProjectileType,
         armor_pierce: bool,

@@ -246,7 +246,7 @@ pub fn start_ai_battle(
     *nav_grid = Some(crate::terrain::NavGrid::from_obstacles(obstacles, ARENA_W, ARENA_H, 15.0));
 
     // Remove old opponent units (they'll be respawned fresh from stored packs)
-    units.retain(|u| u.team_id == 0);
+    units.retain(|u| u.player_id == 0);
 
     // Respawn all existing opponent units from previous rounds at full HP
     units.extend(progress.respawn_opponent_units());

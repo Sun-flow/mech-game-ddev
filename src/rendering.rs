@@ -15,7 +15,7 @@ pub struct SplashEffect {
     pub radius: f32,
     pub timer: f32,
     pub max_timer: f32,
-    pub team_id: u8,
+    pub player_id: u8,
 }
 
 pub fn update_splash_effects(effects: &mut Vec<SplashEffect>, dt: f32) {
@@ -66,7 +66,7 @@ fn draw_shields(units: &[Unit]) {
         if !unit.alive || !unit.is_shield() || unit.shield_hp <= 0.0 {
             continue;
         }
-        let tc = team_color(unit.team_id);
+        let tc = team_color(unit.player_id);
         let shield_frac = if unit.stats.shield_hp > 0.0 { unit.shield_hp / unit.stats.shield_hp } else { 0.0 };
         let alpha = 0.12 + 0.12 * shield_frac;
         draw_circle(
@@ -96,13 +96,13 @@ fn draw_units(units: &[Unit]) {
             let frac = unit.death_timer / 0.5;
             let alpha = frac * 0.8;
             let draw_size = unit.stats.size * frac;
-            let mut color = team_color(unit.team_id);
+            let mut color = team_color(unit.player_id);
             color.a = alpha;
             draw_unit_shape(unit.pos, draw_size, unit.stats.shape, color);
             continue;
         }
 
-        let mut color = team_color(unit.team_id);
+        let mut color = team_color(unit.player_id);
         if unit.kind == UnitKind::Berserker {
             let hp_frac = unit.hp / unit.stats.max_hp;
             let rage = 1.0 - hp_frac;
@@ -145,7 +145,7 @@ fn draw_projectiles(projectiles: &[Projectile]) {
         if !proj.alive {
             continue;
         }
-        let color = team_projectile_color(proj.team_id);
+        let color = team_projectile_color(proj.player_id);
         let r = projectile_visual_radius(proj.proj_type);
         match proj.proj_type {
             ProjectileType::Laser => {
@@ -179,7 +179,7 @@ fn draw_splash_effects(effects: &[SplashEffect]) {
         let progress = 1.0 - (effect.timer / effect.max_timer);
         let current_radius = effect.radius * (0.3 + 0.7 * progress);
         let alpha = 0.4 * (effect.timer / effect.max_timer);
-        let tc = team_color(effect.team_id);
+        let tc = team_color(effect.player_id);
         draw_circle(effect.pos.x, effect.pos.y, current_radius,
             Color::new(tc.r, tc.g, tc.b, alpha * 0.3));
         draw_circle_lines(effect.pos.x, effect.pos.y, current_radius, 2.0,

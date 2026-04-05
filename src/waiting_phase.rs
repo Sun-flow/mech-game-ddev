@@ -14,7 +14,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) -> bool {
         if let Some(opp_build) = n.take_opponent_build() {
             let opp_units = ctx.progress.apply_opponent_build(&opp_build);
 
-            ctx.units.retain(|u| u.team_id == 0);
+            ctx.units.retain(|u| u.player_id == 0);
             ctx.units.extend(ctx.progress.respawn_opponent_units());
 
             let _ = opp_units;

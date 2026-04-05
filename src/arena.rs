@@ -20,7 +20,7 @@ pub fn check_match_state(units: &[Unit]) -> MatchState {
     let mut team_alive = [false; 4];
     for u in units {
         if u.alive {
-            team_alive[u.team_id as usize] = true;
+            team_alive[u.player_id as usize] = true;
         }
     }
 

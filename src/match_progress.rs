@@ -22,7 +22,7 @@ impl AiMemory {
     /// Record the player's army composition and the round outcome.
     pub fn record_round(&mut self, player_units: &[Unit], ai_won: bool) {
         let mut counts: HashMap<UnitKind, u32> = HashMap::new();
-        for u in player_units.iter().filter(|u| u.team_id == 0) {
+        for u in player_units.iter().filter(|u| u.player_id == 0) {
             *counts.entry(u.kind).or_insert(0) += 1;
         }
         self.last_enemy_kinds = counts.into_iter().collect();
@@ -78,11 +78,11 @@ impl MatchProgress {
         self.player_saved_gold + self.round_allowance()
     }
 
-    pub fn calculate_lp_damage(surviving_units: &[Unit], team_id: u8) -> i32 {
+    pub fn calculate_lp_damage(surviving_units: &[Unit], player_id: u8) -> i32 {
         let packs = all_packs();
         let mut total = 0i32;
         for unit in surviving_units {
-            if !unit.alive || unit.team_id != team_id {
+            if !unit.alive || unit.player_id != player_id {
                 continue;
             }
             if let Some(pack) = packs.iter().find(|p| p.kind == unit.kind) {

@@ -61,7 +61,7 @@ pub fn spawn_pack_units(
     pack: &PackDef,
     center: Vec2,
     rotated: bool,
-    team_id: u8,
+    player_id: u8,
     techs: &TechState,
     start_id: &mut u64,
 ) -> (Vec<Unit>, Vec<u64>) {
@@ -76,7 +76,7 @@ pub fn spawn_pack_units(
     let mut ids = Vec::new();
 
     for pos in &positions {
-        let mut unit = Unit::new(*start_id, pack.kind, *pos, team_id);
+        let mut unit = Unit::new(*start_id, pack.kind, *pos, player_id);
         apply_unit_techs(&mut unit, techs);
         ids.push(*start_id);
         units.push(unit);
@@ -91,7 +91,7 @@ pub fn respawn_pack_units(
     pack: &PackDef,
     center: Vec2,
     rotated: bool,
-    team_id: u8,
+    player_id: u8,
     techs: &TechState,
     unit_ids: &[u64],
 ) -> Vec<Unit> {
@@ -106,7 +106,7 @@ pub fn respawn_pack_units(
         .iter()
         .zip(unit_ids)
         .map(|(pos, &id)| {
-            let mut unit = Unit::new(id, pack.kind, *pos, team_id);
+            let mut unit = Unit::new(id, pack.kind, *pos, player_id);
             apply_unit_techs(&mut unit, techs);
             unit
         })

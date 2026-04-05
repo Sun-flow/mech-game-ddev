@@ -153,8 +153,8 @@ pub fn draw_battle_ui(
     let remaining = (round_timeout - battle_timer).max(0.0);
     crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, mp_player_name, mp_opponent_name);
 
-    let alive_0 = units.iter().filter(|u| u.alive && u.team_id == 0).count();
-    let alive_1 = units.iter().filter(|u| u.alive && u.team_id == 1).count();
+    let alive_0 = units.iter().filter(|u| u.alive && u.player_id == 0).count();
+    let alive_1 = units.iter().filter(|u| u.alive && u.player_id == 1).count();
     crate::ui::draw_scaled_text(
         &format!("Red: {}", alive_0),
         crate::ui::s(10.0),
@@ -196,7 +196,7 @@ pub fn draw_battle_ui(
                     crate::ui::draw_scaled_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
                     ty += crate::ui::s(14.0);
                 }
-                let team_name = match obs.team_id { 0 => mp_player_name, 1 => mp_opponent_name, _ => "Neutral" };
+                let team_name = match obs.player_id { 0 => mp_player_name, 1 => mp_opponent_name, _ => "Neutral" };
                 crate::ui::draw_scaled_text(&format!("Owner: {}", team_name), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
                 break;
             }
@@ -370,7 +370,7 @@ pub fn draw_game_over_ui(
 
     // MVP
     let mvp = units.iter()
-        .filter(|u| u.team_id == 0)
+        .filter(|u| u.player_id == 0)
         .max_by(|a, b| a.damage_dealt_total.partial_cmp(&b.damage_dealt_total).unwrap_or(std::cmp::Ordering::Equal));
     if let Some(mvp_unit) = mvp {
         let mvp_text = format!("MVP: {:?} - {:.0} dmg, {} kills", mvp_unit.kind, mvp_unit.damage_dealt_total, mvp_unit.kills_total);
@@ -379,14 +379,14 @@ pub fn draw_game_over_ui(
     sy += crate::ui::s(18.0);
 
     let total_dmg: f32 = units.iter()
-        .filter(|u| u.team_id == 0)
+        .filter(|u| u.player_id == 0)
         .map(|u| u.damage_dealt_total)
         .sum();
     crate::ui::draw_scaled_text(&format!("Total Damage: {:.0}", total_dmg), sx, sy, 15.0, LIGHTGRAY);
     sy += crate::ui::s(18.0);
 
-    let surviving = units.iter().filter(|u| u.team_id == 0 && u.alive).count();
-    let total_units = units.iter().filter(|u| u.team_id == 0).count();
+    let surviving = units.iter().filter(|u| u.player_id == 0 && u.alive).count();
+    let total_units = units.iter().filter(|u| u.player_id == 0).count();
     crate::ui::draw_scaled_text(&format!("Surviving: {} / {}", surviving, total_units), sx, sy, 15.0, LIGHTGRAY);
     sy += crate::ui::s(18.0);
 
