@@ -14,15 +14,14 @@
 
 ### Next Up
 
+- [ ] **PlayerState & host/guest refactor** — 11-task plan ready, execute via subagent-driven development
 - [ ] R key to rotate packs (gameplay feature)
 - [ ] Pause/options menu (gameplay feature)
-- [ ] rendering::draw_world signature refactor
-- [ ] PlayerState struct refactor (includes phase_ui `too_many_arguments` fixes)
 
 ## Roadmap
 
 1. ~~Duplicate code consolidation~~ (done)
 2. ~~Clippy cleanup + input centralization~~ (done)
-3. Small gameplay features (R-to-rotate, pause menu)
-4. PlayerState struct — unify per-player state
+3. **PlayerState & host/guest architecture** (designed, plan written — next to execute)
+4. Small gameplay features (R-to-rotate, pause menu)
 5. Gameplay features (TBD)

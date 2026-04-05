@@ -12,8 +12,48 @@
 - `[internal]` Fixed 26 clippy warnings across 11 files (is_multiple_of, is_none_or, is_some_and, or_default, question_mark, collapsible_if, unnecessary_cast, needless_borrow, ptr_arg, etc.)
 - `[internal]` Introduced `MouseState` struct in `input.rs` — centralized all mouse input queries into a single per-frame struct
 - `[internal]` Adopted `MouseState` across build_phase, battle_phase, lobby (update + draw), eliminating scattered inline macroquad input queries
+- `[internal]` Extracted `draw_build_overlays` from `draw_world`, reducing signature from 9 → 5 args
+- `[docs]` Designed PlayerState & host/guest architecture — spec at `docs/superpowers/specs/2026-04-05-playerstate-host-guest-design.md`
+- `[docs]` Wrote 11-task implementation plan at `docs/superpowers/plans/2026-04-05-playerstate-host-guest.md`
 - `[tooling]` Added patch notes step to handoff skill with tagged changelog entries
 - `[docs]` Restructured CHANGELOG.md with Patch Notes + Session Handoff format
+
+### Session Handoff — PlayerState Design & Planning
+
+**Git State:** branch `main`, 2 uncommitted doc changes (PLANNING, TASKS), commit `cf38485`, up to date with origin
+**Tests:** No test suite
+
+**Work Completed:**
+- Reviewed yesterday's dedup commit — all 6 refactors verified correct
+- Fixed 26 clippy warnings (32 → 4 remaining, all `too_many_arguments`)
+- Created `MouseState` struct, adopted across build_phase, battle_phase, lobby, settings
+- Extracted `draw_build_overlays` from `draw_world` (9 → 5 args)
+- Designed PlayerState & canonical host/guest architecture through collaborative brainstorm
+- Wrote and committed design spec and 11-task implementation plan
+
+**In Progress:**
+- PlayerState refactor ready to execute — plan approved, subagent-driven approach chosen
+
+**Decisions Made:**
+- Canonical host/guest state model: both clients store identical data, guest uses camera flip for perspective
+- `team_id` renamed to `player_id` (u8), `player_id=0` is host, `>=1` are guests — supports future multi-player
+- `Role` enum (Host, Guest, Spectator) on GameContext as single source of truth
+- `PlayerState` struct: player_id, lp, techs, name, next_id, gold (live balance), packs (unified PlacedPack), ai_memory
+- `MatchProgress` holds `host: PlayerState` + `guest: PlayerState` + round + banned_kinds
+- `BuildState` slimmed to session UI state only — methods take `&mut PlayerState`
+- `ArmyBuilder` removed — gold tracked directly on PlayerState
+- Camera flip via negative x-zoom for guest — macroquad transforms handle input automatically
+- Deploy zone derived from `Role::deploy_x_range()` — replaces hardcoded HALF_W
+- All state sync mirroring removed — canonical coordinates throughout
+- Tool decline = hard stop feedback saved to memory
+
+**Blockers:**
+- None
+
+**Next Steps:**
+1. Execute PlayerState implementation plan (11 tasks, subagent-driven)
+2. R key to rotate packs
+3. Pause/options menu
 
 ### Session Handoff — Clippy Cleanup + MouseState
 
