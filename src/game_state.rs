@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 
 use crate::arena::{MatchState, ARENA_H, HALF_W, shop_w};
 use crate::economy::ArmyBuilder;
-use crate::pack::{all_packs, PackDef};
+use crate::pack::{all_packs, grid_positions, PackDef};
 use crate::tech::TechState;
 use crate::unit::Unit;
 
@@ -39,14 +39,6 @@ pub struct PlacedPack {
 }
 
 impl PlacedPack {
-    pub fn effective_rows(&self, pack: &PackDef) -> u8 {
-        pack.effective_dims(self.rotated).0
-    }
-
-    pub fn effective_cols(&self, pack: &PackDef) -> u8 {
-        pack.effective_dims(self.rotated).1
-    }
-
     pub fn bbox_half_size_rotated(pack: &PackDef, rotated: bool) -> Vec2 {
         let stats = pack.kind.stats();
         let grid_gap = stats.size * 2.5;
@@ -274,29 +266,12 @@ impl BuildState {
     pub fn reposition_pack_units(&self, placed_index: usize, units: &mut [Unit]) {
         let placed = &self.placed_packs[placed_index];
         let pack = &all_packs()[placed.pack_index];
-        let stats = pack.kind.stats();
-        let grid_gap = stats.size * 2.5;
-        let eff_rows = placed.effective_rows(pack);
-        let eff_cols = placed.effective_cols(pack);
-        let grid_w = (eff_cols as f32 - 1.0) * grid_gap;
-        let grid_h = (eff_rows as f32 - 1.0) * grid_gap;
-        let start_x = placed.center.x - grid_w / 2.0;
-        let start_y = placed.center.y - grid_h / 2.0;
+        let size = pack.kind.stats().size;
+        let positions = grid_positions(pack, placed.center, placed.rotated, size);
 
-        let mut idx = 0;
-        for row in 0..eff_rows {
-            for col in 0..eff_cols {
-                let target_pos = vec2(
-                    start_x + col as f32 * grid_gap,
-                    start_y + row as f32 * grid_gap,
-                );
-                if idx < placed.unit_ids.len() {
-                    let uid = placed.unit_ids[idx];
-                    if let Some(unit) = units.iter_mut().find(|u| u.id == uid) {
-                        unit.pos = target_pos;
-                    }
-                }
-                idx += 1;
+        for (pos, &uid) in positions.iter().zip(&placed.unit_ids) {
+            if let Some(unit) = units.iter_mut().find(|u| u.id == uid) {
+                unit.pos = *pos;
             }
         }
     }

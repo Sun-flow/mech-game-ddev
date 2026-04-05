@@ -23,6 +23,38 @@ impl PackDef {
     }
 }
 
+/// Compute grid cell positions for a pack centered at `center`.
+/// `size` should be `pack.kind.stats().size` (caller provides it so we don't
+/// depend on stats lookup internally).
+pub fn grid_positions(pack: &PackDef, center: Vec2, rotated: bool, size: f32) -> Vec<Vec2> {
+    let grid_gap = size * 2.5;
+    let (eff_rows, eff_cols) = pack.effective_dims(rotated);
+    let grid_w = (eff_cols as f32 - 1.0) * grid_gap;
+    let grid_h = (eff_rows as f32 - 1.0) * grid_gap;
+    let start_x = center.x - grid_w / 2.0;
+    let start_y = center.y - grid_h / 2.0;
+
+    let mut positions = Vec::with_capacity(pack.count() as usize);
+    for row in 0..eff_rows {
+        for col in 0..eff_cols {
+            positions.push(vec2(
+                start_x + col as f32 * grid_gap,
+                start_y + row as f32 * grid_gap,
+            ));
+        }
+    }
+    positions
+}
+
+/// Apply tech bonuses and evasion to a unit.
+fn apply_unit_techs(unit: &mut Unit, techs: &TechState) {
+    techs.apply_to_stats(unit.kind, &mut unit.stats);
+    unit.hp = unit.stats.max_hp;
+    if unit.kind == UnitKind::Scout && techs.has_tech(UnitKind::Scout, TechId::ScoutEvasion) {
+        unit.evasion_chance = 0.25;
+    }
+}
+
 /// Spawn units for a pack at a given center position, applying techs.
 /// Returns (spawned_units, assigned_ids).
 pub fn spawn_pack_units(
@@ -33,35 +65,22 @@ pub fn spawn_pack_units(
     techs: &TechState,
     start_id: &mut u64,
 ) -> (Vec<Unit>, Vec<u64>) {
-    let mut stats = pack.kind.stats();
-    techs.apply_to_stats(pack.kind, &mut stats);
-    let grid_gap = stats.size * 2.5;
-
-    let (eff_rows, eff_cols) = pack.effective_dims(rotated);
-    let grid_w = (eff_cols as f32 - 1.0) * grid_gap;
-    let grid_h = (eff_rows as f32 - 1.0) * grid_gap;
-    let start_x = center.x - grid_w / 2.0;
-    let start_y = center.y - grid_h / 2.0;
+    let size = {
+        let mut stats = pack.kind.stats();
+        techs.apply_to_stats(pack.kind, &mut stats);
+        stats.size
+    };
+    let positions = grid_positions(pack, center, rotated, size);
 
     let mut units = Vec::new();
     let mut ids = Vec::new();
 
-    for row in 0..eff_rows {
-        for col in 0..eff_cols {
-            let x = start_x + col as f32 * grid_gap;
-            let y = start_y + row as f32 * grid_gap;
-            let mut unit = Unit::new(*start_id, pack.kind, vec2(x, y), team_id);
-            techs.apply_to_stats(pack.kind, &mut unit.stats);
-            unit.hp = unit.stats.max_hp;
-            if unit.kind == UnitKind::Scout
-                && techs.has_tech(UnitKind::Scout, TechId::ScoutEvasion)
-            {
-                unit.evasion_chance = 0.25;
-            }
-            ids.push(*start_id);
-            units.push(unit);
-            *start_id += 1;
-        }
+    for pos in &positions {
+        let mut unit = Unit::new(*start_id, pack.kind, *pos, team_id);
+        apply_unit_techs(&mut unit, techs);
+        ids.push(*start_id);
+        units.push(unit);
+        *start_id += 1;
     }
 
     (units, ids)
@@ -76,39 +95,22 @@ pub fn respawn_pack_units(
     techs: &TechState,
     unit_ids: &[u64],
 ) -> Vec<Unit> {
-    let mut stats = pack.kind.stats();
-    techs.apply_to_stats(pack.kind, &mut stats);
-    let grid_gap = stats.size * 2.5;
+    let size = {
+        let mut stats = pack.kind.stats();
+        techs.apply_to_stats(pack.kind, &mut stats);
+        stats.size
+    };
+    let positions = grid_positions(pack, center, rotated, size);
 
-    let (eff_rows, eff_cols) = pack.effective_dims(rotated);
-    let grid_w = (eff_cols as f32 - 1.0) * grid_gap;
-    let grid_h = (eff_rows as f32 - 1.0) * grid_gap;
-    let start_x = center.x - grid_w / 2.0;
-    let start_y = center.y - grid_h / 2.0;
-
-    let mut units = Vec::new();
-    let mut idx = 0;
-
-    for row in 0..eff_rows {
-        for col in 0..eff_cols {
-            if idx < unit_ids.len() {
-                let x = start_x + col as f32 * grid_gap;
-                let y = start_y + row as f32 * grid_gap;
-                let mut unit = Unit::new(unit_ids[idx], pack.kind, vec2(x, y), team_id);
-                techs.apply_to_stats(pack.kind, &mut unit.stats);
-                unit.hp = unit.stats.max_hp;
-                if unit.kind == UnitKind::Scout
-                    && techs.has_tech(UnitKind::Scout, TechId::ScoutEvasion)
-                {
-                    unit.evasion_chance = 0.25;
-                }
-                units.push(unit);
-            }
-            idx += 1;
-        }
-    }
-
-    units
+    positions
+        .iter()
+        .zip(unit_ids)
+        .map(|(pos, &id)| {
+            let mut unit = Unit::new(id, pack.kind, *pos, team_id);
+            apply_unit_techs(&mut unit, techs);
+            unit
+        })
+        .collect()
 }
 
 pub fn all_packs() -> &'static [PackDef] {

@@ -98,6 +98,25 @@ impl Obstacle {
     }
 }
 
+/// Slab-method ray-AABB intersection test.
+/// Returns true if the ray from `from` in direction `dir` (length encodes max t=1) intersects the AABB.
+fn ray_intersects_aabb(from: Vec2, dir: Vec2, aabb_min: Vec2, aabb_max: Vec2) -> bool {
+    let inv_dir = vec2(
+        if dir.x.abs() < 0.0001 { f32::MAX.copysign(dir.x) } else { 1.0 / dir.x },
+        if dir.y.abs() < 0.0001 { f32::MAX.copysign(dir.y) } else { 1.0 / dir.y },
+    );
+
+    let t1x = (aabb_min.x - from.x) * inv_dir.x;
+    let t2x = (aabb_max.x - from.x) * inv_dir.x;
+    let t1y = (aabb_min.y - from.y) * inv_dir.y;
+    let t2y = (aabb_max.y - from.y) * inv_dir.y;
+
+    let t_enter = t1x.min(t2x).max(t1y.min(t2y));
+    let t_exit = t1x.max(t2x).min(t1y.max(t2y));
+
+    t_enter <= t_exit && t_enter < 1.0 && t_exit > 0.0
+}
+
 /// Check if a straight line from `from` to `to` is unobstructed by walls.
 /// Only Wall-type obstacles block line of sight (Cover does not).
 pub fn has_line_of_sight(from: Vec2, to: Vec2, obstacles: &[Obstacle]) -> bool {
@@ -112,25 +131,7 @@ pub fn has_line_of_sight(from: Vec2, to: Vec2, obstacles: &[Obstacle]) -> bool {
             continue;
         }
 
-        let obs_min = obs.pos - obs.half_size;
-        let obs_max = obs.pos + obs.half_size;
-
-        // Slab method for ray-AABB intersection
-        let inv_dir = vec2(
-            if dir.x.abs() < 0.0001 { f32::MAX.copysign(dir.x) } else { 1.0 / dir.x },
-            if dir.y.abs() < 0.0001 { f32::MAX.copysign(dir.y) } else { 1.0 / dir.y },
-        );
-
-        let t1x = (obs_min.x - from.x) * inv_dir.x;
-        let t2x = (obs_max.x - from.x) * inv_dir.x;
-        let t1y = (obs_min.y - from.y) * inv_dir.y;
-        let t2y = (obs_max.y - from.y) * inv_dir.y;
-
-        let t_enter = t1x.min(t2x).max(t1y.min(t2y));
-        let t_exit = t1x.max(t2x).min(t1y.max(t2y));
-
-        // Intersection if t_enter <= t_exit and the interval overlaps [0, 1]
-        if t_enter <= t_exit && t_enter < 1.0 && t_exit > 0.0 {
+        if ray_intersects_aabb(from, dir, obs.pos - obs.half_size, obs.pos + obs.half_size) {
             return false;
         }
     }
@@ -168,23 +169,7 @@ pub fn ray_hits_blocking_obstacle(from: Vec2, to: Vec2, team_id: u8, obstacles: 
             continue;
         }
 
-        let obs_min = obs.pos - obs.half_size;
-        let obs_max = obs.pos + obs.half_size;
-
-        let inv_dir = vec2(
-            if dir.x.abs() < 0.0001 { f32::MAX.copysign(dir.x) } else { 1.0 / dir.x },
-            if dir.y.abs() < 0.0001 { f32::MAX.copysign(dir.y) } else { 1.0 / dir.y },
-        );
-
-        let t1x = (obs_min.x - from.x) * inv_dir.x;
-        let t2x = (obs_max.x - from.x) * inv_dir.x;
-        let t1y = (obs_min.y - from.y) * inv_dir.y;
-        let t2y = (obs_max.y - from.y) * inv_dir.y;
-
-        let t_enter = t1x.min(t2x).max(t1y.min(t2y));
-        let t_exit = t1x.max(t2x).min(t1y.max(t2y));
-
-        if t_enter <= t_exit && t_enter < 1.0 && t_exit > 0.0 {
+        if ray_intersects_aabb(from, dir, obs.pos - obs.half_size, obs.pos + obs.half_size) {
             return true;
         }
     }

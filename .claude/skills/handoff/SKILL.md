@@ -60,23 +60,39 @@ Captures session context before compaction or session end. Ensures continuity be
    - What information is needed?
    - What dependencies are unresolved?
 
-9. **Append Session Entry to CHANGELOG.md:**
-    - Append a timestamped handoff entry under the current date heading
-    - This is where the full session narrative lives — NOT in TASKS.md
+9. **Append Patch Notes to CHANGELOG.md:**
+    - Under the current date heading, append concise changelog-style entries
+    - Document ALL changes — gameplay, internal, tooling, docs — but keep each entry brief (one line)
+    - Tag entries as `[gameplay]`, `[internal]`, `[fix]`, `[balance]`, `[ui]`, `[net]`, `[tooling]`, or `[docs]` so it's clear what category each change falls into
+    - 1-8 bullet points per session, covering everything that was done
+    - Write in past tense, descriptive but concise
 
-10. **Update PLANNING.md** (if it exists):
+10. **Append Session Handoff Entry to CHANGELOG.md:**
+    - Below the patch notes, append the full session handoff entry
+    - This is the detailed session narrative — NOT in TASKS.md
+
+11. **Update PLANNING.md** (if it exists):
     - Update phase progress if milestones were reached
     - Note any changes to the roadmap
 
-11. **Generate Handoff Summary:**
+12. **Generate Handoff Summary:**
     - Output a concise summary for the next session to pick up from
 
-## Handoff Entry Format
+## CHANGELOG.md Format
 
-Append this to `.claude/CHANGELOG.md` under the current date heading:
+Each date has two parts: patch notes (brief changelog) and session handoff (detailed narrative).
 
 ```markdown
-### Session N — [Brief Description]
+## 2026-04-05
+
+### Patch Notes
+
+- `[gameplay]` Added multi-pack drag selection
+- `[fix]` Fixed multiplayer desync when both players build simultaneously
+- `[internal]` Extracted battle phase logic to battle_phase.rs
+- `[tooling]` Added patch notes to handoff workflow
+
+### Session Handoff — [Brief Description]
 
 **Git State:** branch `[branch]`, [clean/N uncommitted changes]
 **Tests:** [N passed, N failed / no tests yet]
@@ -98,6 +114,19 @@ Append this to `.claude/CHANGELOG.md` under the current date heading:
 2. [Second priority]
 3. [Third priority]
 ```
+
+### Patch Note Tags
+
+| Tag | Use for |
+|-----|---------|
+| `[gameplay]` | New features, mechanics, content |
+| `[fix]` | Bug fixes |
+| `[balance]` | Stat/tuning changes |
+| `[ui]` | UI/UX changes |
+| `[net]` | Networking/multiplayer changes |
+| `[internal]` | Refactoring, architecture, code quality |
+| `[tooling]` | Build system, dev tools, CI, skills |
+| `[docs]` | Documentation updates |
 
 ## Example Usage
 

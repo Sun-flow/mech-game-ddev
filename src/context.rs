@@ -22,6 +22,33 @@ pub struct GameContext {
 }
 
 impl GameContext {
+    /// Transition from lobby to the first gameplay phase.
+    pub fn start_game(
+        &mut self,
+        net: Option<net::NetState>,
+        is_host: bool,
+        player_name: String,
+        draft_ban_enabled: bool,
+    ) {
+        self.net = net;
+        if let Some(ref mut n) = self.net {
+            n.is_host = is_host;
+            self.mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
+        }
+        self.mp_player_name = player_name;
+        self.progress = MatchProgress::new(is_host);
+        self.build = BuildState::new(self.progress.round_gold(), is_host);
+        if draft_ban_enabled {
+            self.phase = GamePhase::DraftBan {
+                bans: Vec::new(),
+                confirmed: false,
+                opponent_bans: None,
+            };
+        } else {
+            self.phase = GamePhase::Build;
+        }
+    }
+
     pub fn new(is_host: bool) -> Self {
         let progress = MatchProgress::new(is_host);
         let build = BuildState::new(progress.round_gold(), is_host);

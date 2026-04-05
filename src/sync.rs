@@ -7,6 +7,14 @@ use crate::unit::{Unit, UnitKind, ProjectileType};
 use crate::projectile::Projectile;
 use crate::terrain::Obstacle;
 
+fn v2(t: (f32, f32)) -> macroquad::prelude::Vec2 {
+    macroquad::prelude::vec2(t.0, t.1)
+}
+
+fn t2(v: macroquad::prelude::Vec2) -> (f32, f32) {
+    (v.x, v.y)
+}
+
 // ---------------------------------------------------------------------------
 // Lightweight serializable structs for state sync (avoids Vec2 serde issue)
 // ---------------------------------------------------------------------------
@@ -70,13 +78,13 @@ impl SyncUnit {
             id: u.id,
             kind: u.kind,
             hp: u.hp,
-            pos: (u.pos.x, u.pos.y),
+            pos: t2(u.pos),
             team_id: u.team_id,
             target_id: u.target_id,
             attack_cooldown: u.attack_cooldown,
             alive: u.alive,
             death_timer: u.death_timer,
-            path: u.path.iter().map(|v| (v.x, v.y)).collect(),
+            path: u.path.iter().copied().map(t2).collect(),
             path_age: u.path_age,
             slow_timer: u.slow_timer,
             evasion_chance: u.evasion_chance,
@@ -92,12 +100,12 @@ impl SyncUnit {
     /// Apply synced state onto an existing unit (preserves stats/shape/etc.)
     pub fn apply_to(&self, u: &mut Unit) {
         u.hp = self.hp;
-        u.pos = macroquad::prelude::vec2(self.pos.0, self.pos.1);
+        u.pos = v2(self.pos);
         u.target_id = self.target_id;
         u.attack_cooldown = self.attack_cooldown;
         u.alive = self.alive;
         u.death_timer = self.death_timer;
-        u.path = self.path.iter().map(|&(x, y)| macroquad::prelude::vec2(x, y)).collect();
+        u.path = self.path.iter().copied().map(v2).collect();
         u.path_age = self.path_age;
         u.slow_timer = self.slow_timer;
         u.evasion_chance = self.evasion_chance;
@@ -113,9 +121,9 @@ impl SyncUnit {
 impl SyncProjectile {
     pub fn from_projectile(p: &Projectile) -> Self {
         Self {
-            pos: (p.pos.x, p.pos.y),
-            vel: (p.vel.x, p.vel.y),
-            origin: (p.origin.x, p.origin.y),
+            pos: t2(p.pos),
+            vel: t2(p.vel),
+            origin: t2(p.origin),
             max_range: p.max_range,
             damage: p.damage,
             team_id: p.team_id,
@@ -131,9 +139,9 @@ impl SyncProjectile {
 
     pub fn to_projectile(&self) -> Projectile {
         Projectile {
-            pos: macroquad::prelude::vec2(self.pos.0, self.pos.1),
-            vel: macroquad::prelude::vec2(self.vel.0, self.vel.1),
-            origin: macroquad::prelude::vec2(self.origin.0, self.origin.1),
+            pos: v2(self.pos),
+            vel: v2(self.vel),
+            origin: v2(self.origin),
             max_range: self.max_range,
             damage: self.damage,
             team_id: self.team_id,
@@ -151,8 +159,8 @@ impl SyncProjectile {
 impl SyncObstacle {
     pub fn from_obstacle(o: &Obstacle) -> Self {
         Self {
-            pos: (o.pos.x, o.pos.y),
-            half_size: (o.half_size.x, o.half_size.y),
+            pos: t2(o.pos),
+            half_size: t2(o.half_size),
             hp: o.hp,
             team_id: o.team_id,
             alive: o.alive,
@@ -160,7 +168,7 @@ impl SyncObstacle {
     }
 
     pub fn apply_to(&self, o: &mut Obstacle) {
-        o.pos = macroquad::prelude::vec2(self.pos.0, self.pos.1);
+        o.pos = v2(self.pos);
         o.hp = self.hp;
         o.alive = self.alive;
     }

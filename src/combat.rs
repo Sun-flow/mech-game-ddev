@@ -5,6 +5,24 @@ use crate::tech::{TechId, TechState};
 use crate::terrain::Obstacle;
 use crate::unit::{Unit, UnitKind};
 
+/// Apply damage to a unit, returning (damage_dealt, was_killed).
+fn apply_damage(unit: &mut Unit, damage: f32, armor_pierce: bool) -> (f32, bool) {
+    let before_hp = unit.hp;
+    let was_alive = unit.alive;
+    if armor_pierce {
+        unit.take_raw_damage(damage);
+    } else {
+        unit.take_damage(damage);
+    }
+    (before_hp - unit.hp, was_alive && !unit.alive)
+}
+
+/// Deterministic distance tiebreaker: prefer closer, then lower ID.
+fn is_closer(dist: f32, id: u64, best_dist: f32, best_id: Option<u64>) -> bool {
+    dist < best_dist
+        || (dist - best_dist).abs() < 0.01 && best_id.is_none_or(|bid| id < bid)
+}
+
 /// Find the nearest alive enemy for each unit and assign as target.
 /// Prefers targets with line of sight, but falls back to nearest enemy
 /// without LOS so units will path toward hidden enemies.
@@ -31,12 +49,12 @@ pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
             let d = unit.pos.distance(epos);
             // Track nearest enemy regardless of LOS (for pathfinding)
             // Tiebreak on unit ID for determinism
-            if d < best_any_dist || (d - best_any_dist).abs() < 0.01 && best_any_id.map_or(true, |id| eid < id) {
+            if is_closer(d, eid, best_any_dist, best_any_id) {
                 best_any_dist = d;
                 best_any_id = Some(eid);
             }
             // Track nearest enemy with LOS (preferred for attacking)
-            if (d < best_los_dist || (d - best_los_dist).abs() < 0.01 && best_los_id.map_or(true, |id| eid < id))
+            if is_closer(d, eid, best_los_dist, best_los_id)
                 && crate::terrain::has_line_of_sight_wide(unit.pos, epos, crate::projectile::PROJECTILE_RADIUS, obstacles)
             {
                 best_los_dist = d;
@@ -376,11 +394,9 @@ pub fn update_attacks(
                 let mut kills = 0u32;
                 // Primary target
                 if let Some(target) = units.iter_mut().find(|u| u.id == target_id && u.alive) {
-                    let before_hp = target.hp;
-                    let was_alive = target.alive;
-                    target.take_damage(damage);
-                    total_damage_dealt += before_hp - target.hp;
-                    if was_alive && !target.alive { kills += 1; }
+                    let (dealt, killed) = apply_damage(target, damage, false);
+                    total_damage_dealt += dealt;
+                    if killed { kills += 1; }
                 }
                 // Splash damage
                 if splash_radius > 0.0 {
@@ -396,15 +412,9 @@ pub fn update_attacks(
                             continue;
                         }
                         if unit.pos.distance(target_pos) < splash_radius {
-                            let before_hp = unit.hp;
-                            let was_alive = unit.alive;
-                            if cleave_ignores_armor {
-                                unit.take_raw_damage(damage);
-                            } else {
-                                unit.take_damage(damage);
-                            }
-                            total_damage_dealt += before_hp - unit.hp;
-                            if was_alive && !unit.alive { kills += 1; }
+                            let (dealt, killed) = apply_damage(unit, damage, cleave_ignores_armor);
+                            total_damage_dealt += dealt;
+                            if killed { kills += 1; }
                         }
                     }
                 }
@@ -496,7 +506,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
             }
             let dist = proj.pos.distance(shield_pos);
             if dist < shield_radius
-                && (dist < best_shield_dist || (dist - best_shield_dist).abs() < 0.01 && intercepted_by_shield.map_or(true, |id| shield_id < id))
+                && is_closer(dist, shield_id, best_shield_dist, intercepted_by_shield)
             {
                 intercepted_by_shield = Some(shield_id);
                 best_shield_dist = dist;
@@ -533,15 +543,9 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
                     }
                 }
 
-                let before_hp = unit.hp;
-                let was_alive = unit.alive;
-                if proj.armor_pierce {
-                    unit.take_raw_damage(proj.damage);
-                } else {
-                    unit.take_damage(proj.damage);
-                }
-                proj_damage_dealt += before_hp - unit.hp;
-                if was_alive && !unit.alive { proj_kills += 1; }
+                let (dealt, killed) = apply_damage(unit, proj.damage, proj.armor_pierce);
+                proj_damage_dealt += dealt;
+                if killed { proj_kills += 1; }
 
                 if proj.applies_slow {
                     unit.slow_timer = 2.0;
@@ -575,15 +579,9 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
                 }
                 let dist = unit.pos.distance(impact_pos);
                 if dist < proj.splash_radius && dist > 0.001 {
-                    let before_hp = unit.hp;
-                    let was_alive = unit.alive;
-                    if proj.armor_pierce {
-                        unit.take_raw_damage(proj.damage);
-                    } else {
-                        unit.take_damage(proj.damage);
-                    }
-                    proj_damage_dealt += before_hp - unit.hp;
-                    if was_alive && !unit.alive { proj_kills += 1; }
+                    let (dealt, killed) = apply_damage(unit, proj.damage, proj.armor_pierce);
+                    proj_damage_dealt += dealt;
+                    if killed { proj_kills += 1; }
                     if proj.applies_slow {
                         unit.slow_timer = 2.0;
                     }

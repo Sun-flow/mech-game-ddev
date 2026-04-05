@@ -120,32 +120,12 @@ async fn main() {
                 match lobby.update(&mut ctx.game_settings, &mut main_settings) {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
-                        ctx.net = lobby.net.take();
-                        if let Some(ref mut n) = ctx.net {
-                            n.is_host = is_host;
-                            ctx.mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
-                        }
-                        ctx.mp_player_name = lobby.player_name.clone();
-                        ctx.progress = MatchProgress::new(is_host);
-                        ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
-                        if ctx.game_settings.draft_ban_enabled {
-                            ctx.phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
-                        } else {
-                            ctx.phase = GamePhase::Build;
-                        }
+                        ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
-                        ctx.net = None;
-                        ctx.mp_player_name = lobby.player_name.clone();
+                        ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
                         ctx.mp_opponent_name = "AI".to_string();
-                        ctx.progress = MatchProgress::new(true);
-                        ctx.build = BuildState::new(ctx.progress.round_gold(), true);
-                        if ctx.game_settings.draft_ban_enabled {
-                            ctx.phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
-                        } else {
-                            ctx.phase = GamePhase::Build;
-                        }
                         continue;
                     }
                     lobby::LobbyResult::Waiting => {}
@@ -154,32 +134,12 @@ async fn main() {
                 match lobby.draw(&mut ctx.game_settings, &mut main_settings) {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
-                        ctx.net = lobby.net.take();
-                        if let Some(ref mut n) = ctx.net {
-                            n.is_host = is_host;
-                            ctx.mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
-                        }
-                        ctx.mp_player_name = lobby.player_name.clone();
-                        ctx.progress = MatchProgress::new(is_host);
-                        ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
-                        if ctx.game_settings.draft_ban_enabled {
-                            ctx.phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
-                        } else {
-                            ctx.phase = GamePhase::Build;
-                        }
+                        ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
-                        ctx.net = None;
-                        ctx.mp_player_name = lobby.player_name.clone();
+                        ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
                         ctx.mp_opponent_name = "AI".to_string();
-                        ctx.progress = MatchProgress::new(true);
-                        ctx.build = BuildState::new(ctx.progress.round_gold(), true);
-                        if ctx.game_settings.draft_ban_enabled {
-                            ctx.phase = GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None };
-                        } else {
-                            ctx.phase = GamePhase::Build;
-                        }
                         continue;
                     }
                     _ => {}
