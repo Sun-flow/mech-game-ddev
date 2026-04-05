@@ -2,6 +2,7 @@ use crate::chat;
 use crate::game_state::{BuildState, GamePhase};
 use crate::match_progress::MatchProgress;
 use crate::net;
+use crate::role::Role;
 use crate::settings;
 use crate::terrain;
 use crate::unit::Unit;
@@ -16,8 +17,7 @@ pub struct GameContext {
     pub nav_grid: Option<terrain::NavGrid>,
     pub game_settings: settings::GameSettings,
     pub show_grid: bool,
-    pub mp_player_name: String,
-    pub mp_opponent_name: String,
+    pub role: Role,
     pub chat: chat::ChatState,
 }
 
@@ -31,13 +31,25 @@ impl GameContext {
         draft_ban_enabled: bool,
     ) {
         self.net = net;
+        self.role = if is_host { Role::Host } else { Role::Guest };
+
+        let mut opponent_name = "Opponent".to_string();
         if let Some(ref mut n) = self.net {
             n.is_host = is_host;
-            self.mp_opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
+            opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
         }
-        self.mp_player_name = player_name;
-        self.progress = MatchProgress::new(is_host);
-        self.build = BuildState::new(self.progress.round_gold(), is_host);
+
+        self.progress = MatchProgress::new();
+
+        // Set names on PlayerState
+        self.progress.player_mut(self.role).name = player_name;
+        self.progress.opponent_mut(self.role).name = opponent_name;
+
+        // Initialize gold with round allowance
+        let allowance = self.progress.round_allowance();
+        self.progress.player_mut(self.role).gold = allowance;
+
+        self.build = BuildState::new(allowance, is_host);
         if draft_ban_enabled {
             self.phase = GamePhase::DraftBan {
                 bans: Vec::new(),
@@ -49,9 +61,10 @@ impl GameContext {
         }
     }
 
-    pub fn new(is_host: bool) -> Self {
-        let progress = MatchProgress::new(is_host);
-        let build = BuildState::new(progress.round_gold(), is_host);
+    pub fn new() -> Self {
+        let progress = MatchProgress::new();
+        let allowance = progress.round_allowance();
+        let build = BuildState::new(allowance, true);
         Self {
             progress,
             phase: GamePhase::Lobby,
@@ -62,9 +75,18 @@ impl GameContext {
             nav_grid: None,
             game_settings: settings::GameSettings::default(),
             show_grid: false,
-            mp_player_name: String::from("Player"),
-            mp_opponent_name: String::from("Opponent"),
+            role: Role::Host,
             chat: chat::ChatState::new(),
         }
+    }
+
+    /// Helper: get the local player's name.
+    pub fn player_name(&self) -> &str {
+        &self.progress.player(self.role).name
+    }
+
+    /// Helper: get the opponent's name.
+    pub fn opponent_name(&self) -> &str {
+        &self.progress.opponent(self.role).name
     }
 }
