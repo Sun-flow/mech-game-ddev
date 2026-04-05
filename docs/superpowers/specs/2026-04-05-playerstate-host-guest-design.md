@@ -6,7 +6,7 @@
 
 ## Motivation
 
-The current architecture tracks per-player state as paired fields (`player_lp`/`opponent_lp`, `player_techs`/`opponent_techs`, etc.) scattered across `MatchProgress` and `GameContext`. Each client stores state from its own perspective, requiring coordinate mirroring and team_id swapping during network sync. This creates complexity in sync code and makes it harder to reason about shared state.
+The current architecture tracks per-player state as paired fields (`player_lp`/`opponent_lp`, `player_techs`/`opponent_techs`, etc.) scattered across `MatchProgress` and `GameContext`. Each client stores state from its own perspective, requiring coordinate mirroring and team ID swapping during network sync. This creates complexity in sync code and makes it harder to reason about shared state.
 
 The refactor introduces a canonical host/guest state model where both clients store identical data. The guest client uses a camera flip for visual perspective rather than transforming state.
 
@@ -22,14 +22,14 @@ pub enum Role {
 
 Stored once on `GameContext` at game start. Single source of truth for "who am I." AI is always `Role::Guest`.
 
-- `team_id=0` always means host on both machines.
-- `team_id=1` always means guest on both machines.
-- Spectator is reserved for future use.
+- The unit field `team_id` is renamed to `player_id`. `player_id=0` is always the host. `player_id>=1` are guests. Implementations should treat `player_id` as an index into a variable number of players, not a binary host/guest flag.
+- Spectator is reserved for future use (spectators would not have a `player_id` — they observe but don't own units).
 
 ## PlayerState Struct
 
 ```rust
 pub struct PlayerState {
+    pub player_id: u8,
     pub lp: i32,
     pub techs: TechState,
     pub name: String,
@@ -40,6 +40,7 @@ pub struct PlayerState {
 }
 ```
 
+- `player_id` identifies this player's units in the shared units Vec. Host is 0, guests are 1+.
 - `gold` is a live balance. Mutated during build phase (purchases, sells, tech buys). Carried between rounds. Round allowance added at the start of each build phase.
 - `packs` uses a unified `PlacedPack` type (see below). Ownership is structural — `progress.host.packs` vs `progress.guest.packs`.
 - `ai_memory` defaults to empty for human players. Only meaningful for AI guest.
@@ -155,14 +156,14 @@ With canonical state, all mirroring logic is removed:
 
 - **Build sync:** Players send canonical coordinates. No mirroring on send or receive. Receiving client stores packs in the opponent's `PlayerState.packs` as-is.
 - **State hash:** `compute_state_hash` drops the `mirror` parameter. Both clients hash identical canonical data.
-- **`apply_state_sync`:** Drops the `mirror` parameter. Host sends canonical positions, guest applies directly. No coordinate flipping, no team_id swapping.
+- **`apply_state_sync`:** Drops the `mirror` parameter. Host sends canonical positions, guest applies directly. No coordinate flipping, no player_id swapping.
 - **Round end:** Messages use host/guest LP rather than perspective-relative team IDs.
 
 This removes ~40 lines of mirroring logic from sync.rs and eliminates the `mirror` parameter from battle_phase.rs call sites.
 
 ## AI Integration
 
-AI is always `Role::Guest` (team_id=1). No changes to AI placement logic — it already spawns units in `HALF_W..ARENA_W`, which is the guest's canonical deploy zone.
+AI is always `Role::Guest` (player_id=1). No changes to AI placement logic — it already spawns units in `HALF_W..ARENA_W`, which is the guest's canonical deploy zone.
 
 - `ai_memory` lives on `progress.guest.ai_memory`.
 - Tech purchases go to `progress.guest.techs`.
@@ -171,7 +172,7 @@ AI is always `Role::Guest` (team_id=1). No changes to AI placement logic — it 
 
 ## Units Vec
 
-The mixed `Vec<Unit>` in `GameContext.units` is unchanged. Both teams' units share one Vec, filtered by `team_id`. This is intentional — combat targeting iterates all units and selects enemies by `team_id != self.team_id`. Splitting would add complexity with no benefit.
+The mixed `Vec<Unit>` in `GameContext.units` is unchanged. All players' units share one Vec, filtered by `player_id`. This is intentional — combat targeting iterates all units and selects enemies by `player_id != self.player_id`. Splitting would add complexity with no benefit. The rename from `team_id` to `player_id` on the `Unit` struct propagates through all combat, rendering, and sync code.
 
 ## Files Impacted
 
