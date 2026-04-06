@@ -1,3 +1,5 @@
+use crate::arena::{ARENA_W, HALF_W};
+
 /// Canonical player identity within a match.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -16,6 +18,15 @@ impl Role {
             Role::Host => 0,
             Role::Guest => 1,
             Role::Spectator => 255,
+        }
+    }
+
+    /// Deploy zone x-range for this role.
+    pub fn deploy_x_range(self) -> (f32, f32) {
+        match self {
+            Role::Host => (0.0, HALF_W),
+            Role::Guest => (HALF_W, ARENA_W),
+            Role::Spectator => (0.0, 0.0),
         }
     }
 

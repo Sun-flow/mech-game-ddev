@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::arena::{MatchState, ARENA_H, HALF_W, shop_w};
+use crate::arena::{MatchState, ARENA_H};
 use crate::economy::ArmyBuilder;
 use crate::pack::{all_packs, grid_positions, PackDef};
 use crate::tech::TechState;
@@ -150,6 +150,7 @@ impl BuildState {
         pack_index: usize,
         round: u32,
         tech_state: &TechState,
+        deploy_range: (f32, f32),
     ) -> Option<Vec<Unit>> {
         let packs = all_packs();
         let pack = &packs[pack_index];
@@ -167,10 +168,11 @@ impl BuildState {
 
         // Find a default placement position in the deploy zone (center of build area)
         let half = PlacedPack::bbox_half_size_rotated(pack, false);
-        let deploy_cx = shop_w() + (HALF_W - shop_w()) / 2.0;
+        let (d_min, d_max) = deploy_range;
+        let deploy_cx = d_min + (d_max - d_min) / 2.0;
         let deploy_cy = ARENA_H / 2.0;
-        let min_x = shop_w() + half.x;
-        let max_x = HALF_W - half.x;
+        let min_x = d_min + half.x;
+        let max_x = d_max - half.x;
         let min_y = half.y;
         let max_y = ARENA_H - half.y;
 
@@ -276,7 +278,7 @@ impl BuildState {
         }
     }
 
-    pub fn rotate_pack(&mut self, placed_index: usize, units: &mut [Unit]) -> bool {
+    pub fn rotate_pack(&mut self, placed_index: usize, units: &mut [Unit], deploy_range: (f32, f32)) -> bool {
         if self.placed_packs[placed_index].locked {
             return false;
         }
@@ -288,7 +290,7 @@ impl BuildState {
         let new_half = PlacedPack::bbox_half_size_rotated(pack, new_rotated);
         let center = placed.center;
         let clamped = vec2(
-            center.x.clamp(new_half.x, HALF_W - new_half.x),
+            center.x.clamp(deploy_range.0 + new_half.x, deploy_range.1 - new_half.x),
             center.y.clamp(new_half.y, ARENA_H - new_half.y),
         );
 

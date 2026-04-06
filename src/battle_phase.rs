@@ -97,12 +97,10 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
             // --- Sync hashing every SYNC_INTERVAL frames ---
             if let Some(ref mut n) = ctx.net {
                 if battle.frame.is_multiple_of(SYNC_INTERVAL) {
+                    let local_hash = sync::compute_state_hash(&ctx.units, &battle.projectiles, &ctx.obstacles);
                     if n.is_host {
-                        let local_hash = sync::compute_state_hash(&ctx.units, &battle.projectiles, &ctx.obstacles, false);
                         n.send(net::NetMessage::StateHash { frame: battle.frame, hash: local_hash });
                     } else {
-                        // Guest: store hash for this frame so we can compare when host's hash arrives
-                        let local_hash = sync::compute_state_hash(&ctx.units, &battle.projectiles, &ctx.obstacles, true);
                         if battle.recent_hashes.len() >= 4 {
                             battle.recent_hashes.pop_front();
                         }
@@ -156,7 +154,6 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                         &sync_data.units_data,
                         &sync_data.projectiles_data,
                         &sync_data.obstacles_data,
-                        true,
                     );
                 }
             }

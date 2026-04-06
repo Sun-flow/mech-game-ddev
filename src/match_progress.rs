@@ -205,8 +205,7 @@ impl MatchProgress {
     }
 
     /// Apply opponent's build data received over the network.
-    /// Mirrors x-coordinates so opponent units appear on the right half.
-    /// Returns the new units spawned.
+    /// Canonical coordinates — no mirroring needed.
     pub fn apply_opponent_build(&mut self, data: &OpponentBuildData, role: Role) -> Vec<Unit> {
         let packs = all_packs();
         let mut new_units = Vec::new();
@@ -218,16 +217,13 @@ impl MatchProgress {
             opp.techs.purchase(kind, tech_id);
         }
 
-        // Spawn opponent's new packs (mirrored)
+        // Spawn opponent's new packs (canonical coordinates)
         for &(pack_index, (cx, cy), rotated) in &data.new_packs {
             if pack_index >= packs.len() {
                 continue;
             }
             let pack = &packs[pack_index];
-
-            // Mirror x: opponent built on their left half, we show on right half
-            let mirrored_x = crate::arena::ARENA_W - cx;
-            let center = vec2(mirrored_x, cy);
+            let center = vec2(cx, cy);
 
             let (spawned, ids) = crate::pack::spawn_pack_units(
                 pack,

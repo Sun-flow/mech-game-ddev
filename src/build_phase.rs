@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::arena::{ARENA_H, HALF_W, shop_w};
+use crate::arena::{ARENA_H, shop_w};
 use crate::battle_phase::BattleState;
 use crate::context::GameContext;
 use crate::economy;
@@ -117,6 +117,7 @@ pub fn update(
                 pack_idx,
                 ctx.progress.round,
                 &ctx.progress.player(role).techs,
+                ctx.role.deploy_x_range(),
             ) {
                 ctx.units.extend(new_units);
             }
@@ -187,11 +188,11 @@ pub fn update(
     if middle_click && screen_mouse.x > shop_w() {
         if let Some(drag_idx) = ctx.build.dragging {
             if !ctx.build.placed_packs[drag_idx].locked {
-                ctx.build.rotate_pack(drag_idx, &mut ctx.units);
+                ctx.build.rotate_pack(drag_idx, &mut ctx.units, ctx.role.deploy_x_range());
             }
         } else if let Some(placed_idx) = ctx.build.pack_at(mouse) {
             if !ctx.build.placed_packs[placed_idx].locked {
-                ctx.build.rotate_pack(placed_idx, &mut ctx.units);
+                ctx.build.rotate_pack(placed_idx, &mut ctx.units, ctx.role.deploy_x_range());
             }
         }
     }
@@ -211,8 +212,9 @@ pub fn update(
             let new_center = snapped_mouse + offset;
             let pack = &all_packs()[ctx.build.placed_packs[pack_idx].pack_index];
             let half = ctx.build.placed_packs[pack_idx].bbox_half_size_for(pack);
+            let (dmin, dmax) = ctx.role.deploy_x_range();
             let clamped = vec2(
-                new_center.x.clamp(half.x, HALF_W - half.x),
+                new_center.x.clamp(dmin + half.x, dmax - half.x),
                 new_center.y.clamp(half.y, ARENA_H - half.y),
             );
             ctx.build.placed_packs[pack_idx].center = clamped;
@@ -338,8 +340,9 @@ pub fn update(
         // Currently holding a pack — follow mouse
         let pack = &all_packs()[ctx.build.placed_packs[drag_idx].pack_index];
         let half = ctx.build.placed_packs[drag_idx].bbox_half_size_for(pack);
+        let (dmin, dmax) = ctx.role.deploy_x_range();
         let clamped = vec2(
-            mouse.x.clamp(half.x, HALF_W - half.x),
+            mouse.x.clamp(dmin + half.x, dmax - half.x),
             mouse.y.clamp(half.y, ARENA_H - half.y),
         );
         // Snap to grid

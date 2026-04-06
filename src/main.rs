@@ -71,9 +71,10 @@ async fn main() {
         }
 
         // Build the arena camera (used for all world-space rendering)
+        let x_flip = if ctx.role == role::Role::Guest { -1.0 } else { 1.0 };
         let arena_camera = Camera2D {
             target: camera_target,
-            zoom: vec2(camera_zoom * 2.0 / screen_width(), camera_zoom * 2.0 / screen_height()),
+            zoom: vec2(camera_zoom * 2.0 / screen_width() * x_flip, camera_zoom * 2.0 / screen_height()),
             ..Default::default()
         };
         let world_mouse = arena_camera.screen_to_world(screen_mouse);
