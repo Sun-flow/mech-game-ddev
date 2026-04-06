@@ -21,10 +21,10 @@ pub struct AiMemory {
 }
 
 impl AiMemory {
-    /// Record the player's army composition and the round outcome.
-    pub fn record_round(&mut self, player_units: &[Unit], ai_won: bool) {
+    /// Record the human player's army composition and the round outcome.
+    pub fn record_round(&mut self, player_units: &[Unit], human_player_id: u8, ai_won: bool) {
         let mut counts: HashMap<UnitKind, u32> = HashMap::new();
-        for u in player_units.iter().filter(|u| u.player_id == 0) {
+        for u in player_units.iter().filter(|u| u.player_id == human_player_id) {
             *counts.entry(u.kind).or_insert(0) += 1;
         }
         self.last_enemy_kinds = counts.into_iter().collect();

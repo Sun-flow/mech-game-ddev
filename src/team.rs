@@ -8,41 +8,43 @@ pub const TEAM_COLORS: &[Color] = &[
     Color::new(0.9, 0.8, 0.2, 1.0), // Yellow
 ];
 
-/// Player color override index (255 = no override, use default).
-static PLAYER_COLOR_OVERRIDE: AtomicU8 = AtomicU8::new(255);
-/// Opponent color override index (255 = no override, use default).
-static OPPONENT_COLOR_OVERRIDE: AtomicU8 = AtomicU8::new(255);
+/// Canonical color override per player_id (255 = no override, use default).
+static COLOR_OVERRIDE_0: AtomicU8 = AtomicU8::new(255);
+static COLOR_OVERRIDE_1: AtomicU8 = AtomicU8::new(255);
 
-/// Set the player's custom team color index (from settings).
-pub fn set_player_color(index: u8) {
-    PLAYER_COLOR_OVERRIDE.store(index, Ordering::Relaxed);
-}
-
-/// Set the opponent's color index (received over network).
-pub fn set_opponent_color(index: u8) {
-    OPPONENT_COLOR_OVERRIDE.store(index, Ordering::Relaxed);
+/// Set the color override for a given player_id.
+pub fn set_color(player_id: u8, index: u8) {
+    match player_id {
+        0 => COLOR_OVERRIDE_0.store(index, Ordering::Relaxed),
+        1 => COLOR_OVERRIDE_1.store(index, Ordering::Relaxed),
+        _ => {}
+    }
 }
 
 pub fn team_color(player_id: u8) -> Color {
     let options = crate::settings::TEAM_COLOR_OPTIONS;
-    if player_id == 0 {
-        let idx = PLAYER_COLOR_OVERRIDE.load(Ordering::Relaxed);
-        if (idx as usize) < options.len() {
-            let (_, (r, g, b)) = options[idx as usize];
-            return Color::new(r, g, b, 1.0);
-        }
-    }
-    if player_id == 1 {
-        let idx = OPPONENT_COLOR_OVERRIDE.load(Ordering::Relaxed);
-        if (idx as usize) < options.len() {
-            let (_, (r, g, b)) = options[idx as usize];
-            return Color::new(r, g, b, 1.0);
-        }
+    let override_idx = match player_id {
+        0 => COLOR_OVERRIDE_0.load(Ordering::Relaxed),
+        1 => COLOR_OVERRIDE_1.load(Ordering::Relaxed),
+        _ => 255,
+    };
+    if (override_idx as usize) < options.len() {
+        let (_, (r, g, b)) = options[override_idx as usize];
+        return Color::new(r, g, b, 1.0);
     }
     TEAM_COLORS
         .get(player_id as usize)
         .copied()
         .unwrap_or(WHITE)
+}
+
+/// Get the color override index for a player_id (255 if no override).
+pub fn color_index(player_id: u8) -> u8 {
+    match player_id {
+        0 => COLOR_OVERRIDE_0.load(Ordering::Relaxed),
+        1 => COLOR_OVERRIDE_1.load(Ordering::Relaxed),
+        _ => 255,
+    }
 }
 
 pub fn team_projectile_color(player_id: u8) -> Color {

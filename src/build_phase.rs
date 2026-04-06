@@ -118,6 +118,7 @@ pub fn update(
                 ctx.progress.round,
                 &ctx.progress.player(role).techs,
                 ctx.role.deploy_x_range(),
+                ctx.role.player_id(),
             ) {
                 ctx.units.extend(new_units);
             }

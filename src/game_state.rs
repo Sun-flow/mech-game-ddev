@@ -150,6 +150,7 @@ impl BuildState {
         round: u32,
         tech_state: &TechState,
         deploy_range: (f32, f32),
+        player_id: u8,
     ) -> Option<Vec<Unit>> {
         let packs = all_packs();
         let pack = &packs[pack_index];
@@ -220,7 +221,7 @@ impl BuildState {
 
         // Spawn units with tech bonuses applied
         let (spawned, ids) = crate::pack::spawn_pack_units(
-            pack, center, false, 0, tech_state, &mut self.next_id,
+            pack, center, false, player_id, tech_state, &mut self.next_id,
         );
 
         self.placed_packs.push(PlacedPack {
@@ -370,12 +371,12 @@ impl BuildState {
     }
 
     /// Respawn all player units from locked packs at full HP with current techs.
-    pub fn respawn_player_units(&self, player_techs: &TechState) -> Vec<Unit> {
+    pub fn respawn_player_units(&self, player_techs: &TechState, player_id: u8) -> Vec<Unit> {
         let mut spawned = Vec::new();
         for placed in &self.placed_packs {
             let pack = &all_packs()[placed.pack_index];
             let units = crate::pack::respawn_pack_units(
-                pack, placed.center, placed.rotated, 0, player_techs, &placed.unit_ids,
+                pack, placed.center, placed.rotated, player_id, player_techs, &placed.unit_ids,
             );
             spawned.extend(units);
         }

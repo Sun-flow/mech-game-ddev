@@ -47,7 +47,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
             // New round gold = saved gold + round allowance
             let round_gold = ctx.progress.player(role).gold + ctx.progress.round_allowance();
             ctx.build = BuildState::new_round(round_gold, locked_packs, next_id);
-            ctx.units.extend(ctx.build.respawn_player_units(&ctx.progress.player(role).techs));
+            ctx.units.extend(ctx.build.respawn_player_units(&ctx.progress.player(role).techs, ctx.role.player_id()));
 
             for unit in ctx.units.iter_mut() {
                 if let Some(&(ddt, dst, ddr, dsr, kt)) = old_stats.get(&unit.id) {

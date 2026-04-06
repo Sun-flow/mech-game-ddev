@@ -3,7 +3,6 @@ use macroquad::prelude::*;
 use crate::arena::{shop_w, MatchState};
 use crate::game_state::{self, BuildState, PlacedPack};
 use crate::match_progress::MatchProgress;
-use crate::net;
 use crate::pack::all_packs;
 use crate::role::Role;
 use crate::settings;
@@ -244,8 +243,6 @@ pub fn draw_round_result_ui(
     match_state: &MatchState,
     lp_damage: i32,
     loser_team: Option<u8>,
-    game_settings: &settings::GameSettings,
-    net: &Option<net::NetState>,
     role: Role,
 ) {
     let mp_player_name = &progress.player(role).name;
@@ -254,12 +251,8 @@ pub fn draw_round_result_ui(
 
     let text = match match_state {
         MatchState::Winner(tid) => {
-            let (winner_name, color_idx) = if *tid == 0 {
-                (mp_player_name, game_settings.player_color_index)
-            } else {
-                let opp_idx = net.as_ref().and_then(|n| n.opponent_color).unwrap_or(1);
-                (mp_opponent_name, opp_idx)
-            };
+            let winner_name = if *tid == role.player_id() { mp_player_name } else { mp_opponent_name };
+            let color_idx = crate::team::color_index(*tid);
             let color_name = settings::TEAM_COLOR_OPTIONS
                 .get(color_idx as usize)
                 .map(|(name, _)| *name)
@@ -311,20 +304,15 @@ pub fn draw_game_over_ui(
     winner: u8,
     progress: &MatchProgress,
     units: &[Unit],
-    game_settings: &settings::GameSettings,
-    net: &Option<net::NetState>,
     screen_mouse: Vec2,
     role: Role,
 ) {
     let mp_player_name = &progress.player(role).name;
     let mp_opponent_name = &progress.opponent(role).name;
     let local_pid = role.player_id();
-    let (headline, winner_color_idx) = if winner == local_pid {
-        ("YOU WIN!".to_string(), game_settings.player_color_index)
-    } else {
-        ("YOU LOSE!".to_string(), net.as_ref().and_then(|n| n.opponent_color).unwrap_or(1))
-    };
+    let headline = if winner == local_pid { "YOU WIN!".to_string() } else { "YOU LOSE!".to_string() };
     let winner_name = if winner == local_pid { mp_player_name } else { mp_opponent_name };
+    let winner_color_idx = crate::team::color_index(winner);
     let color_name = settings::TEAM_COLOR_OPTIONS
         .get(winner_color_idx as usize)
         .map(|(name, _)| *name)

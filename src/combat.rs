@@ -216,8 +216,8 @@ pub fn update_attacks(
     units: &mut [Unit],
     projectiles: &mut Vec<Projectile>,
     dt: f32,
-    player_techs: &TechState,
-    ai_techs: &TechState,
+    host_techs: &TechState,
+    guest_techs: &TechState,
     splash_effects: &mut Vec<crate::rendering::SplashEffect>,
 ) {
     // Update cooldowns
@@ -225,9 +225,9 @@ pub fn update_attacks(
         unit.update_cooldown(dt);
     }
 
-    // Helper to get the right tech state for a team
-    let tech_for_team = |player_id: u8| -> &TechState {
-        if player_id == 0 { player_techs } else { ai_techs }
+    // Helper to get the right tech state for a player
+    let tech_for_player = |player_id: u8| -> &TechState {
+        if player_id == 0 { host_techs } else { guest_techs }
     };
 
     // === Interceptor rocket interception ===
@@ -271,7 +271,7 @@ pub fn update_attacks(
     let intercepted_unit_ids: Vec<u64> = interceptor_actions
         .iter()
         .filter(|(_uid, _, team)| {
-            let techs = tech_for_team(*team);
+            let techs = tech_for_player(*team);
             !techs.has_tech(UnitKind::Interceptor, TechId::InterceptorDualWeapon)
         })
         .map(|(uid, _, _)| *uid)
@@ -321,7 +321,7 @@ pub fn update_attacks(
             }
 
             unit.reset_cooldown();
-            let techs = tech_for_team(unit.player_id);
+            let techs = tech_for_player(unit.player_id);
 
             // Calculate bonus damage from Chaff Overwhelm tech
             let mut bonus_damage = 0.0;

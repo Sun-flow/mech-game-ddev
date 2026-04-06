@@ -274,7 +274,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
             MatchState::Winner(w) => *w == 1,
             _ => false,
         };
-        ctx.progress.guest.ai_memory.record_round(&ctx.units, ai_won);
+        ctx.progress.guest.ai_memory.record_round(&ctx.units, ctx.progress.host.player_id, ai_won);
 
         // Calculate LP damage
         let alive_0 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).count() as i32;

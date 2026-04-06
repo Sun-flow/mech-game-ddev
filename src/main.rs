@@ -61,14 +61,14 @@ async fn main() {
         let screen_mouse = vec2(mouse_position().0, mouse_position().1);
         let left_click = is_mouse_button_pressed(MouseButton::Left);
         let right_click = is_mouse_button_pressed(MouseButton::Right);
-        team::set_player_color(ctx.game_settings.player_color_index);
-        ui::set_text_scale(main_settings.ui_scale);
-        // Apply opponent color if received
+        // Set colors canonically: my color goes to my player_id slot
+        team::set_color(ctx.role.player_id(), ctx.game_settings.player_color_index);
         if let Some(ref n) = ctx.net {
             if let Some(opp_color) = n.opponent_color {
-                team::set_opponent_color(opp_color);
+                team::set_color(ctx.role.opponent_id(), opp_color);
             }
         }
+        ui::set_text_scale(main_settings.ui_scale);
 
         // Build the arena camera (used for all world-space rendering)
         let x_flip = if ctx.role == role::Role::Guest { -1.0 } else { 1.0 };
@@ -237,11 +237,11 @@ async fn main() {
             }
 
             GamePhase::RoundResult { match_state, lp_damage, loser_team } => {
-                phase_ui::draw_round_result_ui(&ctx.progress, match_state, *lp_damage, *loser_team, &ctx.game_settings, &ctx.net, ctx.role);
+                phase_ui::draw_round_result_ui(&ctx.progress, match_state, *lp_damage, *loser_team, ctx.role);
             }
 
             GamePhase::GameOver(winner) => {
-                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, &ctx.game_settings, &ctx.net, mouse.screen_mouse, ctx.role);
+                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, mouse.screen_mouse, ctx.role);
             }
         }
 
@@ -263,9 +263,9 @@ async fn main() {
         }
 
         // Chat system
-        ctx.chat.receive_from_net(&mut ctx.net);
+        ctx.chat.receive_from_net(&mut ctx.net, ctx.role.opponent_id());
         let my_name = ctx.progress.player(ctx.role).name.clone();
-        ctx.chat.update(&ctx.phase, &mut ctx.net, &my_name);
+        ctx.chat.update(&ctx.phase, &mut ctx.net, &my_name, ctx.role.player_id());
         ctx.chat.tick(dt);
         ctx.chat.draw(&ctx.phase, &my_name);
 
