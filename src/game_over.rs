@@ -15,9 +15,9 @@ pub fn update(
     left_click: bool,
 ) {
     if is_key_pressed(KeyCode::R) {
-        ctx.progress = MatchProgress::new(true);
+        ctx.progress = MatchProgress::new();
         ctx.phase = GamePhase::Lobby;
-        ctx.build = BuildState::new(ctx.progress.round_gold(), true);
+        ctx.build = BuildState::new(ctx.progress.round_allowance(), true);
         ctx.units.clear();
         battle.projectiles.clear();
         ctx.net = None;
@@ -34,8 +34,9 @@ pub fn update(
         && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
     {
         let is_host = ctx.net.as_ref().is_none_or(|n| n.is_host);
-        ctx.progress = MatchProgress::new(is_host);
-        ctx.build = BuildState::new(ctx.progress.round_gold(), is_host);
+        ctx.progress = MatchProgress::new();
+        let allowance = ctx.progress.round_allowance();
+        ctx.build = BuildState::new(allowance, is_host);
         ctx.units.clear();
         ctx.obstacles.clear();
         ctx.nav_grid = None;

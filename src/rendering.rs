@@ -187,7 +187,7 @@ fn draw_splash_effects(effects: &[SplashEffect]) {
     }
 }
 
-pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_mouse: Vec2) {
+pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_mouse: Vec2, role: crate::role::Role) {
     // Placement zone overlay
     draw_rectangle(0.0, 0.0, HALF_W, ARENA_H, Color::new(0.2, 0.3, 0.5, 0.05));
     draw_rectangle(HALF_W, 0.0, HALF_W, ARENA_H, Color::new(0.5, 0.2, 0.2, 0.05));
@@ -259,7 +259,7 @@ pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_m
 
     // Opponent pack bounding boxes (from previous rounds, visible during build)
     let packs = all_packs();
-    for opponent_pack in &progress.opponent_packs {
+    for opponent_pack in &progress.opponent(role).packs {
         let pack = &packs[opponent_pack.pack_index];
         let half = PlacedPack::bbox_half_size_rotated(
             pack,

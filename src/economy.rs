@@ -224,7 +224,6 @@ pub fn ai_buy_techs(gold: &mut u32, tech_state: &mut TechState) {
 
 /// Start battle in single-player AI mode. Generates AI army and transitions to Battle.
 pub fn start_ai_battle(
-    _build: &mut crate::game_state::BuildState,
     units: &mut Vec<crate::unit::Unit>,
     projectiles: &mut Vec<crate::projectile::Projectile>,
     progress: &mut crate::match_progress::MatchProgress,
@@ -248,14 +247,14 @@ pub fn start_ai_battle(
     // Remove old opponent units (they'll be respawned fresh from stored packs)
     units.retain(|u| u.player_id == 0);
 
-    // Respawn all existing opponent units from previous rounds at full HP
-    units.extend(progress.respawn_opponent_units());
+    // Respawn all existing opponent (guest) units from previous rounds at full HP
+    units.extend(progress.guest.respawn_units());
 
     // AI buys techs, then spawns NEW army for this round
     let mut ai_gold = progress.round_allowance();
-    ai_buy_techs(&mut ai_gold, &mut progress.opponent_techs);
+    ai_buy_techs(&mut ai_gold, &mut progress.guest.techs);
     let ai_builder = if game_settings.smart_ai {
-        smart_army(ai_gold, &progress.ai_memory, &progress.banned_kinds)
+        smart_army(ai_gold, &progress.guest.ai_memory, &progress.banned_kinds)
     } else {
         random_army_filtered(ai_gold, &progress.banned_kinds)
     };
