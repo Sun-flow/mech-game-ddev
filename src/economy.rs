@@ -1,40 +1,16 @@
 use crate::pack::{all_packs, PackDef};
 use crate::tech::TechState;
 
-#[derive(Clone, Debug)]
-pub struct ArmyBuilder {
-    pub gold_remaining: u32,
-    pub packs: Vec<PackDef>,
-}
-
-impl ArmyBuilder {
-    pub fn new(gold: u32) -> Self {
-        Self {
-            gold_remaining: gold,
-            packs: Vec::new(),
-        }
-    }
-
-    pub fn buy_pack(&mut self, pack: &PackDef) -> bool {
-        if self.gold_remaining >= pack.cost {
-            self.gold_remaining -= pack.cost;
-            self.packs.push(pack.clone());
-            true
-        } else {
-            false
-        }
-    }
-}
-
-/// Build a random army, excluding banned kinds.
-pub fn random_army_filtered(gold: u32, banned: &[crate::unit::UnitKind]) -> ArmyBuilder {
-    let mut builder = ArmyBuilder::new(gold);
+/// Build a random army, excluding banned kinds. Returns chosen packs.
+pub fn random_army_filtered(gold: u32, banned: &[crate::unit::UnitKind]) -> Vec<PackDef> {
+    let mut remaining = gold;
+    let mut chosen = Vec::new();
     let packs = all_packs();
 
     loop {
         let affordable: Vec<&PackDef> = packs
             .iter()
-            .filter(|p| p.cost <= builder.gold_remaining && !banned.contains(&p.kind))
+            .filter(|p| p.cost <= remaining && !banned.contains(&p.kind))
             .collect();
 
         if affordable.is_empty() {
@@ -42,17 +18,19 @@ pub fn random_army_filtered(gold: u32, banned: &[crate::unit::UnitKind]) -> Army
         }
 
         let idx = macroquad::rand::gen_range(0, affordable.len());
-        builder.buy_pack(affordable[idx]);
+        remaining -= affordable[idx].cost;
+        chosen.push(affordable[idx].clone());
     }
 
-    builder
+    chosen
 }
 
 /// Build a smart army that balances categories and counter-picks based on AI memory.
-pub fn smart_army(gold: u32, memory: &crate::match_progress::AiMemory, banned: &[crate::unit::UnitKind]) -> ArmyBuilder {
+pub fn smart_army(gold: u32, memory: &crate::match_progress::AiMemory, banned: &[crate::unit::UnitKind]) -> Vec<PackDef> {
     use crate::unit::UnitKind;
 
-    let mut builder = ArmyBuilder::new(gold);
+    let mut remaining = gold;
+    let mut chosen = Vec::new();
     let packs = all_packs();
 
     // Filter out banned packs
@@ -61,7 +39,7 @@ pub fn smart_army(gold: u32, memory: &crate::match_progress::AiMemory, banned: &
         .collect();
 
     if available_packs.is_empty() {
-        return builder;
+        return chosen;
     }
 
     // Categorize packs
@@ -131,7 +109,7 @@ pub fn smart_army(gold: u32, memory: &crate::match_progress::AiMemory, banned: &
     // Purchase loop: pick the most under-budget category, buy a random pack from it
     loop {
         let affordable: Vec<&&PackDef> = available_packs.iter()
-            .filter(|p| p.cost <= builder.gold_remaining)
+            .filter(|p| p.cost <= remaining)
             .collect();
         if affordable.is_empty() {
             break;
@@ -161,7 +139,7 @@ pub fn smart_army(gold: u32, memory: &crate::match_progress::AiMemory, banned: &
             .copied()
             .collect();
 
-        let chosen = if cat_affordable.is_empty() {
+        let pick = if cat_affordable.is_empty() {
             // Fall back to any affordable pack
             let idx = macroquad::rand::gen_range(0, affordable.len());
             affordable[idx]
@@ -170,16 +148,17 @@ pub fn smart_army(gold: u32, memory: &crate::match_progress::AiMemory, banned: &
             cat_affordable[idx]
         };
 
-        let cost = chosen.cost as f32;
-        if frontline.contains(&chosen.kind) { spent_front += cost; }
-        else if ranged.contains(&chosen.kind) { spent_range += cost; }
-        else if support.contains(&chosen.kind) { spent_support += cost; }
+        let cost = pick.cost as f32;
+        if frontline.contains(&pick.kind) { spent_front += cost; }
+        else if ranged.contains(&pick.kind) { spent_range += cost; }
+        else if support.contains(&pick.kind) { spent_support += cost; }
         else { spent_swarm += cost; }
 
-        builder.buy_pack(chosen);
+        remaining -= pick.cost;
+        chosen.push((*pick).clone());
     }
 
-    builder
+    chosen
 }
 
 /// AI buys random techs, spending up to ~30% of available gold.
@@ -253,12 +232,12 @@ pub fn start_ai_battle(
     // AI buys techs, then spawns NEW army for this round
     let mut ai_gold = progress.round_allowance();
     ai_buy_techs(&mut ai_gold, &mut progress.guest.techs);
-    let ai_builder = if game_settings.smart_ai {
+    let ai_packs = if game_settings.smart_ai {
         smart_army(ai_gold, &progress.guest.ai_memory, &progress.banned_kinds)
     } else {
         random_army_filtered(ai_gold, &progress.banned_kinds)
     };
-    let new_opponent_units = progress.spawn_ai_army_from_builder(&ai_builder);
+    let new_opponent_units = progress.spawn_ai_army(&ai_packs);
     units.extend(new_opponent_units);
 
     // Seed RNG for this round

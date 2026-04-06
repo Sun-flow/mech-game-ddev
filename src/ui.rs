@@ -46,9 +46,13 @@ pub fn measure_scaled_text(text: &str, base_font_size: u16) -> TextDimensions {
     measure_text(text, None, scaled, 1.0)
 }
 
-pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, player_name: &str, opponent_name: &str, role: Role) {
-    let player_lp = progress.player(role).lp;
-    let opponent_lp = progress.opponent(role).lp;
+pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, role: Role) {
+    let player = progress.player(role);
+    let opponent = progress.opponent(role);
+    let player_lp = player.lp;
+    let opponent_lp = opponent.lp;
+    let player_name = &player.name;
+    let opponent_name = &opponent.name;
 
     // Background bar (screen-wide)
     draw_rectangle(

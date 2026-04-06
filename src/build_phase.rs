@@ -73,7 +73,7 @@ pub fn update(
                     ctx.progress.player_mut(role).techs.unpurchase(kind, tech_id);
                     // Refund: cost was (100 + N*100) where N was count before purchase
                     // After unpurchase, effective_cost gives the old cost, so just refund that
-                    ctx.build.builder.gold_remaining += cost;
+                    ctx.build.gold_remaining += cost;
                     // Remove from round tech purchases
                     if let Some(pos) = ctx.build.round_tech_purchases.iter().rposition(|(k, t)| *k == kind && *t == tech_id) {
                         ctx.build.round_tech_purchases.remove(pos);
@@ -111,7 +111,7 @@ pub fn update(
     let role = ctx.role;
     if left_click && screen_mouse.x < shop_w() && ctx.build.dragging.is_none() {
         if let Some(pack_idx) =
-            shop::draw_shop(ctx.build.builder.gold_remaining, screen_mouse, true, &ctx.progress.banned_kinds, game_state::BUILD_LIMIT - ctx.build.packs_bought_this_round)
+            shop::draw_shop(ctx.build.gold_remaining, screen_mouse, true, &ctx.progress.banned_kinds, game_state::BUILD_LIMIT - ctx.build.packs_bought_this_round)
         {
             if let Some(new_units) = ctx.build.purchase_pack(
                 pack_idx,
@@ -148,14 +148,14 @@ pub fn update(
         if let Some(tech_id) = tech_ui::draw_tech_panel(
             kind,
             &ctx.progress.player(role).techs,
-            ctx.build.builder.gold_remaining,
+            ctx.build.gold_remaining,
             screen_mouse,
             true,
             Some(&cs),
         ) {
             let cost = ctx.progress.player(role).techs.effective_cost(kind);
-            if ctx.build.builder.gold_remaining >= cost {
-                ctx.build.builder.gold_remaining -= cost;
+            if ctx.build.gold_remaining >= cost {
+                ctx.build.gold_remaining -= cost;
                 ctx.progress.player_mut(role).techs.purchase(kind, tech_id);
                 // Track tech purchase for network sync and undo
                 ctx.build.round_tech_purchases.push((kind, tech_id));

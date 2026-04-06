@@ -23,16 +23,16 @@ pub fn set_opponent_color(index: u8) {
     OPPONENT_COLOR_OVERRIDE.store(index, Ordering::Relaxed);
 }
 
-pub fn team_color(team_id: u8) -> Color {
+pub fn team_color(player_id: u8) -> Color {
     let options = crate::settings::TEAM_COLOR_OPTIONS;
-    if team_id == 0 {
+    if player_id == 0 {
         let idx = PLAYER_COLOR_OVERRIDE.load(Ordering::Relaxed);
         if (idx as usize) < options.len() {
             let (_, (r, g, b)) = options[idx as usize];
             return Color::new(r, g, b, 1.0);
         }
     }
-    if team_id == 1 {
+    if player_id == 1 {
         let idx = OPPONENT_COLOR_OVERRIDE.load(Ordering::Relaxed);
         if (idx as usize) < options.len() {
             let (_, (r, g, b)) = options[idx as usize];
@@ -40,13 +40,13 @@ pub fn team_color(team_id: u8) -> Color {
         }
     }
     TEAM_COLORS
-        .get(team_id as usize)
+        .get(player_id as usize)
         .copied()
         .unwrap_or(WHITE)
 }
 
-pub fn team_projectile_color(team_id: u8) -> Color {
-    let base = team_color(team_id);
+pub fn team_projectile_color(player_id: u8) -> Color {
+    let base = team_color(player_id);
     Color::new(
         (base.r + 0.3).min(1.0),
         (base.g + 0.3).min(1.0),

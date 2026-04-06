@@ -220,31 +220,28 @@ async fn main() {
         // Reset camera for UI overlays (screen-space)
         set_default_camera();
 
-        let player_name = ctx.player_name().to_string();
-        let opponent_name = ctx.opponent_name().to_string();
-
         // === Phase-specific UI (screen-space) ===
         match &ctx.phase {
             GamePhase::Lobby | GamePhase::DraftBan { .. } => {}
 
             GamePhase::Build => {
-                phase_ui::draw_build_ui(&ctx.build, &ctx.progress, &ctx.units, mouse.screen_mouse, &arena_camera, &player_name, &opponent_name, ctx.role);
+                phase_ui::draw_build_ui(&ctx.build, &ctx.progress, &ctx.units, mouse.screen_mouse, &arena_camera, ctx.role);
             }
 
             GamePhase::WaitingForOpponent => {
-                phase_ui::draw_waiting_ui(&ctx.progress, &ctx.build, &player_name, &opponent_name, ctx.role);
+                phase_ui::draw_waiting_ui(&ctx.progress, &ctx.build, ctx.role);
             }
 
             GamePhase::Battle => {
-                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, battle.show_surrender_confirm, mouse.screen_mouse, mouse.world_mouse, &player_name, &opponent_name, ctx.role);
+                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, battle.show_surrender_confirm, mouse.screen_mouse, mouse.world_mouse, ctx.role);
             }
 
             GamePhase::RoundResult { match_state, lp_damage, loser_team } => {
-                phase_ui::draw_round_result_ui(&ctx.progress, match_state, *lp_damage, *loser_team, &ctx.game_settings, &ctx.net, &player_name, &opponent_name, ctx.role);
+                phase_ui::draw_round_result_ui(&ctx.progress, match_state, *lp_damage, *loser_team, &ctx.game_settings, &ctx.net, ctx.role);
             }
 
             GamePhase::GameOver(winner) => {
-                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, &ctx.game_settings, &ctx.net, mouse.screen_mouse, &player_name, &opponent_name, ctx.role);
+                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, &ctx.game_settings, &ctx.net, mouse.screen_mouse, ctx.role);
             }
         }
 
@@ -267,9 +264,10 @@ async fn main() {
 
         // Chat system
         ctx.chat.receive_from_net(&mut ctx.net);
-        ctx.chat.update(&ctx.phase, &mut ctx.net, &player_name);
+        let my_name = ctx.progress.player(ctx.role).name.clone();
+        ctx.chat.update(&ctx.phase, &mut ctx.net, &my_name);
         ctx.chat.tick(dt);
-        ctx.chat.draw(&ctx.phase, &player_name);
+        ctx.chat.draw(&ctx.phase, &my_name);
 
         next_frame().await;
     }

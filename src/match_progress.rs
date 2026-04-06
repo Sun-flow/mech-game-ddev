@@ -1,8 +1,8 @@
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
-use crate::economy::ArmyBuilder;
 use crate::game_state::PlacedPack;
+use crate::pack::PackDef;
 use crate::net::OpponentBuildData;
 use crate::pack::all_packs;
 use crate::role::Role;
@@ -249,13 +249,13 @@ impl MatchProgress {
         new_units
     }
 
-    /// Spawn new AI army from a pre-built ArmyBuilder. Adds packs and returns units.
-    pub fn spawn_ai_army_from_builder(&mut self, ai_builder: &ArmyBuilder) -> Vec<Unit> {
+    /// Spawn new AI army from a list of purchased packs. Adds packs and returns units.
+    pub fn spawn_ai_army(&mut self, ai_packs: &[PackDef]) -> Vec<Unit> {
         let packs = all_packs();
         let mut new_units = Vec::new();
 
         let ai_center_x = crate::arena::HALF_W + (crate::arena::HALF_W / 2.0);
-        let total_new = ai_builder.packs.len();
+        let total_new = ai_packs.len();
         if total_new == 0 {
             return new_units;
         }
@@ -263,7 +263,7 @@ impl MatchProgress {
         let arena_h = crate::arena::ARENA_H;
         let spacing = arena_h / (total_new as f32 + 1.0);
 
-        for (pack_idx_in_build, pack_def) in ai_builder.packs.iter().enumerate() {
+        for (pack_idx_in_build, pack_def) in ai_packs.iter().enumerate() {
             let pack_index = packs.iter().position(|p| p.name == pack_def.name).unwrap_or(0);
             let pack = &packs[pack_index];
 

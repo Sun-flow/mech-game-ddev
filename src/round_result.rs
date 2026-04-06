@@ -16,7 +16,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
             let role = ctx.role;
 
             // Save gold carry-over
-            ctx.progress.player_mut(role).gold = ctx.build.builder.gold_remaining;
+            ctx.progress.player_mut(role).gold = ctx.build.gold_remaining;
 
             ctx.progress.advance_round();
 

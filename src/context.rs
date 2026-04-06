@@ -80,13 +80,4 @@ impl GameContext {
         }
     }
 
-    /// Helper: get the local player's name.
-    pub fn player_name(&self) -> &str {
-        &self.progress.player(self.role).name
-    }
-
-    /// Helper: get the opponent's name.
-    pub fn opponent_name(&self) -> &str {
-        &self.progress.opponent(self.role).name
-    }
 }

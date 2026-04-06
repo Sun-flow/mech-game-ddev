@@ -1,7 +1,6 @@
 use macroquad::prelude::*;
 
 use crate::arena::{MatchState, ARENA_H};
-use crate::economy::ArmyBuilder;
 use crate::pack::{all_packs, grid_positions, PackDef};
 use crate::tech::TechState;
 use crate::unit::Unit;
@@ -82,7 +81,7 @@ pub enum UndoEntry {
 pub const BUILD_LIMIT: u32 = 3;
 
 pub struct BuildState {
-    pub builder: ArmyBuilder,
+    pub gold_remaining: u32,
     pub placed_packs: Vec<PlacedPack>,
     pub dragging: Option<usize>,
     pub selected_pack: Option<usize>,
@@ -105,7 +104,7 @@ pub struct BuildState {
 impl BuildState {
     pub fn new(gold: u32, is_host: bool) -> Self {
         Self {
-            builder: ArmyBuilder::new(gold),
+            gold_remaining: gold,
             placed_packs: Vec::new(),
             dragging: None,
             selected_pack: None,
@@ -128,7 +127,7 @@ impl BuildState {
         next_id: u64,
     ) -> Self {
         Self {
-            builder: ArmyBuilder::new(gold),
+            gold_remaining: gold,
             placed_packs: locked_packs,
             dragging: None,
             selected_pack: None,
@@ -160,9 +159,10 @@ impl BuildState {
             return None;
         }
 
-        if !self.builder.buy_pack(pack) {
+        if self.gold_remaining < pack.cost {
             return None;
         }
+        self.gold_remaining -= pack.cost;
 
         self.packs_bought_this_round += 1;
 
@@ -250,10 +250,7 @@ impl BuildState {
         }
         let placed = self.placed_packs.remove(placed_index);
         let pack = &all_packs()[placed.pack_index];
-        self.builder.gold_remaining += pack.cost;
-        if let Some(pos) = self.builder.packs.iter().position(|p| p.name == pack.name) {
-            self.builder.packs.remove(pos);
-        }
+        self.gold_remaining += pack.cost;
         // Fix selected_pack index if needed
         if let Some(sel) = self.selected_pack {
             if sel == placed_index {

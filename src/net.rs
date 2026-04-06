@@ -261,7 +261,7 @@ pub fn send_build_complete(
         n.send(NetMessage::BuildComplete {
             new_packs,
             tech_purchases,
-            gold_remaining: build.builder.gold_remaining,
+            gold_remaining: build.gold_remaining,
         });
     }
 }

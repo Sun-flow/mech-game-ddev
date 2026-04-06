@@ -17,11 +17,9 @@ pub fn draw_build_ui(
     units: &[Unit],
     screen_mouse: Vec2,
     arena_camera: &Camera2D,
-    mp_player_name: &str,
-    mp_opponent_name: &str,
     role: Role,
 ) {
-    crate::shop::draw_shop(build.builder.gold_remaining, screen_mouse, false, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round);
+    crate::shop::draw_shop(build.gold_remaining, screen_mouse, false, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round);
 
     // Pack labels (drawn in screen-space so text isn't distorted by camera zoom)
     {
@@ -62,7 +60,7 @@ pub fn draw_build_ui(
             crate::tech_ui::draw_tech_panel(
                 kind,
                 &progress.player(role).techs,
-                build.builder.gold_remaining,
+                build.gold_remaining,
                 screen_mouse,
                 false,
                 Some(&cs),
@@ -75,7 +73,7 @@ pub fn draw_build_ui(
         let packs = all_packs();
         build.placed_packs.iter().map(|p| packs[p.pack_index].cost).sum()
     };
-    crate::ui::draw_hud(progress, build.builder.gold_remaining, build.timer, army_value, 0.0, mp_player_name, mp_opponent_name, role);
+    crate::ui::draw_hud(progress, build.gold_remaining, build.timer, army_value, 0.0, role);
 
     // Begin Round button (screen-space)
     let btn_w = crate::ui::s(160.0);
@@ -123,11 +121,9 @@ pub fn draw_build_ui(
 pub fn draw_waiting_ui(
     progress: &MatchProgress,
     build: &BuildState,
-    mp_player_name: &str,
-    mp_opponent_name: &str,
     role: Role,
 ) {
-    crate::ui::draw_hud(progress, build.builder.gold_remaining, 0.0, 0, 0.0, mp_player_name, mp_opponent_name, role);
+    crate::ui::draw_hud(progress, build.gold_remaining, 0.0, 0, 0.0, role);
 
     let dots = ".".repeat((get_time() * 2.0) as usize % 4);
     let wait_text = format!("Waiting for opponent{}", dots);
@@ -150,12 +146,12 @@ pub fn draw_battle_ui(
     show_surrender_confirm: bool,
     screen_mouse: Vec2,
     world_mouse: Vec2,
-    mp_player_name: &str,
-    mp_opponent_name: &str,
     role: Role,
 ) {
+    let mp_player_name = &progress.player(role).name;
+    let mp_opponent_name = &progress.opponent(role).name;
     let remaining = (round_timeout - battle_timer).max(0.0);
-    crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, mp_player_name, mp_opponent_name, role);
+    crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, role);
 
     let alive_0 = units.iter().filter(|u| u.alive && u.player_id == 0).count();
     let alive_1 = units.iter().filter(|u| u.alive && u.player_id == 1).count();
@@ -250,11 +246,11 @@ pub fn draw_round_result_ui(
     loser_team: Option<u8>,
     game_settings: &settings::GameSettings,
     net: &Option<net::NetState>,
-    mp_player_name: &str,
-    mp_opponent_name: &str,
     role: Role,
 ) {
-    crate::ui::draw_hud(progress, 0, 0.0, 0, 0.0, mp_player_name, mp_opponent_name, role);
+    let mp_player_name = &progress.player(role).name;
+    let mp_opponent_name = &progress.opponent(role).name;
+    crate::ui::draw_hud(progress, 0, 0.0, 0, 0.0, role);
 
     let text = match match_state {
         MatchState::Winner(tid) => {
@@ -318,10 +314,10 @@ pub fn draw_game_over_ui(
     game_settings: &settings::GameSettings,
     net: &Option<net::NetState>,
     screen_mouse: Vec2,
-    mp_player_name: &str,
-    mp_opponent_name: &str,
     role: Role,
 ) {
+    let mp_player_name = &progress.player(role).name;
+    let mp_opponent_name = &progress.opponent(role).name;
     let local_pid = role.player_id();
     let (headline, winner_color_idx) = if winner == local_pid {
         ("YOU WIN!".to_string(), game_settings.player_color_index)
