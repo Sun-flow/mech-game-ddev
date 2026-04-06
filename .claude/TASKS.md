@@ -8,7 +8,7 @@ _(No active tasks)_
 
 - [ ] **R key to rotate packs** — Add KeyCode::R as an alternative to middle-click for rotating packs during build phase. Check `is_key_pressed(KeyCode::R)` in build_phase.rs alongside existing middle_click rotation logic.
 - [ ] **Pause/options menu** — Add an in-match pause menu triggered by Escape. Should overlay current phase, provide access to settings, and option to surrender/quit. Currently Escape is used for surrender confirm in battle phase and back-navigation in lobby — needs to coexist.
-- [ ] **PlayerState & host/guest refactor** — 11-task implementation plan ready at `docs/superpowers/plans/2026-04-05-playerstate-host-guest.md`. Canonical host/guest state, PlayerState struct, Role enum, camera flip, deploy zone parameterization, sync simplification. Subsumes phase_ui too_many_arguments and camera architecture tasks.
+- [ ] **PlayerState refactor cleanup** — Core architecture done (Tasks 1-10). Remaining: remove `ArmyBuilder` struct from economy.rs, remove `builder`/`placed_packs`/`next_id` from BuildState (move to PlayerState), update callers in build_phase/round_result/waiting_phase/net.rs, rename `team_id` params in team.rs, have phase_ui read names from PlayerState instead of separate params. Code compiles clean — this is wiring cleanup only.
 - [ ] **Camera mode architecture** — Review `set_camera`/`set_default_camera` naming. Deferred — assessed as acceptable during this session.
 
 ## Completed
@@ -24,6 +24,7 @@ _(No active tasks)_
 - [x] MouseState struct — Centralized all mouse input queries into `input::MouseState`, adopted by main loop, build_phase, battle_phase, lobby
 - [x] rendering::draw_world signature — Extracted build overlays, reduced 9 → 5 args
 - [x] PlayerState design & planning — Spec and 11-task implementation plan written and approved
+- [x] PlayerState core implementation — Role enum, player_id rename, PlayerState struct, MatchProgress restructure, camera flip, deploy zone parameterization, sync mirroring removed (Tasks 1-10)
 
 ## Session Log
 

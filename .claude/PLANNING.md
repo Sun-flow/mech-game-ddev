@@ -22,6 +22,6 @@
 
 1. ~~Duplicate code consolidation~~ (done)
 2. ~~Clippy cleanup + input centralization~~ (done)
-3. **PlayerState & host/guest architecture** (designed, plan written — next to execute)
+3. **PlayerState & host/guest architecture** (core done — cleanup remaining: remove ArmyBuilder, slim BuildState, wire phase_ui)
 4. Small gameplay features (R-to-rotate, pause menu)
 5. Gameplay features (TBD)

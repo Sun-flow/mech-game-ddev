@@ -15,8 +15,45 @@
 - `[internal]` Extracted `draw_build_overlays` from `draw_world`, reducing signature from 9 → 5 args
 - `[docs]` Designed PlayerState & host/guest architecture — spec at `docs/superpowers/specs/2026-04-05-playerstate-host-guest-design.md`
 - `[docs]` Wrote 11-task implementation plan at `docs/superpowers/plans/2026-04-05-playerstate-host-guest.md`
+- `[internal]` Introduced `Role` enum (Host/Guest/Spectator) in `role.rs` with `deploy_x_range()` and `player_id()` methods
+- `[internal]` Renamed `team_id` to `player_id` across entire codebase (~80 occurrences, 16 files)
+- `[internal]` Created `PlayerState` struct (player_id, lp, techs, name, next_id, gold, packs, ai_memory)
+- `[internal]` Restructured `MatchProgress` with canonical `host: PlayerState` + `guest: PlayerState`
+- `[internal]` Added `Role` to `GameContext`, added `player()`/`opponent()` accessor methods on MatchProgress
+- `[internal]` Unified `PlacedPack` type — deleted `OpponentPlacedPack`
+- `[internal]` Guest camera flip via negative x-zoom — automatic input correction
+- `[internal]` Deploy zone parameterization from `Role::deploy_x_range()` — replaced hardcoded `HALF_W`
+- `[net]` Removed all coordinate mirroring from state sync — canonical coordinates throughout
 - `[tooling]` Added patch notes step to handoff skill with tagged changelog entries
 - `[docs]` Restructured CHANGELOG.md with Patch Notes + Session Handoff format
+
+### Session Handoff — PlayerState Implementation (Tasks 1-10)
+
+**Git State:** branch `main`, clean, commit `5adc6b6`, up to date with origin
+**Tests:** No test suite
+
+**Work Completed:**
+- Designed PlayerState & host/guest architecture through collaborative brainstorm (spec + 11-task plan)
+- Executed Tasks 1-10 via subagent-driven development
+- Task 1: Role enum + player_id rename (mechanical, clean)
+- Tasks 2-7: PlayerState struct, MatchProgress restructure, GameContext Role, UI updates (subagent batch)
+- Tasks 8-10: Camera flip, deploy zone parameterization, sync mirroring removal (applied manually after worktree conflicts)
+- Code compiles clean with `cargo check` and `cargo clippy` (6 pre-existing too_many_arguments)
+
+**In Progress:**
+- Task 11 cleanup: `ArmyBuilder` still exists in economy.rs/game_state.rs, `BuildState` still has `builder`/`placed_packs`/`next_id` fields that should move to PlayerState, phase_ui still takes name params separately, `team.rs` params not renamed. Worktree subagent attempted this but diverged from design — needs inline cleanup.
+
+**Decisions Made:**
+- Worktree-based subagents cause merge conflicts when tasks are sequential (each forks from different base). For tightly coupled tasks, batching into one subagent is better.
+- When worktree merges conflict, applying targeted changes manually on main is faster than resolving multi-file conflicts.
+
+**Blockers:**
+- None — remaining work is wiring cleanup, not architectural
+
+**Next Steps:**
+1. Complete Task 11 cleanup inline: remove ArmyBuilder, slim BuildState, wire phase_ui names from PlayerState, rename team.rs params
+2. R key to rotate packs
+3. Pause/options menu
 
 ### Session Handoff — PlayerState Design & Planning
 
