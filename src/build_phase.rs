@@ -66,11 +66,11 @@ pub fn update(
                     }
                 }
                 game_state::UndoEntry::Tech { kind, tech_id } => {
-                    let role = ctx.role;
+                    let local = ctx.role.player_id() as usize;
                     // Refund tech cost
-                    let cost = ctx.progress.player(role).techs.effective_cost(kind);
+                    let cost = ctx.progress.players[local].techs.effective_cost(kind);
                     // unpurchase first so effective_cost returns the right amount next time
-                    ctx.progress.player_mut(role).techs.unpurchase(kind, tech_id);
+                    ctx.progress.players[local].techs.unpurchase(kind, tech_id);
                     // Refund: cost was (100 + N*100) where N was count before purchase
                     // After unpurchase, effective_cost gives the old cost, so just refund that
                     ctx.build.gold_remaining += cost;
@@ -79,7 +79,7 @@ pub fn update(
                         ctx.build.round_tech_purchases.remove(pos);
                     }
                     // Refresh ctx.units to remove tech effect
-                    tech::refresh_units_of_kind(&mut ctx.units, kind, &ctx.progress.player(role).techs);
+                    tech::refresh_units_of_kind(&mut ctx.units, kind, &ctx.progress.players[local].techs);
                 }
             }
         }
@@ -108,7 +108,7 @@ pub fn update(
     }
 
     // Shop interaction (left click in shop area, only when not holding a pack)
-    let role = ctx.role;
+    let local = ctx.role.player_id() as usize;
     if left_click && screen_mouse.x < shop_w() && ctx.build.dragging.is_none() {
         if let Some(pack_idx) =
             shop::draw_shop(ctx.build.gold_remaining, screen_mouse, true, &ctx.progress.banned_kinds, game_state::BUILD_LIMIT - ctx.build.packs_bought_this_round)
@@ -116,7 +116,7 @@ pub fn update(
             if let Some(new_units) = ctx.build.purchase_pack(
                 pack_idx,
                 ctx.progress.round,
-                &ctx.progress.player(role).techs,
+                &ctx.progress.players[local].techs,
                 ctx.role.deploy_x_range(),
                 ctx.role.player_id(),
             ) {
@@ -135,8 +135,8 @@ pub fn update(
 
         // Check if mouse is in the tech panel area (consume click to prevent drag)
         // Compute actual panel height to avoid blocking clicks in the entire column
-        let available_count = ctx.progress.player(role).techs.available_techs(kind).len();
-        let purchased_count = ctx.progress.player(role).techs.tech_count(kind);
+        let available_count = ctx.progress.players[local].techs.available_techs(kind).len();
+        let purchased_count = ctx.progress.players[local].techs.tech_count(kind);
         let has_combat = cs.damage_dealt_total > 0.0 || cs.damage_soaked_total > 0.0;
         let combat_extra = if has_combat { 5.0 * 15.0 + 30.0 } else { 0.0 };
         let panel_h = crate::ui::s(120.0) + (available_count + purchased_count) as f32 * crate::ui::s(35.0) + crate::ui::s(combat_extra) + crate::ui::s(20.0);
@@ -148,21 +148,21 @@ pub fn update(
 
         if let Some(tech_id) = tech_ui::draw_tech_panel(
             kind,
-            &ctx.progress.player(role).techs,
+            &ctx.progress.players[local].techs,
             ctx.build.gold_remaining,
             screen_mouse,
             true,
             Some(&cs),
         ) {
-            let cost = ctx.progress.player(role).techs.effective_cost(kind);
+            let cost = ctx.progress.players[local].techs.effective_cost(kind);
             if ctx.build.gold_remaining >= cost {
                 ctx.build.gold_remaining -= cost;
-                ctx.progress.player_mut(role).techs.purchase(kind, tech_id);
+                ctx.progress.players[local].techs.purchase(kind, tech_id);
                 // Track tech purchase for network sync and undo
                 ctx.build.round_tech_purchases.push((kind, tech_id));
                 ctx.build.undo_history.push(game_state::UndoEntry::Tech { kind, tech_id });
                 // Refresh ALL ctx.units of this kind with new tech stats
-                tech::refresh_units_of_kind(&mut ctx.units, kind, &ctx.progress.player(role).techs);
+                tech::refresh_units_of_kind(&mut ctx.units, kind, &ctx.progress.players[local].techs);
             }
         }
     }

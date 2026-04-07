@@ -43,7 +43,7 @@ pub fn update(
         ctx.chat = chat::ChatState::new();
         battle.reset();
         ctx.phase = if ctx.game_settings.draft_ban_enabled {
-            GamePhase::DraftBan { bans: Vec::new(), confirmed: false, opponent_bans: None }
+            GamePhase::DraftBan { bans: Vec::new(), confirmed: false, peer_bans: None }
         } else {
             GamePhase::Build
         };

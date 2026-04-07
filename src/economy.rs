@@ -224,16 +224,16 @@ pub fn start_ai_battle(
     *nav_grid = Some(crate::terrain::NavGrid::from_obstacles(obstacles, ARENA_W, ARENA_H, 15.0));
 
     // Remove old AI (guest) units — they'll be respawned fresh from stored packs
-    units.retain(|u| u.player_id != progress.guest.player_id);
+    units.retain(|u| u.player_id != progress.players[1].player_id);
 
     // Respawn all existing opponent (guest) units from previous rounds at full HP
-    units.extend(progress.guest.respawn_units());
+    units.extend(progress.players[1].respawn_units());
 
     // AI buys techs, then spawns NEW army for this round
     let mut ai_gold = progress.round_allowance();
-    ai_buy_techs(&mut ai_gold, &mut progress.guest.techs);
+    ai_buy_techs(&mut ai_gold, &mut progress.players[1].techs);
     let ai_packs = if game_settings.smart_ai {
-        smart_army(ai_gold, &progress.guest.ai_memory, &progress.banned_kinds)
+        smart_army(ai_gold, &progress.players[1].ai_memory, &progress.banned_kinds)
     } else {
         random_army_filtered(ai_gold, &progress.banned_kinds)
     };

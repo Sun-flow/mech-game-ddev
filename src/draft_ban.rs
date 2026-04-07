@@ -17,7 +17,7 @@ pub enum DraftBanResult {
 pub fn update_and_draw(
     bans: &mut Vec<UnitKind>,
     confirmed: &mut bool,
-    opponent_bans: &mut Option<Vec<UnitKind>>,
+    peer_bans: &mut Option<Vec<UnitKind>>,
     net: &mut Option<crate::net::NetState>,
     screen_mouse: Vec2,
     left_click: bool,
@@ -98,14 +98,14 @@ pub fn update_and_draw(
     let cdims = crate::ui::measure_scaled_text(&confirm_text, 20);
     crate::ui::draw_scaled_text(&confirm_text, btn_x + btn_w / 2.0 - cdims.width / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
 
-    // Poll network for opponent bans
+    // Poll network for peer bans
     if let Some(ref mut n) = net {
         n.poll();
-        if let Some(ob) = n.opponent_bans.take() {
+        if let Some(ob) = n.peer_bans.take() {
             let opp: Vec<UnitKind> = ob.iter().filter_map(|&idx| {
                 all_kinds.get(idx as usize).copied()
             }).collect();
-            *opponent_bans = Some(opp);
+            *peer_bans = Some(opp);
         }
     }
 
@@ -121,7 +121,7 @@ pub fn update_and_draw(
     }
 
     // Show waiting indicator
-    if *confirmed && net.is_some() && opponent_bans.is_none() {
+    if *confirmed && net.is_some() && peer_bans.is_none() {
         let wait_y = btn_y + btn_h + crate::ui::s(15.0);
         let dots = ".".repeat((get_time() * 2.0) as usize % 4);
         let wait_text = format!("Waiting for opponent bans{}", dots);
@@ -130,10 +130,10 @@ pub fn update_and_draw(
     }
 
     // Transition when ready
-    let ready = *confirmed && (net.is_none() || opponent_bans.is_some());
+    let ready = *confirmed && (net.is_none() || peer_bans.is_some());
     if ready {
         let mut all_bans = bans.clone();
-        if let Some(ref ob) = opponent_bans {
+        if let Some(ref ob) = peer_bans {
             all_bans.extend(ob.iter());
         }
         return DraftBanResult::Done(all_bans);
