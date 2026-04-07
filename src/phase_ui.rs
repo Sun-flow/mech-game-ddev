@@ -18,6 +18,9 @@ pub fn draw_build_ui(
     arena_camera: &Camera2D,
     role: Role,
 ) {
+    let local = role.player_id() as usize;
+    // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
+    let peer = 1 - local;
     crate::shop::draw_shop(build.gold_remaining, screen_mouse, false, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round);
 
     // Pack labels (drawn in screen-space so text isn't distorted by camera zoom)
@@ -40,7 +43,7 @@ pub fn draw_build_ui(
             };
             crate::ui::draw_scaled_text(&label, screen_pos.x, screen_pos.y, 14.0, label_color);
         }
-        for opponent_pack in &progress.opponent(role).packs {
+        for opponent_pack in &progress.players[peer].packs {
             let pack = &packs[opponent_pack.pack_index];
             let half = PlacedPack::bbox_half_size_rotated(pack, opponent_pack.rotated);
             let world_pos = vec2(opponent_pack.center.x - half.x + 2.0, opponent_pack.center.y - half.y - 2.0);
@@ -58,7 +61,7 @@ pub fn draw_build_ui(
             let cs = crate::tech_ui::PackCombatStats::from_units(units, &placed.unit_ids);
             crate::tech_ui::draw_tech_panel(
                 kind,
-                &progress.player(role).techs,
+                &progress.players[local].techs,
                 build.gold_remaining,
                 screen_mouse,
                 false,
@@ -147,8 +150,11 @@ pub fn draw_battle_ui(
     world_mouse: Vec2,
     role: Role,
 ) {
-    let mp_player_name = &progress.player(role).name;
-    let mp_opponent_name = &progress.opponent(role).name;
+    let local = role.player_id() as usize;
+    // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
+    let peer = 1 - local;
+    let mp_player_name = &progress.players[local].name;
+    let mp_opponent_name = &progress.players[peer].name;
     let remaining = (round_timeout - battle_timer).max(0.0);
     crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, role);
 
@@ -245,8 +251,10 @@ pub fn draw_round_result_ui(
     loser_team: Option<u8>,
     role: Role,
 ) {
-    let mp_player_name = &progress.player(role).name;
-    let mp_opponent_name = &progress.opponent(role).name;
+    let local = role.player_id() as usize;
+    let peer = 1 - local;
+    let mp_player_name = &progress.players[local].name;
+    let mp_opponent_name = &progress.players[peer].name;
     crate::ui::draw_hud(progress, 0, 0.0, 0, 0.0, role);
 
     let text = match match_state {
@@ -307,8 +315,10 @@ pub fn draw_game_over_ui(
     screen_mouse: Vec2,
     role: Role,
 ) {
-    let mp_player_name = &progress.player(role).name;
-    let mp_opponent_name = &progress.opponent(role).name;
+    let local = role.player_id() as usize;
+    let peer = 1 - local;
+    let mp_player_name = &progress.players[local].name;
+    let mp_opponent_name = &progress.players[peer].name;
     let local_pid = role.player_id();
     let headline = if winner == local_pid { "YOU WIN!".to_string() } else { "YOU LOSE!".to_string() };
     let winner_name = if winner == local_pid { mp_player_name } else { mp_opponent_name };
@@ -381,7 +391,7 @@ pub fn draw_game_over_ui(
     crate::ui::draw_scaled_text(&format!("Surviving: {} / {}", surviving, total_units), sx, sy, 15.0, LIGHTGRAY);
     sy += crate::ui::s(18.0);
 
-    crate::ui::draw_scaled_text(&format!("LP: {} {} vs {} {}", mp_player_name, progress.player(role).lp, mp_opponent_name, progress.opponent(role).lp), sx, sy, 15.0, LIGHTGRAY);
+    crate::ui::draw_scaled_text(&format!("LP: {} {} vs {} {}", mp_player_name, progress.players[local].lp, mp_opponent_name, progress.players[peer].lp), sx, sy, 15.0, LIGHTGRAY);
 
     let below_panel = panel_y + panel_h + crate::ui::s(8.0);
     crate::ui::draw_scaled_text(

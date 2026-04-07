@@ -47,8 +47,11 @@ pub fn measure_scaled_text(text: &str, base_font_size: u16) -> TextDimensions {
 }
 
 pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, role: Role) {
-    let player = progress.player(role);
-    let opponent = progress.opponent(role);
+    let local = role.player_id() as usize;
+    // TODO: 2-player assumption
+    let peer = 1 - local;
+    let player = &progress.players[local];
+    let opponent = &progress.players[peer];
     let player_lp = player.lp;
     let opponent_lp = opponent.lp;
     let player_name = &player.name;

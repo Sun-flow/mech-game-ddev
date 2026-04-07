@@ -258,8 +258,11 @@ pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_m
     }
 
     // Opponent pack bounding boxes (from previous rounds, visible during build)
+    let local = role.player_id() as usize;
+    // TODO: 2-player assumption
+    let peer = 1 - local;
     let packs = all_packs();
-    for opponent_pack in &progress.opponent(role).packs {
+    for opponent_pack in &progress.players[peer].packs {
         let pack = &packs[opponent_pack.pack_index];
         let half = PlacedPack::bbox_half_size_rotated(
             pack,
