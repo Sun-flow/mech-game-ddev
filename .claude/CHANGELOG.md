@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-04-07
+
+### Patch Notes
+
+- `[docs]` Designed array-indexed PlayerState refactor — spec at `docs/superpowers/specs/2026-04-06-array-indexed-playerstate-design.md`
+- `[docs]` Updated PLANNING.md roadmap — marked PlayerState phase 3 complete, added phase 4 (array-indexed) and phase 6 (multi-peer networking)
+- `[internal]` Removed resolved camera flip winding fix from backlog
+
+### Session Handoff — Array-Indexed PlayerState Design
+
+**Git State:** branch `main`, 2 uncommitted doc changes (PLANNING, TASKS), ahead of origin by 1 commit (`7aa8f58`), spec committed
+**Tests:** No test suite
+
+**Work Completed:**
+- Audited all perspective-relative patterns across codebase (opponent_*, my_*, player/opponent accessors) — 15 files affected
+- Brainstormed and approved design: `players: [PlayerState; 2]` replacing `host`/`guest` fields
+- Decided on net layer approach: rename opponent_* → peer_* (transient buffers), no structural networking changes
+- Wrote and committed design spec with full translation table for call site migration
+
+**In Progress:**
+- Spec approved, needs implementation plan (invoke writing-plans skill next session)
+
+**Decisions Made:**
+- Fixed array `[PlayerState; 2]` chosen over Vec or HashMap — minimal change, upgrade to Vec later for N-player
+- Net layer stays 1:1 with `peer_*` rename only — networking restructure deferred to future multi-peer work
+- `1 - local_id` used as 2-player hack for peer index, marked with TODO for future N-player refactor
+- `PlayerState::new(player_id)` replaces `new_host()`/`new_guest()` — default name becomes `"Player {id+1}"`
+- User wants free camera rotation as future task — could replace current camera flip approach
+- `apply_opponent_build` becomes free function `apply_peer_build(&mut PlayerState, &PeerBuildData, round)`
+
+**Blockers:**
+- None
+
+**Next Steps:**
+1. Write implementation plan for array-indexed PlayerState refactor (invoke writing-plans skill)
+2. Execute the implementation plan
+3. R key to rotate packs
+4. Pause/options menu
+
 ## 2026-04-05
 
 ### Patch Notes

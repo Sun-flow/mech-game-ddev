@@ -14,14 +14,16 @@
 
 ### Next Up
 
-- [ ] **PlayerState & host/guest refactor** — 11-task plan ready, execute via subagent-driven development
+- [ ] **Array-indexed PlayerState** — Replace host/guest fields with `players: [PlayerState; 2]`, remove perspective-relative accessors, rename net opponent_* to peer_*. Spec approved: `docs/superpowers/specs/2026-04-06-array-indexed-playerstate-design.md`
 - [ ] R key to rotate packs (gameplay feature)
 - [ ] Pause/options menu (gameplay feature)
+- [ ] Free camera rotation (future — decouples perspective from player identity)
 
 ## Roadmap
 
 1. ~~Duplicate code consolidation~~ (done)
 2. ~~Clippy cleanup + input centralization~~ (done)
-3. **PlayerState & host/guest architecture** (core done — cleanup remaining: remove ArmyBuilder, slim BuildState, wire phase_ui)
-4. Small gameplay features (R-to-rotate, pause menu)
-5. Gameplay features (TBD)
+3. ~~PlayerState & host/guest architecture~~ (done — Role enum, PlayerState struct, camera flip, canonical coordinates)
+4. **Array-indexed PlayerState & perspective cleanup** (spec approved, plan next)
+5. Small gameplay features (R-to-rotate, pause menu, free camera)
+6. Multi-peer networking (future — depends on array-indexed state)

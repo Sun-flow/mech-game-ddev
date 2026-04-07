@@ -6,9 +6,10 @@ _(No active tasks)_
 
 ## Backlog
 
+- [ ] **Array-indexed PlayerState** — Spec approved. Replace host/guest with `players: [PlayerState; 2]`, remove perspective accessors, rename net opponent_* → peer_*. Needs implementation plan. Spec: `docs/superpowers/specs/2026-04-06-array-indexed-playerstate-design.md`
 - [ ] **R key to rotate packs** — Add KeyCode::R as an alternative to middle-click for rotating packs during build phase. Check `is_key_pressed(KeyCode::R)` in build_phase.rs alongside existing middle_click rotation logic.
 - [ ] **Pause/options menu** — Add an in-match pause menu triggered by Escape. Should overlay current phase, provide access to settings, and option to surrender/quit. Currently Escape is used for surrender confirm in battle phase and back-navigation in lobby — needs to coexist.
-- [ ] **Remove perspective-relative "opponent" references** — Audit and replace all remaining perspective-relative patterns (opponent_color, opponent_name, opponent_surrendered, opponent_rematch, opponent_bans in net.rs) with player_id-aware implementations. Network buffers use "opponent" as "the peer I'm connected to" — evaluate whether these should become canonical or remain as transient message buffers.
+- [ ] **Free camera rotation** — Allow players to freely rotate camera, decoupling visual perspective from player identity. Could replace current camera flip approach.
 - [ ] **Camera mode architecture** — Review `set_camera`/`set_default_camera` naming. Deferred — assessed as acceptable.
 
 ## Completed
