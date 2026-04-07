@@ -81,8 +81,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 &mut ctx.units,
                 &mut battle.projectiles,
                 FIXED_DT,
-                &ctx.progress.host.techs,
-                &ctx.progress.guest.techs,
+                &ctx.progress.players[0].techs,
+                &ctx.progress.players[1].techs,
                 &mut battle.splash_effects,
             );
             update_projectiles(&mut battle.projectiles, &mut ctx.units, FIXED_DT, &mut ctx.obstacles, &mut battle.splash_effects);
@@ -166,8 +166,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
             &mut ctx.units,
             &mut battle.projectiles,
             dt,
-            &ctx.progress.host.techs,
-            &ctx.progress.guest.techs,
+            &ctx.progress.players[0].techs,
+            &ctx.progress.players[1].techs,
             &mut battle.splash_effects,
         );
         update_projectiles(&mut battle.projectiles, &mut ctx.units, dt, &mut ctx.obstacles, &mut battle.splash_effects);
@@ -189,9 +189,12 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         let yes_x = cx - btn_w - crate::ui::s(10.0);
         let yes_y = cy + crate::ui::s(10.0);
         if screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h {
-            ctx.progress.player_mut(role).lp = 0;
+            let local = role.player_id() as usize;
+            ctx.progress.players[local].lp = 0;
             battle.show_surrender_confirm = false;
-            ctx.phase = GamePhase::GameOver(role.opponent_id());
+            // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
+            let peer_pid = 1 - role.player_id();
+            ctx.phase = GamePhase::GameOver(peer_pid);
         }
         // "Cancel" button
         let no_x = cx + crate::ui::s(10.0);
@@ -236,17 +239,14 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 if rd.timeout_dmg_0 > 0 || rd.timeout_dmg_1 > 0 {
                     // Host's team 0 = host, so timeout_dmg_0 applies to host LP
                     // Host's team 1 = guest, so timeout_dmg_1 applies to guest LP
-                    ctx.progress.host.lp -= rd.timeout_dmg_0;
-                    ctx.progress.guest.lp -= rd.timeout_dmg_1;
+                    ctx.progress.players[0].lp -= rd.timeout_dmg_0;
+                    ctx.progress.players[1].lp -= rd.timeout_dmg_1;
                 } else if let Some(loser) = flipped_loser {
-                    // loser is from guest's perspective (0=guest local, 1=opponent)
-                    // But we use canonical host/guest now
-                    // flipped_loser 0 means guest lost, flipped_loser 1 means host lost
                     if loser == 0 {
                         // Guest's "team 0" lost — that's the guest in guest perspective
-                        ctx.progress.guest.lp -= rd.lp_damage;
+                        ctx.progress.players[1].lp -= rd.lp_damage;
                     } else {
-                        ctx.progress.host.lp -= rd.lp_damage;
+                        ctx.progress.players[0].lp -= rd.lp_damage;
                     }
                 }
 
@@ -274,7 +274,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
             MatchState::Winner(w) => *w == 1,
             _ => false,
         };
-        ctx.progress.guest.ai_memory.record_round(&ctx.units, ctx.progress.host.player_id, ai_won);
+        ctx.progress.players[1].ai_memory.record_round(&ctx.units, ctx.progress.players[0].player_id, ai_won);
 
         // Calculate LP damage
         let alive_0 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).count() as i32;
@@ -322,19 +322,13 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 }
             }
 
-            // Apply LP damage using canonical host/guest
+            // Apply LP damage using canonical indexing
             if timed_out {
-                // timeout_dmg_0 = alive_1 (damage to host from guest survivors)
-                // timeout_dmg_1 = alive_0 (damage to guest from host survivors)
-                ctx.progress.host.lp -= timeout_dmg_0;
-                ctx.progress.guest.lp -= timeout_dmg_1;
+                ctx.progress.players[0].lp -= timeout_dmg_0;
+                ctx.progress.players[1].lp -= timeout_dmg_1;
             } else if let Some(loser) = loser_team {
                 // loser 0 = host lost, loser 1 = guest lost
-                if loser == 0 {
-                    ctx.progress.host.lp -= lp_damage;
-                } else {
-                    ctx.progress.guest.lp -= lp_damage;
-                }
+                ctx.progress.players[loser as usize].lp -= lp_damage;
             }
 
             battle.show_surrender_confirm = false;
