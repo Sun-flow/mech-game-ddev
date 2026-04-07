@@ -11,15 +11,20 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) -> bool {
     if let Some(ref mut n) = ctx.net {
         n.poll();
 
-        if let Some(opp_build) = n.take_opponent_build() {
-            let role = ctx.role;
-            let opp_units = ctx.progress.apply_opponent_build(&opp_build, role);
+        if let Some(peer_build) = n.take_peer_build() {
+            let local = ctx.role.player_id() as usize;
+            // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
+            let peer = 1 - local;
+            let round = ctx.progress.round;
+            let _peer_units = crate::match_progress::apply_peer_build(
+                &mut ctx.progress.players[peer],
+                &peer_build,
+                round,
+            );
 
-            let opp_id = role.opponent_id();
-            ctx.units.retain(|u| u.player_id != opp_id);
-            ctx.units.extend(ctx.progress.opponent(role).respawn_units());
-
-            let _ = opp_units;
+            let peer_pid = ctx.progress.players[peer].player_id;
+            ctx.units.retain(|u| u.player_id != peer_pid);
+            ctx.units.extend(ctx.progress.players[peer].respawn_units());
 
             if ctx.obstacles.is_empty() && ctx.game_settings.terrain_enabled {
                 ctx.obstacles = terrain::generate_terrain(ctx.progress.round, ctx.game_settings.terrain_destructible);
@@ -37,7 +42,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) -> bool {
             }
 
             ctx.phase = GamePhase::Battle;
-            return true; // caller should continue (skip rendering)
+            return true;
         }
     }
     false
