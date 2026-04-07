@@ -5,7 +5,6 @@ use crate::game_state::PlacedPack;
 use crate::pack::PackDef;
 use crate::net::OpponentBuildData;
 use crate::pack::all_packs;
-use crate::role::Role;
 use crate::tech::TechState;
 use crate::unit::{Unit, UnitKind};
 
@@ -46,26 +45,13 @@ pub struct PlayerState {
 }
 
 impl PlayerState {
-    pub fn new_host() -> Self {
+    pub fn new(player_id: u8) -> Self {
         Self {
-            player_id: 0,
+            player_id,
             lp: STARTING_LP,
             techs: TechState::new(),
-            name: String::from("Player"),
-            next_id: 1,
-            gold: 0,
-            packs: Vec::new(),
-            ai_memory: AiMemory::default(),
-        }
-    }
-
-    pub fn new_guest() -> Self {
-        Self {
-            player_id: 1,
-            lp: STARTING_LP,
-            techs: TechState::new(),
-            name: String::from("Opponent"),
-            next_id: 100_000,
+            name: format!("Player {}", player_id + 1),
+            next_id: player_id as u64 * 100_000 + 1,
             gold: 0,
             packs: Vec::new(),
             ai_memory: AiMemory::default(),
@@ -104,8 +90,7 @@ impl PlayerState {
 #[derive(Clone, Debug)]
 pub struct MatchProgress {
     pub round: u32,
-    pub host: PlayerState,
-    pub guest: PlayerState,
+    pub players: [PlayerState; 2],
     pub banned_kinds: Vec<UnitKind>,
 }
 
@@ -113,50 +98,13 @@ impl MatchProgress {
     pub fn new() -> Self {
         Self {
             round: 1,
-            host: PlayerState::new_host(),
-            guest: PlayerState::new_guest(),
+            players: [PlayerState::new(0), PlayerState::new(1)],
             banned_kinds: Vec::new(),
         }
     }
 
     pub fn round_allowance(&self) -> u32 {
         200 * self.round
-    }
-
-    /// Get the PlayerState for a given role.
-    pub fn player(&self, role: Role) -> &PlayerState {
-        match role {
-            Role::Host => &self.host,
-            Role::Guest => &self.guest,
-            Role::Spectator => &self.host, // fallback
-        }
-    }
-
-    /// Get a mutable reference to the PlayerState for a given role.
-    pub fn player_mut(&mut self, role: Role) -> &mut PlayerState {
-        match role {
-            Role::Host => &mut self.host,
-            Role::Guest => &mut self.guest,
-            Role::Spectator => &mut self.host, // fallback
-        }
-    }
-
-    /// Get the opponent's PlayerState for a given role.
-    pub fn opponent(&self, role: Role) -> &PlayerState {
-        match role {
-            Role::Host => &self.guest,
-            Role::Guest => &self.host,
-            Role::Spectator => &self.guest, // fallback
-        }
-    }
-
-    /// Get a mutable reference to the opponent's PlayerState for a given role.
-    pub fn opponent_mut(&mut self, role: Role) -> &mut PlayerState {
-        match role {
-            Role::Host => &mut self.guest,
-            Role::Guest => &mut self.host,
-            Role::Spectator => &mut self.guest, // fallback
-        }
     }
 
     pub fn calculate_lp_damage(surviving_units: &[Unit], player_id: u8) -> i32 {
@@ -179,74 +127,17 @@ impl MatchProgress {
     }
 
     pub fn is_game_over(&self) -> bool {
-        self.host.lp <= 0 || self.guest.lp <= 0
+        self.players[0].lp <= 0 || self.players[1].lp <= 0
     }
 
     pub fn game_winner(&self) -> Option<u8> {
-        if self.guest.lp <= 0 {
+        if self.players[1].lp <= 0 {
             Some(0)
-        } else if self.host.lp <= 0 {
+        } else if self.players[0].lp <= 0 {
             Some(1)
         } else {
             None
         }
-    }
-
-    // === Legacy compatibility accessors (used during migration) ===
-
-    /// Player LP from perspective of the given role.
-    pub fn player_lp(&self, role: Role) -> i32 {
-        self.player(role).lp
-    }
-
-    /// Opponent LP from perspective of the given role.
-    pub fn opponent_lp(&self, role: Role) -> i32 {
-        self.opponent(role).lp
-    }
-
-    /// Apply opponent's build data received over the network.
-    /// Canonical coordinates — no mirroring needed.
-    pub fn apply_opponent_build(&mut self, data: &OpponentBuildData, role: Role) -> Vec<Unit> {
-        let packs = all_packs();
-        let mut new_units = Vec::new();
-        let round = self.round;
-        let opp = self.opponent_mut(role);
-
-        // Apply tech purchases
-        for &(kind, tech_id) in &data.tech_purchases {
-            opp.techs.purchase(kind, tech_id);
-        }
-
-        // Spawn opponent's new packs (canonical coordinates)
-        for &(pack_index, (cx, cy), rotated) in &data.new_packs {
-            if pack_index >= packs.len() {
-                continue;
-            }
-            let pack = &packs[pack_index];
-            let center = vec2(cx, cy);
-
-            let (spawned, ids) = crate::pack::spawn_pack_units(
-                pack,
-                center,
-                rotated,
-                opp.player_id,
-                &opp.techs,
-                &mut opp.next_id,
-            );
-            new_units.extend(spawned);
-
-            opp.packs.push(PlacedPack {
-                pack_index,
-                center,
-                unit_ids: ids,
-                pre_drag_center: center,
-                rotated,
-                locked: true,
-                round_placed: round,
-            });
-        }
-
-        new_units
     }
 
     /// Spawn new AI army from a list of purchased packs. Adds packs and returns units.
@@ -279,13 +170,13 @@ impl MatchProgress {
                 pack,
                 center,
                 false,
-                self.guest.player_id,
-                &self.guest.techs,
-                &mut self.guest.next_id,
+                self.players[1].player_id,
+                &self.players[1].techs,
+                &mut self.players[1].next_id,
             );
             new_units.extend(spawned);
 
-            self.guest.packs.push(PlacedPack {
+            self.players[1].packs.push(PlacedPack {
                 pack_index,
                 center,
                 unit_ids: ids,
@@ -298,4 +189,47 @@ impl MatchProgress {
 
         new_units
     }
+}
+
+/// Apply peer's build data received over the network.
+/// Canonical coordinates — no mirroring needed.
+pub fn apply_peer_build(player: &mut PlayerState, data: &OpponentBuildData, round: u32) -> Vec<Unit> {
+    let packs = all_packs();
+    let mut new_units = Vec::new();
+
+    // Apply tech purchases
+    for &(kind, tech_id) in &data.tech_purchases {
+        player.techs.purchase(kind, tech_id);
+    }
+
+    // Spawn peer's new packs (canonical coordinates)
+    for &(pack_index, (cx, cy), rotated) in &data.new_packs {
+        if pack_index >= packs.len() {
+            continue;
+        }
+        let pack = &packs[pack_index];
+        let center = vec2(cx, cy);
+
+        let (spawned, ids) = crate::pack::spawn_pack_units(
+            pack,
+            center,
+            rotated,
+            player.player_id,
+            &player.techs,
+            &mut player.next_id,
+        );
+        new_units.extend(spawned);
+
+        player.packs.push(PlacedPack {
+            pack_index,
+            center,
+            unit_ids: ids,
+            pre_drag_center: center,
+            rotated,
+            locked: true,
+            round_placed: round,
+        });
+    }
+
+    new_units
 }
