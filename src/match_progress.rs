@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::game_state::PlacedPack;
 use crate::pack::PackDef;
-use crate::net::OpponentBuildData;
+use crate::net::PeerBuildData;
 use crate::pack::all_packs;
 use crate::tech::TechState;
 use crate::unit::{Unit, UnitKind};
@@ -193,7 +193,7 @@ impl MatchProgress {
 
 /// Apply peer's build data received over the network.
 /// Canonical coordinates — no mirroring needed.
-pub fn apply_peer_build(player: &mut PlayerState, data: &OpponentBuildData, round: u32) -> Vec<Unit> {
+pub fn apply_peer_build(player: &mut PlayerState, data: &PeerBuildData, round: u32) -> Vec<Unit> {
     let packs = all_packs();
     let mut new_units = Vec::new();
 

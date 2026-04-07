@@ -50,7 +50,7 @@ pub enum NetMessage {
 }
 
 #[derive(Clone, Debug)]
-pub struct OpponentBuildData {
+pub struct PeerBuildData {
     pub new_packs: Vec<(usize, (f32, f32), bool)>,
     pub tech_purchases: Vec<(UnitKind, TechId)>,
 }
@@ -69,15 +69,15 @@ pub struct NetState {
     pub peer_id: Option<PeerId>,
     pub is_host: bool,
     pub peer_ready: bool,
-    pub opponent_build: Option<OpponentBuildData>,
+    pub peer_build: Option<PeerBuildData>,
     pub disconnected: bool,
     pub received_chats: Vec<(String, String)>, // (sender_name, text)
-    pub opponent_surrendered: bool,
-    pub opponent_rematch: bool,
-    pub opponent_bans: Option<Vec<u8>>,
+    pub peer_surrendered: bool,
+    pub peer_rematch: bool,
+    pub peer_bans: Option<Vec<u8>>,
     pub received_settings: Option<crate::settings::GameSettings>,
-    pub opponent_color: Option<u8>,
-    pub opponent_name: Option<String>,
+    pub peer_color: Option<u8>,
+    pub peer_name: Option<String>,
     pub received_round_end: Option<RoundEndData>,
     // Desync detection & state sync
     pub received_state_hash: Option<(u32, u64)>,
@@ -109,15 +109,15 @@ impl NetState {
             peer_id: None,
             is_host: false,
             peer_ready: false,
-            opponent_build: None,
+            peer_build: None,
             disconnected: false,
             received_chats: Vec::new(),
-            opponent_surrendered: false,
-            opponent_rematch: false,
-            opponent_bans: None,
+            peer_surrendered: false,
+            peer_rematch: false,
+            peer_bans: None,
             received_settings: None,
-            opponent_color: None,
-            opponent_name: None,
+            peer_color: None,
+            peer_name: None,
             received_round_end: None,
             received_state_hash: None,
             received_state_request: None,
@@ -161,7 +161,7 @@ impl NetState {
                             tech_purchases,
                             gold_remaining: _,
                         } => {
-                            self.opponent_build = Some(OpponentBuildData {
+                            self.peer_build = Some(PeerBuildData {
                                 new_packs,
                                 tech_purchases,
                             });
@@ -170,22 +170,22 @@ impl NetState {
                             self.received_chats.push((name, text));
                         }
                         NetMessage::Surrender => {
-                            self.opponent_surrendered = true;
+                            self.peer_surrendered = true;
                         }
                         NetMessage::RematchRequest => {
-                            self.opponent_rematch = true;
+                            self.peer_rematch = true;
                         }
                         NetMessage::BanSelection(bans) => {
-                            self.opponent_bans = Some(bans);
+                            self.peer_bans = Some(bans);
                         }
                         NetMessage::SettingsSync(settings) => {
                             self.received_settings = Some(settings);
                         }
                         NetMessage::ColorChoice(idx) => {
-                            self.opponent_color = Some(idx);
+                            self.peer_color = Some(idx);
                         }
                         NetMessage::NameSync(name) => {
-                            self.opponent_name = Some(name);
+                            self.peer_name = Some(name);
                         }
                         NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0: _, total_hp_1: _, timeout_dmg_0, timeout_dmg_1 } => {
                             self.received_round_end = Some(RoundEndData {
@@ -237,8 +237,8 @@ impl NetState {
         self.peer_id.is_some()
     }
 
-    pub fn take_opponent_build(&mut self) -> Option<OpponentBuildData> {
-        self.opponent_build.take()
+    pub fn take_peer_build(&mut self) -> Option<PeerBuildData> {
+        self.peer_build.take()
     }
 }
 
