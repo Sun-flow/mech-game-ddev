@@ -33,28 +33,32 @@ impl GameContext {
         self.net = net;
         self.role = if is_host { Role::Host } else { Role::Guest };
 
-        let mut opponent_name = "Opponent".to_string();
+        let local = self.role.player_id() as usize;
+        // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
+        let peer = 1 - local;
+
+        let mut peer_name = "Opponent".to_string();
         if let Some(ref mut n) = self.net {
             n.is_host = is_host;
-            opponent_name = n.opponent_name.clone().unwrap_or_else(|| "Opponent".to_string());
+            peer_name = n.peer_name.clone().unwrap_or_else(|| "Opponent".to_string());
         }
 
         self.progress = MatchProgress::new();
 
         // Set names on PlayerState
-        self.progress.player_mut(self.role).name = player_name;
-        self.progress.opponent_mut(self.role).name = opponent_name;
+        self.progress.players[local].name = player_name;
+        self.progress.players[peer].name = peer_name;
 
         // Initialize gold with round allowance
         let allowance = self.progress.round_allowance();
-        self.progress.player_mut(self.role).gold = allowance;
+        self.progress.players[local].gold = allowance;
 
         self.build = BuildState::new(allowance, is_host);
         if draft_ban_enabled {
             self.phase = GamePhase::DraftBan {
                 bans: Vec::new(),
                 confirmed: false,
-                opponent_bans: None,
+                peer_bans: None,
             };
         } else {
             self.phase = GamePhase::Build;

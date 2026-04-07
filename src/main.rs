@@ -64,8 +64,10 @@ async fn main() {
         // Set colors canonically: my color goes to my player_id slot
         team::set_color(ctx.role.player_id(), ctx.game_settings.player_color_index);
         if let Some(ref n) = ctx.net {
-            if let Some(opp_color) = n.opponent_color {
-                team::set_color(ctx.role.opponent_id(), opp_color);
+            // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
+            let peer_id = 1 - ctx.role.player_id();
+            if let Some(opp_color) = n.peer_color {
+                team::set_color(peer_id, opp_color);
             }
         }
         ui::set_text_scale(main_settings.ui_scale);
@@ -134,7 +136,7 @@ async fn main() {
                     }
                     lobby::LobbyResult::StartVsAi => {
                         ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
-                        ctx.progress.guest.name = "AI".to_string();
+                        ctx.progress.players[1].name = "AI".to_string();
                         continue;
                     }
                     lobby::LobbyResult::Waiting => {}
@@ -148,7 +150,7 @@ async fn main() {
                     }
                     lobby::LobbyResult::StartVsAi => {
                         ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
-                        ctx.progress.guest.name = "AI".to_string();
+                        ctx.progress.players[1].name = "AI".to_string();
                         continue;
                     }
                     _ => {}
@@ -158,8 +160,8 @@ async fn main() {
                 continue;
             }
 
-            GamePhase::DraftBan { ref mut bans, ref mut confirmed, ref mut opponent_bans } => {
-                match draft_ban::update_and_draw(bans, confirmed, opponent_bans, &mut ctx.net, mouse.screen_mouse, mouse.left_click) {
+            GamePhase::DraftBan { ref mut bans, ref mut confirmed, ref mut peer_bans } => {
+                match draft_ban::update_and_draw(bans, confirmed, peer_bans, &mut ctx.net, mouse.screen_mouse, mouse.left_click) {
                     draft_ban::DraftBanResult::Waiting => {}
                     draft_ban::DraftBanResult::Done(all_bans) => {
                         ctx.progress.banned_kinds = all_bans;
@@ -263,8 +265,11 @@ async fn main() {
         }
 
         // Chat system
-        ctx.chat.receive_from_net(&mut ctx.net, ctx.role.opponent_id());
-        let my_name = ctx.progress.player(ctx.role).name.clone();
+        // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
+        let peer_id = 1 - ctx.role.player_id();
+        ctx.chat.receive_from_net(&mut ctx.net, peer_id);
+        let local = ctx.role.player_id() as usize;
+        let my_name = ctx.progress.players[local].name.clone();
         ctx.chat.update(&ctx.phase, &mut ctx.net, &my_name, ctx.role.player_id());
         ctx.chat.tick(dt);
         ctx.chat.draw(&ctx.phase, &my_name);
