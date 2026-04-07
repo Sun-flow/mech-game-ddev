@@ -27,13 +27,13 @@ impl ChatState {
     }
 
     /// Receive incoming chat messages from network.
-    pub fn receive_from_net(&mut self, net: &mut Option<net::NetState>, opponent_id: u8) {
+    pub fn receive_from_net(&mut self, net: &mut Option<net::NetState>, peer_id: u8) {
         if let Some(ref mut n) = net {
             for (name, text) in n.received_chats.drain(..) {
                 self.messages.push(ChatMessage {
                     name,
                     text,
-                    player_id: opponent_id,
+                    player_id: peer_id,
                     lifetime: 5.0,
                 });
             }
