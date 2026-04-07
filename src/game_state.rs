@@ -13,7 +13,7 @@ pub enum GamePhase {
     DraftBan {
         bans: Vec<crate::unit::UnitKind>,
         confirmed: bool,
-        opponent_bans: Option<Vec<crate::unit::UnitKind>>,
+        peer_bans: Option<Vec<crate::unit::UnitKind>>,
     },
     Build,
     WaitingForOpponent,

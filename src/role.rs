@@ -30,12 +30,4 @@ impl Role {
         }
     }
 
-    /// The opponent's player_id.
-    pub fn opponent_id(self) -> u8 {
-        match self {
-            Role::Host => 1,
-            Role::Guest => 0,
-            Role::Spectator => 255,
-        }
-    }
 }
