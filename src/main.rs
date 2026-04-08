@@ -249,7 +249,7 @@ async fn main() {
             }
 
             GamePhase::Battle => {
-                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, battle.show_surrender_confirm, mouse.screen_mouse, mouse.world_mouse, ctx.local_player_id);
+                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, mouse.screen_mouse, mouse.world_mouse, ctx.local_player_id);
             }
 
             GamePhase::RoundResult { match_state, lp_damage, loser_team } => {

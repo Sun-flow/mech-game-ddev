@@ -144,7 +144,6 @@ pub fn draw_battle_ui(
     obstacles: &[terrain::Obstacle],
     battle_timer: f32,
     round_timeout: f32,
-    show_surrender_confirm: bool,
     screen_mouse: Vec2,
     world_mouse: Vec2,
     local_player_id: u16,
@@ -170,73 +169,36 @@ pub fn draw_battle_ui(
     }
 
     // Obstacle tooltip on hover (hit test in world coords, draw in screen coords)
-    if !show_surrender_confirm {
-        for obs in obstacles {
-            if !obs.alive { continue; }
-            if obs.contains_point(world_mouse) {
-                let tip_x = screen_mouse.x + crate::ui::s(15.0);
-                let tip_y = (screen_mouse.y - crate::ui::s(10.0)).max(5.0);
-                let tip_w = crate::ui::s(170.0);
-                let tip_h = if obs.obstacle_type == terrain::ObstacleType::Cover { crate::ui::s(60.0) } else { crate::ui::s(45.0) };
+    for obs in obstacles {
+        if !obs.alive { continue; }
+        if obs.contains_point(world_mouse) {
+            let tip_x = screen_mouse.x + crate::ui::s(15.0);
+            let tip_y = (screen_mouse.y - crate::ui::s(10.0)).max(5.0);
+            let tip_w = crate::ui::s(170.0);
+            let tip_h = if obs.obstacle_type == terrain::ObstacleType::Cover { crate::ui::s(60.0) } else { crate::ui::s(45.0) };
 
-                draw_rectangle(tip_x, tip_y, tip_w, tip_h, Color::new(0.08, 0.08, 0.12, 0.95));
-                draw_rectangle_lines(tip_x, tip_y, tip_w, tip_h, 1.0, Color::new(0.4, 0.5, 0.6, 0.7));
+            draw_rectangle(tip_x, tip_y, tip_w, tip_h, Color::new(0.08, 0.08, 0.12, 0.95));
+            draw_rectangle_lines(tip_x, tip_y, tip_w, tip_h, 1.0, Color::new(0.4, 0.5, 0.6, 0.7));
 
-                let type_name = match obs.obstacle_type {
-                    terrain::ObstacleType::Wall => "Wall (Indestructible)",
-                    terrain::ObstacleType::Cover => "Cover (Destructible)",
-                };
-                crate::ui::draw_scaled_text(type_name, tip_x + crate::ui::s(6.0), tip_y + crate::ui::s(16.0), 14.0, WHITE);
+            let type_name = match obs.obstacle_type {
+                terrain::ObstacleType::Wall => "Wall (Indestructible)",
+                terrain::ObstacleType::Cover => "Cover (Destructible)",
+            };
+            crate::ui::draw_scaled_text(type_name, tip_x + crate::ui::s(6.0), tip_y + crate::ui::s(16.0), 14.0, WHITE);
 
-                let mut ty = tip_y + crate::ui::s(32.0);
-                if obs.obstacle_type == terrain::ObstacleType::Cover {
-                    crate::ui::draw_scaled_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
-                    ty += crate::ui::s(14.0);
-                }
-                let team_name = if let Some(p) = progress.players.iter().find(|p| p.player_id == obs.player_id) {
-                    p.name.as_str()
-                } else {
-                    "Neutral"
-                };
-                crate::ui::draw_scaled_text(&format!("Owner: {}", team_name), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
-                break;
+            let mut ty = tip_y + crate::ui::s(32.0);
+            if obs.obstacle_type == terrain::ObstacleType::Cover {
+                crate::ui::draw_scaled_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
+                ty += crate::ui::s(14.0);
             }
+            let team_name = if let Some(p) = progress.players.iter().find(|p| p.player_id == obs.player_id) {
+                p.name.as_str()
+            } else {
+                "Neutral"
+            };
+            crate::ui::draw_scaled_text(&format!("Owner: {}", team_name), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
+            break;
         }
-    }
-
-    // Surrender confirmation overlay
-    if show_surrender_confirm {
-        draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.6));
-        let title = "Surrender?";
-        let tdims = crate::ui::measure_scaled_text(title, 36);
-        crate::ui::draw_scaled_text(title, screen_width() / 2.0 - tdims.width / 2.0, screen_height() / 2.0 - crate::ui::s(20.0), 36.0, WHITE);
-
-        let btn_w: f32 = crate::ui::s(120.0);
-        let btn_h: f32 = crate::ui::s(40.0);
-        let cx = screen_width() / 2.0;
-        let cy = screen_height() / 2.0;
-
-        // Yes button
-        let yes_x = cx - btn_w - crate::ui::s(10.0);
-        let yes_y = cy + crate::ui::s(10.0);
-        let yes_hover = screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h;
-        let yes_color = if yes_hover { Color::new(0.8, 0.2, 0.2, 0.9) } else { Color::new(0.6, 0.15, 0.15, 0.8) };
-        draw_rectangle(yes_x, yes_y, btn_w, btn_h, yes_color);
-        draw_rectangle_lines(yes_x, yes_y, btn_w, btn_h, 1.0, WHITE);
-        let yt = "Yes";
-        let ydims = crate::ui::measure_scaled_text(yt, 20);
-        crate::ui::draw_scaled_text(yt, yes_x + btn_w / 2.0 - ydims.width / 2.0, yes_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
-
-        // Cancel button
-        let no_x = cx + crate::ui::s(10.0);
-        let no_y = cy + crate::ui::s(10.0);
-        let no_hover = screen_mouse.x >= no_x && screen_mouse.x <= no_x + btn_w && screen_mouse.y >= no_y && screen_mouse.y <= no_y + btn_h;
-        let no_color = if no_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
-        draw_rectangle(no_x, no_y, btn_w, btn_h, no_color);
-        draw_rectangle_lines(no_x, no_y, btn_w, btn_h, 1.0, WHITE);
-        let nt = "Cancel";
-        let ndims = crate::ui::measure_scaled_text(nt, 20);
-        crate::ui::draw_scaled_text(nt, no_x + btn_w / 2.0 - ndims.width / 2.0, no_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
     }
 }
 

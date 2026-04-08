@@ -19,7 +19,6 @@ pub struct BattleState {
     pub timer: f32,
     pub frame: u32,
     pub recent_hashes: std::collections::VecDeque<(u32, u64)>,
-    pub show_surrender_confirm: bool,
     pub waiting_for_round_end: bool,
     pub round_end_timeout: f32,
     pub projectiles: Vec<Projectile>,
@@ -33,7 +32,6 @@ impl BattleState {
             timer: 0.0,
             frame: 0,
             recent_hashes: std::collections::VecDeque::with_capacity(5),
-            show_surrender_confirm: false,
             waiting_for_round_end: false,
             round_end_timeout: 0.0,
             projectiles: Vec::new(),
@@ -46,7 +44,6 @@ impl BattleState {
         self.timer = 0.0;
         self.frame = 0;
         self.recent_hashes.clear();
-        self.show_surrender_confirm = false;
         self.waiting_for_round_end = false;
         self.round_end_timeout = 0.0;
         self.projectiles.clear();
@@ -54,22 +51,14 @@ impl BattleState {
     }
 }
 
-pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input::MouseState, dt: f32) {
-    let screen_mouse = ms.screen_mouse;
-    let local_player_id = ctx.local_player_id;
-
-    // Surrender toggle
-    if is_key_pressed(KeyCode::Escape) {
-        battle.show_surrender_confirm = !battle.show_surrender_confirm;
-    }
-
+pub fn update(ctx: &mut GameContext, battle: &mut BattleState, _ms: &crate::input::MouseState, dt: f32) {
     // Poll network
     if let Some(ref mut n) = ctx.net {
         n.poll();
     }
 
-    if battle.show_surrender_confirm {
-        // Battle paused while surrender overlay is shown
+    if ctx.show_escape_menu && ctx.net.is_none() {
+        // Single-player: pause simulation while escape menu is open
     } else if ctx.net.is_some() {
         // Multiplayer: fixed timestep for determinism
         battle.accumulator += dt;
@@ -177,29 +166,6 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         }
     }
 
-    // Surrender confirmation handling
-    if battle.show_surrender_confirm && ms.left_click {
-        let btn_w = crate::ui::s(120.0);
-        let btn_h = crate::ui::s(40.0);
-        let cx = screen_width() / 2.0;
-        let cy = screen_height() / 2.0;
-        // "Yes" button
-        let yes_x = cx - btn_w - crate::ui::s(10.0);
-        let yes_y = cy + crate::ui::s(10.0);
-        if screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h {
-            ctx.progress.player_mut(local_player_id).lp = 0;
-            battle.show_surrender_confirm = false;
-            let winner = ctx.progress.game_winner().unwrap_or(0);
-            ctx.phase = GamePhase::GameOver(winner);
-        }
-        // "Cancel" button
-        let no_x = cx + crate::ui::s(10.0);
-        let no_y = cy + crate::ui::s(10.0);
-        if screen_mouse.x >= no_x && screen_mouse.x <= no_x + btn_w && screen_mouse.y >= no_y && screen_mouse.y <= no_y + btn_h {
-            battle.show_surrender_confirm = false;
-        }
-    }
-
     // Round timeout
     battle.timer += dt;
     let timed_out = battle.timer >= ROUND_TIMEOUT;
@@ -239,7 +205,6 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 }
 
                 battle.waiting_for_round_end = false;
-                battle.show_surrender_confirm = false;
                 ctx.phase = GamePhase::RoundResult {
                     match_state: final_state,
                     lp_damage: rd.lp_damage,
@@ -328,7 +293,6 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 ctx.progress.player_mut(loser).lp -= lp_damage;
             }
 
-            battle.show_surrender_confirm = false;
             ctx.phase = GamePhase::RoundResult {
                 match_state: final_state,
                 lp_damage,
