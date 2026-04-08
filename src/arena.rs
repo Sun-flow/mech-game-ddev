@@ -17,18 +17,17 @@ pub enum MatchState {
 
 /// Check if the match is over.
 pub fn check_match_state(units: &[Unit]) -> MatchState {
-    let mut team_alive = [false; 4];
+    let mut alive_players: std::collections::HashSet<u16> = std::collections::HashSet::new();
     for u in units {
         if u.alive {
-            team_alive[u.player_id as usize] = true;
+            alive_players.insert(u.player_id);
         }
     }
 
-    let alive_count = team_alive.iter().filter(|&&a| a).count();
-    match alive_count {
+    match alive_players.len() {
         0 => MatchState::Draw,
         1 => {
-            let winner = team_alive.iter().position(|&a| a).unwrap() as u16;
+            let winner = *alive_players.iter().next().unwrap();
             MatchState::Winner(winner)
         }
         _ => MatchState::InProgress,
