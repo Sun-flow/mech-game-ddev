@@ -28,7 +28,7 @@ pub fn check_match_state(units: &[Unit]) -> MatchState {
     match alive_count {
         0 => MatchState::Draw,
         1 => {
-            let winner = team_alive.iter().position(|&a| a).unwrap() as u8;
+            let winner = team_alive.iter().position(|&a| a).unwrap() as u16;
             MatchState::Winner(winner)
         }
         _ => MatchState::InProgress,

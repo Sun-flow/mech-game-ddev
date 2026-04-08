@@ -94,6 +94,7 @@ pub fn update(
             ctx.phase = GamePhase::WaitingForOpponent;
         } else {
             // Single-player: start battle immediately with AI
+            let ai_pid = ctx.progress.players.iter().find(|p| p.player_id != ctx.local_player_id).unwrap().player_id;
             ctx.phase = economy::start_ai_battle(
                 &mut ctx.units,
                 &mut battle.projectiles,
@@ -101,6 +102,7 @@ pub fn update(
                 &mut ctx.obstacles,
                 &mut ctx.nav_grid,
                 &ctx.game_settings,
+                ai_pid,
             );
             battle.reset();
         }
@@ -116,8 +118,8 @@ pub fn update(
             if let Some(new_units) = ctx.build.purchase_pack(
                 pack_idx,
                 ctx.progress.round,
-                &ctx.progress.players[lpid].techs,
-                crate::arena::deploy_x_range(ctx.local_player_id),
+                &ctx.progress.player(ctx.local_player_id).techs,
+                ctx.progress.player(ctx.local_player_id).deploy_zone,
                 ctx.local_player_id,
             ) {
                 ctx.units.extend(new_units);
@@ -189,11 +191,11 @@ pub fn update(
     if middle_click && screen_mouse.x > shop_w() {
         if let Some(drag_idx) = ctx.build.dragging {
             if !ctx.build.placed_packs[drag_idx].locked {
-                ctx.build.rotate_pack(drag_idx, &mut ctx.units, crate::arena::deploy_x_range(ctx.local_player_id));
+                ctx.build.rotate_pack(drag_idx, &mut ctx.units, ctx.progress.player(ctx.local_player_id).deploy_zone);
             }
         } else if let Some(placed_idx) = ctx.build.pack_at(mouse) {
             if !ctx.build.placed_packs[placed_idx].locked {
-                ctx.build.rotate_pack(placed_idx, &mut ctx.units, crate::arena::deploy_x_range(ctx.local_player_id));
+                ctx.build.rotate_pack(placed_idx, &mut ctx.units, ctx.progress.player(ctx.local_player_id).deploy_zone);
             }
         }
     }
@@ -213,7 +215,7 @@ pub fn update(
             let new_center = snapped_mouse + offset;
             let pack = &all_packs()[ctx.build.placed_packs[pack_idx].pack_index];
             let half = ctx.build.placed_packs[pack_idx].bbox_half_size_for(pack);
-            let (dmin, dmax) = crate::arena::deploy_x_range(ctx.local_player_id);
+            let (dmin, dmax) = ctx.progress.player(ctx.local_player_id).deploy_zone;
             let clamped = vec2(
                 new_center.x.clamp(dmin + half.x, dmax - half.x),
                 new_center.y.clamp(half.y, ARENA_H - half.y),
@@ -341,7 +343,7 @@ pub fn update(
         // Currently holding a pack — follow mouse
         let pack = &all_packs()[ctx.build.placed_packs[drag_idx].pack_index];
         let half = ctx.build.placed_packs[drag_idx].bbox_half_size_for(pack);
-        let (dmin, dmax) = crate::arena::deploy_x_range(ctx.local_player_id);
+        let (dmin, dmax) = ctx.progress.player(ctx.local_player_id).deploy_zone;
         let clamped = vec2(
             mouse.x.clamp(dmin + half.x, dmax - half.x),
             mouse.y.clamp(half.y, ARENA_H - half.y),
@@ -421,6 +423,7 @@ pub fn update(
             ctx.phase = GamePhase::WaitingForOpponent;
         } else {
             // Single-player: start battle with AI
+            let ai_pid = ctx.progress.players.iter().find(|p| p.player_id != ctx.local_player_id).unwrap().player_id;
             ctx.phase = economy::start_ai_battle(
                 &mut ctx.units,
                 &mut battle.projectiles,
@@ -428,6 +431,7 @@ pub fn update(
                 &mut ctx.obstacles,
                 &mut ctx.nav_grid,
                 &ctx.game_settings,
+                ai_pid,
             );
             battle.reset();
         }

@@ -27,7 +27,7 @@ fn is_closer(dist: f32, id: u64, best_dist: f32, best_id: Option<u64>) -> bool {
 /// Prefers targets with line of sight, but falls back to nearest enemy
 /// without LOS so units will path toward hidden enemies.
 pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
-    let positions: Vec<(u64, u8, Vec2, bool)> = units
+    let positions: Vec<(u64, u16, Vec2, bool)> = units
         .iter()
         .map(|u| (u.id, u.player_id, u.pos, u.alive))
         .collect();
@@ -230,7 +230,7 @@ pub fn update_attacks(
     };
 
     // === Interceptor rocket interception ===
-    let interceptor_actions: Vec<(u64, usize, u8)> = {
+    let interceptor_actions: Vec<(u64, usize, u16)> = {
         let mut actions = Vec::new();
         for unit in units.iter_mut() {
             if !unit.alive || !unit.can_attack() || !unit.is_interceptor() {
@@ -277,7 +277,7 @@ pub fn update_attacks(
         .collect();
 
     // === Chaff Overwhelm: precompute bonus damage ===
-    let chaff_positions: Vec<(Vec2, u8)> = units
+    let chaff_positions: Vec<(Vec2, u16)> = units
         .iter()
         .filter(|u| u.alive && u.kind == UnitKind::Chaff)
         .map(|u| (u.pos, u.player_id))
@@ -287,7 +287,7 @@ pub fn update_attacks(
     let mut events: Vec<AttackEvent> = Vec::new();
 
     {
-        let snapshot: Vec<(u64, Vec2, f32, bool, u8)> = units
+        let snapshot: Vec<(u64, Vec2, f32, bool, u16)> = units
             .iter()
             .map(|u| (u.id, u.pos, u.stats.size, u.alive, u.player_id))
             .collect();
@@ -462,7 +462,7 @@ pub fn update_attacks(
 
 /// Update projectiles with shield interception, evasion, pierce, and slow.
 pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32, obstacles: &mut [Obstacle], splash_effects: &mut Vec<crate::rendering::SplashEffect>) {
-    let shields: Vec<(u64, u8, Vec2, f32, bool)> = units
+    let shields: Vec<(u64, u16, Vec2, f32, bool)> = units
         .iter()
         .filter(|u| u.is_shield() && u.alive)
         .map(|u| (u.id, u.player_id, u.pos, u.stats.shield_radius, u.shield_hp > 0.0))
@@ -608,7 +608,7 @@ enum AttackEvent {
         target_pos: Vec2,
         damage: f32,
         splash_radius: f32,
-        attacker_team: u8,
+        attacker_team: u16,
         lifesteal: bool,
         attacker_hp_frac: f32,
         cleave_ignores_armor: bool,

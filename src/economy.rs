@@ -209,6 +209,7 @@ pub fn start_ai_battle(
     obstacles: &mut Vec<crate::terrain::Obstacle>,
     nav_grid: &mut Option<crate::terrain::NavGrid>,
     game_settings: &crate::settings::GameSettings,
+    ai_player_id: u16,
 ) -> crate::game_state::GamePhase {
     use crate::arena::{ARENA_H, ARENA_W};
     use crate::game_state::GamePhase;
@@ -224,20 +225,20 @@ pub fn start_ai_battle(
     *nav_grid = Some(crate::terrain::NavGrid::from_obstacles(obstacles, ARENA_W, ARENA_H, 15.0));
 
     // Remove old AI (guest) units — they'll be respawned fresh from stored packs
-    units.retain(|u| u.player_id != progress.players[1].player_id);
+    units.retain(|u| u.player_id != ai_player_id);
 
     // Respawn all existing opponent (guest) units from previous rounds at full HP
-    units.extend(progress.players[1].respawn_units());
+    units.extend(progress.player(ai_player_id).respawn_units());
 
     // AI buys techs, then spawns NEW army for this round
     let mut ai_gold = progress.round_allowance();
-    ai_buy_techs(&mut ai_gold, &mut progress.players[1].techs);
+    ai_buy_techs(&mut ai_gold, &mut progress.player_mut(ai_player_id).techs);
     let ai_packs = if game_settings.smart_ai {
-        smart_army(ai_gold, &progress.players[1].ai_memory, &progress.banned_kinds)
+        smart_army(ai_gold, &progress.player(ai_player_id).ai_memory, &progress.banned_kinds)
     } else {
         random_army_filtered(ai_gold, &progress.banned_kinds)
     };
-    let new_opponent_units = progress.spawn_ai_army(&ai_packs);
+    let new_opponent_units = progress.spawn_ai_army(&ai_packs, ai_player_id);
     units.extend(new_opponent_units);
 
     // Seed RNG for this round

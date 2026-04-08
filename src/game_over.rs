@@ -15,9 +15,10 @@ pub fn update(
     left_click: bool,
 ) {
     if is_key_pressed(KeyCode::R) {
-        ctx.progress = MatchProgress::new();
+        let player_ids: Vec<u16> = ctx.progress.players.iter().map(|p| p.player_id).collect();
+        ctx.progress = MatchProgress::new(&player_ids);
         ctx.phase = GamePhase::Lobby;
-        ctx.build = BuildState::new(ctx.progress.round_allowance(), true);
+        ctx.build = BuildState::new(ctx.progress.round_allowance(), ctx.progress.player(ctx.local_player_id).next_id);
         ctx.units.clear();
         battle.projectiles.clear();
         ctx.net = None;
@@ -33,10 +34,10 @@ pub fn update(
     if left_click && screen_mouse.x >= rmatch_x && screen_mouse.x <= rmatch_x + rmatch_w
         && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
     {
-        let is_host = ctx.net.as_ref().is_none_or(|n| n.is_host);
-        ctx.progress = MatchProgress::new();
+        let player_ids: Vec<u16> = ctx.progress.players.iter().map(|p| p.player_id).collect();
+        ctx.progress = MatchProgress::new(&player_ids);
         let allowance = ctx.progress.round_allowance();
-        ctx.build = BuildState::new(allowance, is_host);
+        ctx.build = BuildState::new(allowance, ctx.progress.player(ctx.local_player_id).next_id);
         ctx.units.clear();
         ctx.obstacles.clear();
         ctx.nav_grid = None;
