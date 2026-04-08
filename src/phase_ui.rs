@@ -310,7 +310,6 @@ pub fn draw_game_over_ui(
     screen_mouse: Vec2,
     local_player_id: u8,
 ) {
-    let lpid = local_player_id as usize;
     let headline = if winner == local_player_id { "YOU WIN!".to_string() } else { "YOU LOSE!".to_string() };
     let winner_name = &progress.players[winner as usize].name;
     let winner_color_idx = crate::team::color_index(winner);
@@ -383,7 +382,7 @@ pub fn draw_game_over_ui(
     sy += crate::ui::s(18.0);
 
     let mut lp_text = String::new();
-    for (i, player) in progress.players.iter().enumerate() {
+    for player in &progress.players {
         if !lp_text.is_empty() {
             lp_text.push_str(" vs ");
         }
