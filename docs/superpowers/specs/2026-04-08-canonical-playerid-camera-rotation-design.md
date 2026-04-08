@@ -14,7 +14,6 @@ Game code never computes "who is the other player." It receives data that says "
 ## Non-Goals
 
 - Multi-peer networking (NetState stays 1:1)
-- Changing network message format/protocol (messages already use canonical player_ids)
 - Spectator mode implementation (spectator = `local_player_id = 255`, behavior unchanged)
 
 ## Part 1: Replace Role Enum with local_player_id
@@ -162,46 +161,95 @@ for (i, player) in progress.players.iter().enumerate() {
 "My packs" = packs in BuildState (local player's current build).
 "Other players' packs" = iterate `progress.players`, skip `local_player_id`, draw their stored `.packs`.
 
-## Part 3: Net Layer Tags Incoming Data with Player ID
+## Part 3: Sender-Embedded Player ID in Network Messages
 
 ### Principle
 
-The `1 - local_player_id` derivation lives inside `NetState::poll()` — the only place that computes "messages from this connection come from player X." Game code receives data already tagged with the sender's canonical player_id.
+Each sender includes their own `local_player_id` in every message. The receiver reads the player_id directly from the message — no derivation, no `1 - local_player_id`, no `peer_player_id()` helper. Each player knows who they are, and they tell the other player.
 
-### PeerBuildData
+This eliminates all "who is the other player" computation and scales naturally to N-player.
+
+### NetMessage changes
+
+Add `player_id: u8` to message variants that need sender identification:
 
 ```rust
-// Before
-pub struct PeerBuildData {
-    pub new_packs: Vec<(usize, (f32, f32), bool)>,
-    pub tech_purchases: Vec<(UnitKind, TechId)>,
-}
-
-// After
-pub struct PeerBuildData {
-    pub player_id: u8,
-    pub new_packs: Vec<(usize, (f32, f32), bool)>,
-    pub tech_purchases: Vec<(UnitKind, TechId)>,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum NetMessage {
+    ReadyToStart,
+    SettingsSync(crate::settings::GameSettings),
+    BuildComplete {
+        player_id: u8,
+        new_packs: Vec<(usize, (f32, f32), bool)>,
+        tech_purchases: Vec<(UnitKind, TechId)>,
+        gold_remaining: u32,
+    },
+    ChatMessage { player_id: u8, name: String, text: String },
+    Surrender { player_id: u8 },
+    RematchRequest { player_id: u8 },
+    BanSelection(Vec<u8>),   // bans are merged, no player_id needed
+    ColorChoice { player_id: u8, color_index: u8 },
+    NameSync { player_id: u8, name: String },
+    RoundEnd { .. },         // already uses canonical player_ids
+    StateHash { .. },        // sync protocol, no player_id needed
+    StateRequest { .. },     // sync protocol
+    StateSync { .. },        // sync protocol
 }
 ```
 
-Set in `poll()` when the message arrives:
+### Sender side
+
+Each sender populates `player_id` with their own `local_player_id`:
 
 ```rust
-NetMessage::BuildComplete { new_packs, tech_purchases, .. } => {
+// Example: sending build
+n.send(NetMessage::BuildComplete {
+    player_id: ctx.local_player_id,
+    new_packs,
+    tech_purchases,
+    gold_remaining,
+});
+
+// Example: sending surrender
+n.send(NetMessage::Surrender { player_id: ctx.local_player_id });
+```
+
+### Receiver side (poll)
+
+`poll()` reads the player_id from the message. No derivation:
+
+```rust
+NetMessage::BuildComplete { player_id, new_packs, tech_purchases, .. } => {
     self.peer_build = Some(PeerBuildData {
-        player_id: self.peer_player_id(),
+        player_id,
         new_packs,
         tech_purchases,
     });
 }
+NetMessage::Surrender { player_id } => {
+    self.surrendered_player = Some(player_id);
+}
+NetMessage::RematchRequest { player_id } => {
+    self.rematch_player = Some(player_id);
+}
+NetMessage::ColorChoice { player_id, color_index } => {
+    self.peer_color = Some((player_id, color_index));
+}
+NetMessage::NameSync { player_id, name } => {
+    self.peer_name = Some((player_id, name));
+}
+NetMessage::ChatMessage { player_id, name, text } => {
+    self.received_chats.push((player_id, name, text));
+}
 ```
 
-Where `peer_player_id()` is a helper:
+### PeerBuildData
 
 ```rust
-fn peer_player_id(&self) -> u8 {
-    if self.is_host { 1 } else { 0 }
+pub struct PeerBuildData {
+    pub player_id: u8,
+    pub new_packs: Vec<(usize, (f32, f32), bool)>,
+    pub tech_purchases: Vec<(UnitKind, TechId)>,
 }
 ```
 
@@ -214,6 +262,7 @@ fn peer_player_id(&self) -> u8 {
 | `peer_bans: Option<Vec<u8>>` | Unchanged (bans are merged, no player_id needed) |
 | `peer_color: Option<u8>` | `peer_color: Option<(u8, u8)>` — `(player_id, color_index)` |
 | `peer_name: Option<String>` | `peer_name: Option<(u8, String)>` — `(player_id, name)` |
+| `received_chats: Vec<(String, String)>` | `received_chats: Vec<(u8, String, String)>` — `(player_id, name, text)` |
 
 ### apply_peer_build signature change
 
