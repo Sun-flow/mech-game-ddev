@@ -187,7 +187,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         let yes_x = cx - btn_w - crate::ui::s(10.0);
         let yes_y = cy + crate::ui::s(10.0);
         if screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h {
-            ctx.progress.players[local_player_id as usize].lp = 0;
+            ctx.progress.player_mut(local_player_id).lp = 0;
             battle.show_surrender_confirm = false;
             let winner = ctx.progress.game_winner().unwrap_or(0);
             ctx.phase = GamePhase::GameOver(winner);

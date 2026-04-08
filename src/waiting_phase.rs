@@ -19,7 +19,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) -> bool {
             );
 
             ctx.units.retain(|u| u.player_id != pid);
-            ctx.units.extend(ctx.progress.players[pid as usize].respawn_units());
+            ctx.units.extend(ctx.progress.player(pid).respawn_units());
 
             if ctx.obstacles.is_empty() && ctx.game_settings.terrain_enabled {
                 ctx.obstacles = terrain::generate_terrain(ctx.progress.round, ctx.game_settings.terrain_destructible);

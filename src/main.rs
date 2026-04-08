@@ -280,7 +280,7 @@ async fn main() {
 
         // Chat system
         ctx.chat.receive_from_net(&mut ctx.net);
-        let my_name = ctx.progress.players[ctx.local_player_id as usize].name.clone();
+        let my_name = ctx.progress.player(ctx.local_player_id).name.clone();
         ctx.chat.update(&ctx.phase, &mut ctx.net, &my_name, ctx.local_player_id);
         ctx.chat.tick(dt);
         ctx.chat.draw(&ctx.phase, &my_name);

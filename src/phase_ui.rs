@@ -196,8 +196,8 @@ pub fn draw_battle_ui(
                     crate::ui::draw_scaled_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
                     ty += crate::ui::s(14.0);
                 }
-                let team_name = if (obs.player_id as usize) < progress.players.len() {
-                    progress.players[obs.player_id as usize].name.as_str()
+                let team_name = if let Some(p) = progress.players.iter().find(|p| p.player_id == obs.player_id) {
+                    p.name.as_str()
                 } else {
                     "Neutral"
                 };
@@ -254,7 +254,7 @@ pub fn draw_round_result_ui(
 
     let text = match match_state {
         MatchState::Winner(tid) => {
-            let winner_name = &progress.players[*tid as usize].name;
+            let winner_name = &progress.player(*tid).name;
             let color_idx = crate::team::color_index(*tid);
             let color_name = settings::TEAM_COLOR_OPTIONS
                 .get(color_idx as usize)
@@ -276,7 +276,7 @@ pub fn draw_round_result_ui(
     );
 
     if let Some(loser) = loser_team {
-        let loser_name = &progress.players[loser as usize].name;
+        let loser_name = &progress.player(loser).name;
         let dmg_text = format!("{} loses {} LP", loser_name, lp_damage);
         let ddims = crate::ui::measure_scaled_text(&dmg_text, 22);
         crate::ui::draw_scaled_text(
@@ -311,7 +311,7 @@ pub fn draw_game_over_ui(
     local_player_id: u16,
 ) {
     let headline = if winner == local_player_id { "YOU WIN!".to_string() } else { "YOU LOSE!".to_string() };
-    let winner_name = &progress.players[winner as usize].name;
+    let winner_name = &progress.player(winner).name;
     let winner_color_idx = crate::team::color_index(winner);
     let color_name = settings::TEAM_COLOR_OPTIONS
         .get(winner_color_idx as usize)
