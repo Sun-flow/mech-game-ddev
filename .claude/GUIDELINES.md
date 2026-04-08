@@ -43,6 +43,11 @@ Lobby → DraftBan → Build → WaitingForOpponent → Battle → RoundResult �
 - **settings.rs** — `GameSettings` (gameplay toggles) and `MainSettings` (UI scale).
 - **team.rs** — Team color system (6 options).
 
+### Architecture Principles
+
+- **Canonical player IDs everywhere.** Game code never computes "who is the other player." It receives data that says "player 1 did X" and acts on it canonically. Perspective-relative patterns (local/peer, me/them, my/opponent) do not belong in game logic. The net layer tags incoming data with the sender's canonical player_id; game code indexes `players[player_id]` directly.
+- **The only place that needs "which player am I"** is the camera angle default, the "YOU WIN/LOSE" headline, and HUD ordering (my info first). These use `local_player_id` — a plain `u8`, not a role/perspective abstraction.
+
 ### Multiplayer Networking
 
 - Peer-to-peer via WebRTC (matchbox_socket). Player 1 (host) is authoritative for settings.
