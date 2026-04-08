@@ -53,8 +53,9 @@ The existing `show_surrender_confirm` field in `BattleState` and its dedicated o
 
 While the escape menu is open:
 - All game input is blocked (clicks don't place/select packs, no drag, no shop interaction)
-- Camera controls still work (zoom, pan, Q/E rotation) — the player can look around while paused
+- All camera controls blocked (no zoom, no pan, no WASD, no Q/E rotation)
 - Chat input is blocked
+- Only escape menu buttons are interactive
 
 ## Part 2: Camera Panning with WASD / Arrow Keys
 
