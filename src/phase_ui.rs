@@ -17,7 +17,6 @@ pub fn draw_build_ui(
     arena_camera: &Camera2D,
     local_player_id: u16,
 ) {
-    let lpid = local_player_id as usize;
     crate::shop::draw_shop(build.gold_remaining, screen_mouse, false, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round);
 
     // Pack labels (drawn in screen-space so text isn't distorted by camera zoom)
@@ -40,8 +39,8 @@ pub fn draw_build_ui(
             };
             crate::ui::draw_scaled_text(&label, screen_pos.x, screen_pos.y, 14.0, label_color);
         }
-        for (i, player) in progress.players.iter().enumerate() {
-            if i == lpid { continue; }
+        for player in progress.players.iter() {
+            if player.player_id == local_player_id { continue; }
             for opponent_pack in &player.packs {
                 let pack = &packs[opponent_pack.pack_index];
                 let half = PlacedPack::bbox_half_size_rotated(pack, opponent_pack.rotated);
@@ -61,7 +60,7 @@ pub fn draw_build_ui(
             let cs = crate::tech_ui::PackCombatStats::from_units(units, &placed.unit_ids);
             crate::tech_ui::draw_tech_panel(
                 kind,
-                &progress.players[lpid].techs,
+                &progress.player(local_player_id).techs,
                 build.gold_remaining,
                 screen_mouse,
                 false,

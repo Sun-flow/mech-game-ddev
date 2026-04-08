@@ -13,10 +13,10 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
         if ctx.progress.is_game_over() {
             ctx.phase = GamePhase::GameOver(ctx.progress.game_winner().unwrap_or(0));
         } else {
-            let lpid = ctx.local_player_id as usize;
+            let pid = ctx.local_player_id;
 
             // Save gold carry-over
-            ctx.progress.players[lpid].gold = ctx.build.gold_remaining;
+            ctx.progress.player_mut(pid).gold = ctx.build.gold_remaining;
 
             ctx.progress.advance_round();
 
@@ -45,9 +45,9 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
             ctx.units.clear();
 
             // New round gold = saved gold + round allowance
-            let round_gold = ctx.progress.players[lpid].gold + ctx.progress.round_allowance();
+            let round_gold = ctx.progress.player(pid).gold + ctx.progress.round_allowance();
             ctx.build = BuildState::new_round(round_gold, locked_packs, next_id);
-            ctx.units.extend(ctx.build.respawn_player_units(&ctx.progress.players[lpid].techs, ctx.local_player_id));
+            ctx.units.extend(ctx.build.respawn_player_units(&ctx.progress.player(pid).techs, pid));
 
             for unit in ctx.units.iter_mut() {
                 if let Some(&(ddt, dst, ddr, dsr, kt)) = old_stats.get(&unit.id) {
@@ -60,8 +60,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
             }
 
             // Respawn other players' units
-            for (i, player) in ctx.progress.players.iter().enumerate() {
-                if i != lpid {
+            for player in ctx.progress.players.iter() {
+                if player.player_id != pid {
                     ctx.units.extend(player.respawn_units());
                 }
             }
