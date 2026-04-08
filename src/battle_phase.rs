@@ -81,8 +81,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 &mut ctx.units,
                 &mut battle.projectiles,
                 FIXED_DT,
-                &ctx.progress.players[0].techs,
-                &ctx.progress.players[1].techs,
+                &ctx.progress.players,
                 &mut battle.splash_effects,
             );
             update_projectiles(&mut battle.projectiles, &mut ctx.units, FIXED_DT, &mut ctx.obstacles, &mut battle.splash_effects);
@@ -166,8 +165,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
             &mut ctx.units,
             &mut battle.projectiles,
             dt,
-            &ctx.progress.players[0].techs,
-            &ctx.progress.players[1].techs,
+            &ctx.progress.players,
             &mut battle.splash_effects,
         );
         update_projectiles(&mut battle.projectiles, &mut ctx.units, dt, &mut ctx.obstacles, &mut battle.splash_effects);
@@ -222,19 +220,22 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                     None => MatchState::Draw,
                 };
 
-                // Desync check — compare canonical counts directly
-                let local_alive_0 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).count() as u16;
-                let local_alive_1 = ctx.units.iter().filter(|u| u.alive && u.player_id == 1).count() as u16;
-                if local_alive_0 != rd.alive_0 || local_alive_1 != rd.alive_1 {
-                    eprintln!("[DESYNC] Unit count mismatch! Local: {}/{} Host: {}/{}", local_alive_0, local_alive_1, rd.alive_0, rd.alive_1);
+                // Desync check — compare per-player alive counts
+                for pp in &rd.per_player {
+                    let local_alive = ctx.units.iter().filter(|u| u.alive && u.player_id == pp.player_id).count() as u16;
+                    if local_alive != pp.alive_count {
+                        eprintln!("[DESYNC] Player {} alive mismatch! Local: {} Host: {}", pp.player_id, local_alive, pp.alive_count);
+                    }
                 }
 
-                // Apply LP damage — canonical indexing
-                if rd.timeout_dmg_0 > 0 || rd.timeout_dmg_1 > 0 {
-                    ctx.progress.players[0].lp -= rd.timeout_dmg_0;
-                    ctx.progress.players[1].lp -= rd.timeout_dmg_1;
-                } else if let Some(loser) = rd.loser_team {
-                    ctx.progress.players[loser as usize].lp -= rd.lp_damage;
+                // Apply LP damage
+                let has_timeout = rd.per_player.iter().any(|pp| pp.timeout_damage > 0);
+                if has_timeout {
+                    for pp in &rd.per_player {
+                        ctx.progress.player_mut(pp.player_id).lp -= pp.timeout_damage;
+                    }
+                } else if let Some(loser) = rd.loser {
+                    ctx.progress.player_mut(loser).lp -= rd.lp_damage;
                 }
 
                 battle.waiting_for_round_end = false;
@@ -242,7 +243,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 ctx.phase = GamePhase::RoundResult {
                     match_state: final_state,
                     lp_damage: rd.lp_damage,
-                    loser_team: rd.loser_team,
+                    loser_team: rd.loser,
                 };
             } else if battle.round_end_timeout <= 0.0 {
                 // Timeout — fall back to local computation
@@ -257,32 +258,47 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         let final_state = if timed_out { MatchState::Draw } else { check_match_state(&ctx.units) };
 
         // Record AI memory for counter-picking
-        let ai_won = match &final_state {
-            MatchState::Winner(w) => *w == 1,
-            _ => false,
-        };
-        ctx.progress.players[1].ai_memory.record_round(&ctx.units, ctx.progress.players[0].player_id, ai_won);
-
-        // Calculate LP damage
-        let alive_0 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).count() as i32;
-        let alive_1 = ctx.units.iter().filter(|u| u.alive && u.player_id == 1).count() as i32;
+        for player in ctx.progress.players.iter_mut() {
+            if player.player_id != ctx.local_player_id {
+                let ai_won = match &final_state {
+                    MatchState::Winner(w) => *w == player.player_id,
+                    _ => false,
+                };
+                player.ai_memory.record_round(&ctx.units, ctx.local_player_id, ai_won);
+            }
+        }
 
         // Compute damage and loser — but DON'T apply yet (guest needs
         // the same values from the network message).
-        let (lp_damage, loser_team, timeout_dmg_0, timeout_dmg_1) = if timed_out {
-            // Timeout: both players take damage equal to opponent's surviving units
-            (0, None, alive_1, alive_0)
+        let (lp_damage, loser_team) = if timed_out {
+            (0, None)
         } else {
             match &final_state {
                 MatchState::Winner(winner) => {
                     let damage = MatchProgress::calculate_lp_damage(&ctx.units, *winner);
-                    let loser = if *winner == 0 { 1u8 } else { 0u8 };
-                    (damage, Some(loser), 0, 0)
+                    let loser: u16 = ctx.progress.players.iter()
+                        .find(|p| p.player_id != *winner)
+                        .map(|p| p.player_id)
+                        .unwrap_or(*winner);
+                    (damage, Some(loser))
                 }
-                MatchState::Draw => (0, None, 0, 0),
+                MatchState::Draw => (0, None),
                 MatchState::InProgress => unreachable!(),
             }
         };
+
+        // Build per-player data for the network message and LP damage application
+        let per_player: Vec<net::RoundEndPlayerData> = ctx.progress.players.iter().map(|p| {
+            let pid = p.player_id;
+            let alive_count = ctx.units.iter().filter(|u| u.alive && u.player_id == pid).count() as u16;
+            let total_hp: i32 = ctx.units.iter().filter(|u| u.alive && u.player_id == pid).map(|u| u.hp as i32).sum();
+            let timeout_damage = if timed_out {
+                ctx.units.iter().filter(|u| u.alive && u.player_id != pid).count() as i32
+            } else {
+                0
+            };
+            net::RoundEndPlayerData { player_id: pid, alive_count, total_hp, timeout_damage }
+        }).collect();
 
         if is_multiplayer && !is_host_game {
             // Guest: wait for host's authoritative result
@@ -292,30 +308,24 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
             // Host or single-player: we are authoritative
             if is_multiplayer {
                 // Host sends round result to guest
-                let alive_0 = alive_0 as u16;
-                let alive_1 = alive_1 as u16;
-                let total_hp_0: i32 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).map(|u| u.hp as i32).sum();
-                let total_hp_1: i32 = ctx.units.iter().filter(|u| u.alive && u.player_id == 1).map(|u| u.hp as i32).sum();
                 let winner = match &final_state {
                     MatchState::Winner(w) => Some(*w),
                     _ => None,
                 };
                 if let Some(ref mut n) = ctx.net {
                     n.send(net::NetMessage::RoundEnd {
-                        winner, lp_damage, loser_team,
-                        alive_0, alive_1, total_hp_0, total_hp_1,
-                        timeout_dmg_0, timeout_dmg_1,
+                        winner, lp_damage, loser: loser_team, per_player: per_player.clone(),
                     });
                 }
             }
 
-            // Apply LP damage using canonical indexing
+            // Apply LP damage
             if timed_out {
-                ctx.progress.players[0].lp -= timeout_dmg_0;
-                ctx.progress.players[1].lp -= timeout_dmg_1;
+                for pp in &per_player {
+                    ctx.progress.player_mut(pp.player_id).lp -= pp.timeout_damage;
+                }
             } else if let Some(loser) = loser_team {
-                // loser 0 = host lost, loser 1 = guest lost
-                ctx.progress.players[loser as usize].lp -= lp_damage;
+                ctx.progress.player_mut(loser).lp -= lp_damage;
             }
 
             battle.show_surrender_confirm = false;
