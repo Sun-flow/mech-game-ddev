@@ -1,8 +1,8 @@
+use crate::arena;
 use crate::chat;
 use crate::game_state::{BuildState, GamePhase};
 use crate::match_progress::MatchProgress;
 use crate::net;
-use crate::role::Role;
 use crate::settings;
 use crate::terrain;
 use crate::unit::Unit;
@@ -17,7 +17,7 @@ pub struct GameContext {
     pub nav_grid: Option<terrain::NavGrid>,
     pub game_settings: settings::GameSettings,
     pub show_grid: bool,
-    pub role: Role,
+    pub local_player_id: u8,
     pub chat: chat::ChatState,
 }
 
@@ -31,27 +31,30 @@ impl GameContext {
         draft_ban_enabled: bool,
     ) {
         self.net = net;
-        self.role = if is_host { Role::Host } else { Role::Guest };
-
-        let local = self.role.player_id() as usize;
-        // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
-        let peer = 1 - local;
+        self.local_player_id = if is_host { 0 } else { 1 };
 
         let mut peer_name = "Opponent".to_string();
         if let Some(ref mut n) = self.net {
             n.is_host = is_host;
+            // peer_name is Option<(u8, String)> after Task 2 changes net.rs
+            // For now use the current type; Task 2 will update net.rs
             peer_name = n.peer_name.clone().unwrap_or_else(|| "Opponent".to_string());
         }
 
         self.progress = MatchProgress::new();
 
-        // Set names on PlayerState
-        self.progress.players[local].name = player_name;
-        self.progress.players[peer].name = peer_name;
+        // Set names using canonical player_id
+        self.progress.players[self.local_player_id as usize].name = player_name;
+        // Set peer name on all other players
+        for (i, p) in self.progress.players.iter_mut().enumerate() {
+            if i != self.local_player_id as usize {
+                p.name = peer_name.clone();
+            }
+        }
 
         // Initialize gold with round allowance
         let allowance = self.progress.round_allowance();
-        self.progress.players[local].gold = allowance;
+        self.progress.players[self.local_player_id as usize].gold = allowance;
 
         self.build = BuildState::new(allowance, is_host);
         if draft_ban_enabled {
@@ -79,7 +82,7 @@ impl GameContext {
             nav_grid: None,
             game_settings: settings::GameSettings::default(),
             show_grid: false,
-            role: Role::Host,
+            local_player_id: 0,
             chat: chat::ChatState::new(),
         }
     }

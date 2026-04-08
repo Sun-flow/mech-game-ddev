@@ -16,7 +16,6 @@ mod net;
 mod pack;
 mod projectile;
 mod rendering;
-mod role;
 mod round_result;
 mod settings;
 mod shop;

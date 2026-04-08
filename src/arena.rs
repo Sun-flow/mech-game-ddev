@@ -8,6 +8,15 @@ pub const SHOP_W_BASE: f32 = 180.0;
 /// Dynamic shop width that scales with window size.
 pub fn shop_w() -> f32 { SHOP_W_BASE * crate::ui::ui_scale() }
 
+/// Deploy zone x-range for a given player_id.
+pub fn deploy_x_range(player_id: u8) -> (f32, f32) {
+    match player_id {
+        0 => (0.0, HALF_W),
+        1 => (HALF_W, ARENA_W),
+        _ => (0.0, 0.0), // spectator
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum MatchState {
     InProgress,
