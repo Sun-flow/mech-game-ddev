@@ -313,7 +313,7 @@ async fn main() {
 
                 settings::draw_ui_scale_slider(&mut main_settings, screen_mouse, left_click, mouse.left_down, px, py + ui::s(55.0));
 
-                settings::draw_settings_panel(&mut ctx.game_settings, screen_mouse, left_click);
+                settings::draw_settings_content(&mut ctx.game_settings, screen_mouse, left_click, px, py + ui::s(85.0), panel_w);
 
                 // Back button
                 let back_w = ui::s(120.0);

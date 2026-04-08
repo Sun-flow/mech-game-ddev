@@ -146,34 +146,15 @@ pub fn draw_color_swatches(
 }
 
 /// Draw the match settings panel overlay. Returns true if "Start" was clicked.
-pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bool) -> bool {
-    let sw = screen_width();
-    let sh = screen_height();
-
-    // Dark overlay
-    draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.5));
-
-    // Panel
-    let panel_w = crate::ui::s(400.0);
-    let panel_h = crate::ui::s(420.0);
-    let px = sw / 2.0 - panel_w / 2.0;
-    let py = sh / 2.0 - panel_h / 2.0;
-    draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
-    draw_rectangle_lines(px, py, panel_w, panel_h, 2.0, Color::new(0.4, 0.4, 0.5, 1.0));
-
-    // Title
-    let title = "Match Settings";
-    let tdims = crate::ui::measure_scaled_text(title, 24);
-    crate::ui::draw_scaled_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
-
-    let mut y = py + crate::ui::s(55.0);
+/// Draw just the settings controls (toggles + color picker) at the given position.
+/// Does NOT draw overlay, panel background, or title. Caller handles chrome.
+pub fn draw_settings_content(settings: &mut GameSettings, mouse: Vec2, clicked: bool, px: f32, content_y: f32, panel_w: f32) {
+    let mut y = content_y;
     let row_h = crate::ui::s(40.0);
     let toggle_x = px + panel_w - crate::ui::s(70.0);
     let toggle_w = crate::ui::s(50.0);
     let toggle_h = crate::ui::s(24.0);
     let label_x = px + crate::ui::s(20.0);
-
-    let mut back_clicked = false;
 
     // Toggle helper
     struct Toggle {
@@ -240,22 +221,44 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
         settings.player_color_index = color_idx;
     }
 
-    // Back button
-    let back_w = crate::ui::s(120.0);
-    let back_h = crate::ui::s(36.0);
-    let back_x = px + panel_w / 2.0 - back_w / 2.0;
-    let back_y = py + panel_h - crate::ui::s(50.0);
-    let back_hover = mouse.x >= back_x && mouse.x <= back_x + back_w && mouse.y >= back_y && mouse.y <= back_y + back_h;
-    let back_bg = if back_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
-    draw_rectangle(back_x, back_y, back_w, back_h, back_bg);
-    draw_rectangle_lines(back_x, back_y, back_w, back_h, 1.0, GRAY);
+}
+
+/// Draw the full settings panel with overlay, chrome, and "Start Game" button. Used by lobby.
+pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bool) -> bool {
+    let sw = screen_width();
+    let sh = screen_height();
+
+    // Dark overlay
+    draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.5));
+
+    // Panel
+    let panel_w = crate::ui::s(400.0);
+    let panel_h = crate::ui::s(420.0);
+    let px = sw / 2.0 - panel_w / 2.0;
+    let py = sh / 2.0 - panel_h / 2.0;
+    draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
+    draw_rectangle_lines(px, py, panel_w, panel_h, 2.0, Color::new(0.4, 0.4, 0.5, 1.0));
+
+    // Title
+    let title = "Match Settings";
+    let tdims = crate::ui::measure_scaled_text(title, 24);
+    crate::ui::draw_scaled_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
+
+    // Settings content
+    draw_settings_content(settings, mouse, clicked, px, py + crate::ui::s(55.0), panel_w);
+
+    // Start Game button
+    let btn_w = crate::ui::s(120.0);
+    let btn_h = crate::ui::s(36.0);
+    let btn_x = px + panel_w / 2.0 - btn_w / 2.0;
+    let btn_y = py + panel_h - crate::ui::s(50.0);
+    let btn_hover = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= btn_y && mouse.y <= btn_y + btn_h;
+    let btn_bg = if btn_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
+    draw_rectangle(btn_x, btn_y, btn_w, btn_h, btn_bg);
+    draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 1.0, GRAY);
     let bt = "Start Game";
     let bdims = crate::ui::measure_scaled_text(bt, 20);
-    crate::ui::draw_scaled_text(bt, back_x + back_w / 2.0 - bdims.width / 2.0, back_y + back_h / 2.0 + 6.0, 20.0, WHITE);
+    crate::ui::draw_scaled_text(bt, btn_x + btn_w / 2.0 - bdims.width / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
 
-    if clicked && back_hover {
-        back_clicked = true;
-    }
-
-    back_clicked
+    clicked && btn_hover
 }
