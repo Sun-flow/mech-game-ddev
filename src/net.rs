@@ -13,26 +13,25 @@ pub enum NetMessage {
     ReadyToStart,
     SettingsSync(crate::settings::GameSettings),
     BuildComplete {
+        player_id: u8,
         new_packs: Vec<(usize, (f32, f32), bool)>,
         tech_purchases: Vec<(UnitKind, TechId)>,
         gold_remaining: u32,
     },
-    ChatMessage(String, String), // (sender_name, text)
-    Surrender,
-    RematchRequest,
+    ChatMessage { player_id: u8, name: String, text: String },
+    Surrender { player_id: u8 },
+    RematchRequest { player_id: u8 },
     BanSelection(Vec<u8>),
-    ColorChoice(u8),
-    NameSync(String),
+    ColorChoice { player_id: u8, color_index: u8 },
+    NameSync { player_id: u8, name: String },
     RoundEnd {
         winner: Option<u8>,
         lp_damage: i32,
         loser_team: Option<u8>,
-        // Debug checksums for desync detection
         alive_0: u16,
         alive_1: u16,
         total_hp_0: i32,
         total_hp_1: i32,
-        // Mutual damage values for timeout rounds (both sides take damage)
         timeout_dmg_0: i32,
         timeout_dmg_1: i32,
     },
@@ -51,6 +50,7 @@ pub enum NetMessage {
 
 #[derive(Clone, Debug)]
 pub struct PeerBuildData {
+    pub player_id: u8,
     pub new_packs: Vec<(usize, (f32, f32), bool)>,
     pub tech_purchases: Vec<(UnitKind, TechId)>,
 }
@@ -71,13 +71,13 @@ pub struct NetState {
     pub peer_ready: bool,
     pub peer_build: Option<PeerBuildData>,
     pub disconnected: bool,
-    pub received_chats: Vec<(String, String)>, // (sender_name, text)
-    pub peer_surrendered: bool,
-    pub peer_rematch: bool,
+    pub received_chats: Vec<(u8, String, String)>, // (player_id, sender_name, text)
+    pub surrendered_player: Option<u8>,
+    pub rematch_player: Option<u8>,
     pub peer_bans: Option<Vec<u8>>,
     pub received_settings: Option<crate::settings::GameSettings>,
-    pub peer_color: Option<u8>,
-    pub peer_name: Option<String>,
+    pub peer_color: Option<(u8, u8)>, // (player_id, color_index)
+    pub peer_name: Option<(u8, String)>, // (player_id, name)
     pub received_round_end: Option<RoundEndData>,
     // Desync detection & state sync
     pub received_state_hash: Option<(u32, u64)>,
@@ -112,8 +112,8 @@ impl NetState {
             peer_build: None,
             disconnected: false,
             received_chats: Vec::new(),
-            peer_surrendered: false,
-            peer_rematch: false,
+            surrendered_player: None,
+            rematch_player: None,
             peer_bans: None,
             received_settings: None,
             peer_color: None,
@@ -156,24 +156,21 @@ impl NetState {
                         NetMessage::ReadyToStart => {
                             self.peer_ready = true;
                         }
-                        NetMessage::BuildComplete {
-                            new_packs,
-                            tech_purchases,
-                            gold_remaining: _,
-                        } => {
+                        NetMessage::BuildComplete { player_id, new_packs, tech_purchases, gold_remaining: _ } => {
                             self.peer_build = Some(PeerBuildData {
+                                player_id,
                                 new_packs,
                                 tech_purchases,
                             });
                         }
-                        NetMessage::ChatMessage(name, text) => {
-                            self.received_chats.push((name, text));
+                        NetMessage::ChatMessage { player_id, name, text } => {
+                            self.received_chats.push((player_id, name, text));
                         }
-                        NetMessage::Surrender => {
-                            self.peer_surrendered = true;
+                        NetMessage::Surrender { player_id } => {
+                            self.surrendered_player = Some(player_id);
                         }
-                        NetMessage::RematchRequest => {
-                            self.peer_rematch = true;
+                        NetMessage::RematchRequest { player_id } => {
+                            self.rematch_player = Some(player_id);
                         }
                         NetMessage::BanSelection(bans) => {
                             self.peer_bans = Some(bans);
@@ -181,11 +178,11 @@ impl NetState {
                         NetMessage::SettingsSync(settings) => {
                             self.received_settings = Some(settings);
                         }
-                        NetMessage::ColorChoice(idx) => {
-                            self.peer_color = Some(idx);
+                        NetMessage::ColorChoice { player_id, color_index } => {
+                            self.peer_color = Some((player_id, color_index));
                         }
-                        NetMessage::NameSync(name) => {
-                            self.peer_name = Some(name);
+                        NetMessage::NameSync { player_id, name } => {
+                            self.peer_name = Some((player_id, name));
                         }
                         NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0: _, total_hp_1: _, timeout_dmg_0, timeout_dmg_1 } => {
                             self.received_round_end = Some(RoundEndData {
@@ -246,9 +243,9 @@ impl NetState {
 pub fn send_build_complete(
     net: &mut Option<NetState>,
     build: &BuildState,
+    local_player_id: u8,
 ) {
     if let Some(ref mut n) = net {
-        // Collect new (unlocked) packs as Vec<(pack_index, center, rotated)>
         let new_packs: Vec<(usize, (f32, f32), bool)> = build
             .placed_packs
             .iter()
@@ -259,6 +256,7 @@ pub fn send_build_complete(
         let tech_purchases = build.round_tech_purchases.clone();
 
         n.send(NetMessage::BuildComplete {
+            player_id: local_player_id,
             new_packs,
             tech_purchases,
             gold_remaining: build.gold_remaining,
