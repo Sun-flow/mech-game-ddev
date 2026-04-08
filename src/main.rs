@@ -96,7 +96,7 @@ async fn main() {
         }
 
         // Camera zoom/pan (available in all non-lobby phases)
-        if !matches!(ctx.phase, GamePhase::Lobby) {
+        if !matches!(ctx.phase, GamePhase::Lobby) && !ctx.show_escape_menu {
             // Smooth multiplicative zoom — ~100+ steps between min/max
             if mouse.scroll != 0.0 {
                 let zoom_factor = 1.0 + mouse.scroll.signum() * 0.04; // ~4% per scroll tick
@@ -130,6 +130,39 @@ async fn main() {
                 camera_angle += 90.0 * dt;
             }
             camera_angle = camera_angle.rem_euclid(360.0);
+            // WASD / Arrow key camera panning (relative to screen orientation)
+            if !ctx.chat.open {
+                let pan_speed = 400.0 * dt;
+                let angle_rad = camera_angle.to_radians();
+                let screen_right = vec2(angle_rad.cos(), angle_rad.sin());
+                let screen_up = vec2(-angle_rad.sin(), angle_rad.cos());
+
+                if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) {
+                    camera_target -= screen_right * pan_speed;
+                }
+                if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) {
+                    camera_target += screen_right * pan_speed;
+                }
+                if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) {
+                    camera_target -= screen_up * pan_speed;
+                }
+                if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) {
+                    camera_target += screen_up * pan_speed;
+                }
+            }
+        }
+
+        // Escape menu toggle (only during match phases)
+        let in_match = matches!(ctx.phase, GamePhase::Build | GamePhase::WaitingForOpponent | GamePhase::Battle | GamePhase::RoundResult { .. });
+        if in_match && is_key_pressed(KeyCode::Escape) {
+            if ctx.chat.open {
+                ctx.chat.open = false;
+                ctx.chat.input.clear();
+            } else if ctx.escape_menu_settings {
+                ctx.escape_menu_settings = false;
+            } else {
+                ctx.show_escape_menu = !ctx.show_escape_menu;
+            }
         }
 
         match &mut ctx.phase {
