@@ -28,6 +28,21 @@ pub fn update(
         n.poll();
     }
 
+    // Skip all game input when escape menu is open
+    if ctx.show_escape_menu {
+        // In single-player, don't count down build timer while paused
+        if ctx.net.is_none() {
+            return;
+        }
+        // In multiplayer, still count down timer but skip input
+        ctx.build.timer -= dt;
+        if ctx.build.timer <= 0.0 {
+            net::send_build_complete(&mut ctx.net, &ctx.build, ctx.local_player_id);
+            ctx.phase = GamePhase::WaitingForOpponent;
+        }
+        return;
+    }
+
     // Grid toggle
     if is_key_pressed(KeyCode::G) {
         ctx.show_grid = !ctx.show_grid;
@@ -188,7 +203,8 @@ pub fn update(
     }
 
     // Middle-click to rotate (only unlocked)
-    if middle_click && screen_mouse.x > shop_w() {
+    let rotate_pressed = middle_click || (is_key_pressed(KeyCode::R) && !ctx.chat.open);
+    if rotate_pressed && screen_mouse.x > shop_w() {
         if let Some(drag_idx) = ctx.build.dragging {
             if !ctx.build.placed_packs[drag_idx].locked {
                 ctx.build.rotate_pack(drag_idx, &mut ctx.units, ctx.progress.player(ctx.local_player_id).deploy_zone);

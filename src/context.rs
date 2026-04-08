@@ -16,6 +16,8 @@ pub struct GameContext {
     pub nav_grid: Option<terrain::NavGrid>,
     pub game_settings: settings::GameSettings,
     pub show_grid: bool,
+    pub show_escape_menu: bool,
+    pub escape_menu_settings: bool,
     pub local_player_id: u16,
     pub chat: chat::ChatState,
 }
@@ -109,6 +111,8 @@ impl GameContext {
             nav_grid: None,
             game_settings: settings::GameSettings::default(),
             show_grid: false,
+            show_escape_menu: false,
+            escape_menu_settings: false,
             local_player_id: 0,
             chat: chat::ChatState::new(),
         }
