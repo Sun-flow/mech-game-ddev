@@ -216,8 +216,7 @@ pub fn update_attacks(
     units: &mut [Unit],
     projectiles: &mut Vec<Projectile>,
     dt: f32,
-    host_techs: &TechState,
-    guest_techs: &TechState,
+    players: &[crate::match_progress::PlayerState],
     splash_effects: &mut Vec<crate::rendering::SplashEffect>,
 ) {
     // Update cooldowns
@@ -226,8 +225,8 @@ pub fn update_attacks(
     }
 
     // Helper to get the right tech state for a player
-    let tech_for_player = |player_id: u8| -> &TechState {
-        if player_id == 0 { host_techs } else { guest_techs }
+    let tech_for_player = |player_id: u16| -> &TechState {
+        &players.iter().find(|p| p.player_id == player_id).unwrap().techs
     };
 
     // === Interceptor rocket interception ===
@@ -620,7 +619,7 @@ enum AttackEvent {
         target_pos: Vec2,
         speed: f32,
         damage: f32,
-        player_id: u8,
+        player_id: u16,
         splash_radius: f32,
         proj_type: crate::unit::ProjectileType,
         armor_pierce: bool,
