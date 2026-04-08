@@ -45,8 +45,10 @@ Lobby → DraftBan → Build → WaitingForOpponent → Battle → RoundResult �
 
 ### Architecture Principles
 
-- **Canonical player IDs everywhere.** Game code never computes "who is the other player." It receives data that says "player 1 did X" and acts on it canonically. Perspective-relative patterns (local/peer, me/them, my/opponent) do not belong in game logic. The net layer tags incoming data with the sender's canonical player_id; game code indexes `players[player_id]` directly.
-- **The only place that needs "which player am I"** is the camera angle default, the "YOU WIN/LOSE" headline, and HUD ordering (my info first). These use `local_player_id` — a plain `u8`, not a role/perspective abstraction.
+- **Canonical player IDs everywhere.** Player IDs are arbitrary `u16` values derived from WebRTC PeerId. Game code never computes "who is the other player." It receives data that says "player 4821 did X" and acts on it canonically. Perspective-relative patterns (local/peer, me/them, my/opponent, host/guest identity) do not belong in game logic.
+- **Sender-embedded player_id in network messages.** Each sender includes their own player_id in every message. The receiver reads it directly — no derivation, no `1 - local_player_id`.
+- **Player state accessed by ID, not index.** `MatchProgress.players` is a `Vec<PlayerState>`. Access via `progress.player(pid)` / `progress.player_mut(pid)` lookup helpers. Never index by `players[id as usize]`.
+- **The only place that needs "which player am I"** is the camera angle default, the "YOU WIN/LOSE" headline, and HUD ordering (my info first). These use `local_player_id` — a plain `u16`, not a role/perspective abstraction.
 
 ### Multiplayer Networking
 
@@ -64,6 +66,6 @@ Combat must be deterministic across peers. Key constraints:
 
 ### Arena & UI
 
-- Arena size: 1680×960. Left half = Player 1 deploy zone, right half = Player 2.
+- Arena size: 1680×960. Deploy zones assigned at game start on PlayerState.deploy_zone (host=left, peer=right).
 - UI scales relative to window width (reference width: 1400px).
-- Camera supports zoom and pan during battle.
+- Camera supports zoom, pan, and Q/E rotation (90 deg/sec). Guest defaults to 180-degree rotation.

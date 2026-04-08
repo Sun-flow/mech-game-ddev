@@ -1,5 +1,64 @@
 # Changelog
 
+## 2026-04-08
+
+### Patch Notes
+
+- `[fix]` Fixed guest seeing wrong winner name at round end (flipped_winner/flipped_loser bug)
+- `[fix]` Fixed desync check comparing flipped alive counts instead of canonical
+- `[internal]` Deleted Role enum, replaced with `local_player_id: u16` on GameContext
+- `[internal]` Added `deploy_x_range(player_id)` free function to arena.rs (later moved to PlayerState.deploy_zone)
+- `[net]` Network messages now carry sender's player_id — no `1 - local` derivation anywhere
+- `[internal]` Removed x-flip camera hack, replaced with Camera2D rotation field
+- `[gameplay]` Added Q/E smooth camera rotation at 90 degrees/sec
+- `[internal]` Changed player_id from u8 to u16, derived from WebRTC PeerId UUID
+- `[internal]` Changed MatchProgress.players from `[PlayerState; 2]` to `Vec<PlayerState>` with `player()`/`player_mut()` lookup helpers
+- `[internal]` Moved deploy_zone and color_index onto PlayerState
+- `[internal]` Combat `update_attacks` takes `&[PlayerState]` instead of separate host_techs/guest_techs
+- `[net]` RoundEnd message uses `Vec<RoundEndPlayerData>` instead of hardcoded alive_0/alive_1 fields
+- `[internal]` Team color system uses `HashMap<u16, u8>` instead of two AtomicU8 statics
+- `[internal]` BuildState::new takes next_id instead of is_host
+- `[internal]` spawn_ai_army and start_ai_battle take ai_player_id parameter
+- `[docs]` Added Architecture Principles section to GUIDELINES.md
+- `[docs]` Specs and plans for canonical player-ID system and arbitrary player IDs
+
+### Session Handoff — Canonical Player-ID System & Arbitrary Player IDs
+
+**Git State:** branch `main`, 4 uncommitted doc changes (CHANGELOG, GUIDELINES, PLANNING, TASKS), commit `4c61925`
+**Tests:** No test suite. Manual testing launched but results not yet reported.
+
+**Work Completed:**
+- Executed 9-task array-indexed PlayerState plan from previous session's spec (subagent-driven)
+- Identified and fixed guest wrong-winner-name bug (flipped_winner/flipped_loser)
+- Brainstormed canonical player-ID design — eliminated all perspective-relative patterns
+- Brainstormed arbitrary player-ID design — u16 from PeerId, Vec-based storage
+- Executed canonical player-ID plan (9 tasks): deleted Role, camera rotation, sender-embedded player_id
+- Executed arbitrary player-ID plan (11 tasks): u16 everywhere, Vec<PlayerState>, lookup helpers, per-player RoundEnd, HashMap colors
+- Fixed 7 remaining `players[id as usize]` index patterns that would crash with arbitrary IDs
+- Cleaned up 4 stale worktrees from previous sessions
+
+**In Progress:**
+- User launched 2 game instances for testing but hasn't reported results yet
+
+**Decisions Made:**
+- Player IDs are arbitrary u16 derived from first 2 bytes of WebRTC PeerId UUID
+- "Game code never computes 'who is the other player'" — saved as architecture principle
+- Network messages carry sender's player_id, eliminating all `1 - local` derivation
+- Camera uses rotation field instead of x-flip mirror; default 180 degrees for right-side builder
+- MatchProgress uses Vec<PlayerState> with player(pid)/player_mut(pid) helpers, never index-based access
+- Deploy zones and colors stored on PlayerState, not derived from Role/host/guest identity
+- BuildState takes next_id: u64 instead of is_host: bool
+- AI player_id is a parameter, not hardcoded as 1
+
+**Blockers:**
+- None — pending user test results
+
+**Next Steps:**
+1. Get test results from user — verify winner names, camera rotation, multiplayer sync
+2. Push all changes to origin
+3. R key to rotate packs (small gameplay feature)
+4. Pause/options menu
+
 ## 2026-04-07
 
 ### Patch Notes
@@ -7,6 +66,50 @@
 - `[docs]` Designed array-indexed PlayerState refactor — spec at `docs/superpowers/specs/2026-04-06-array-indexed-playerstate-design.md`
 - `[docs]` Updated PLANNING.md roadmap — marked PlayerState phase 3 complete, added phase 4 (array-indexed) and phase 6 (multi-peer networking)
 - `[internal]` Removed resolved camera flip winding fix from backlog
+
+- `[internal]` Replaced `host`/`guest` fields with `players: [PlayerState; 2]` in MatchProgress
+- `[internal]` Replaced `new_host()`/`new_guest()` with unified `PlayerState::new(player_id)` constructor
+- `[internal]` Removed 6 perspective-relative accessors (`player()`, `opponent()`, `player_mut()`, `opponent_mut()`, `player_lp()`, `opponent_lp()`)
+- `[internal]` Extracted `apply_opponent_build` method to free function `apply_peer_build(&mut PlayerState, &PeerBuildData, round)`
+- `[net]` Renamed all net `opponent_*` fields/types to `peer_*` (7 fields, 1 type, 1 method)
+- `[internal]` Removed `Role::opponent_id()`, all call sites use `1 - role.player_id()` with TODO markers
+- `[internal]` Renamed `DraftBan::opponent_bans` to `peer_bans` throughout
+- `[internal]` Migrated 14 source files to array-indexed `players[local]`/`players[peer]` access pattern
+- `[docs]` Wrote 9-task implementation plan at `docs/superpowers/plans/2026-04-07-array-indexed-playerstate.md`
+- `[tooling]` Cleaned up 4 stale worktrees and branches from previous session
+
+### Session Handoff — Array-Indexed PlayerState Implementation
+
+**Git State:** branch `main`, 2 uncommitted doc changes (PLANNING, TASKS), pushed to origin at `4b6989d`
+**Tests:** No test suite
+
+**Work Completed:**
+- Wrote 9-task implementation plan using writing-plans skill
+- Executed all 9 tasks via subagent-driven development (sonnet model for implementation)
+- Task 1: MatchProgress core restructure (players array, new constructor, remove accessors, apply_peer_build)
+- Task 2: Net layer rename (opponent_* → peer_*, OpponentBuildData → PeerBuildData)
+- Task 3: Role::opponent_id removal, DraftBan field rename
+- Tasks 4-8: Call site migration across 12 files (context, main, battle, waiting, round_result, phase_ui, ui, rendering, build_phase, economy, draft_ban, game_over)
+- Task 9: Final verification — zero errors, zero new clippy warnings
+- Final code review caught one missed rename (chat.rs opponent_id parameter → peer_id), fixed
+- Cleaned up 4 stale worktrees and their branches
+
+**In Progress:**
+- Nothing — clean stopping point
+
+**Decisions Made:**
+- Subagent-driven development (not worktrees) for sequential tasks — confirmed previous feedback that worktrees cause merge conflicts
+- Sonnet model sufficient for mechanical migration tasks — all 8 implementer subagents completed successfully
+- Spec reviewer dispatched only for final review (not per-task) — mechanical tasks with literal code blocks don't need per-task spec review
+- Guest perspective LP flip logic preserved as-is — pre-existing pattern, works correctly, flagged as future cleanup target
+
+**Blockers:**
+- None
+
+**Next Steps:**
+1. R key to rotate packs (small gameplay feature)
+2. Pause/options menu
+3. Free camera rotation (future)
 
 ### Session Handoff — Array-Indexed PlayerState Design
 
