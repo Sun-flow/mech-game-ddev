@@ -9,7 +9,7 @@ pub struct Projectile {
     pub origin: Vec2,
     pub max_range: f32,
     pub damage: f32,
-    pub player_id: u8,
+    pub player_id: u16,
     pub splash_radius: f32,
     pub alive: bool,
     pub proj_type: ProjectileType,
@@ -37,7 +37,7 @@ impl Projectile {
         target_pos: Vec2,
         speed: f32,
         damage: f32,
-        player_id: u8,
+        player_id: u16,
         splash_radius: f32,
         proj_type: ProjectileType,
     ) -> Self {

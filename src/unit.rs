@@ -66,7 +66,7 @@ pub struct Unit {
     pub stats: UnitStats,
     pub hp: f32,
     pub pos: Vec2,
-    pub player_id: u8,
+    pub player_id: u16,
     pub target_id: Option<u64>,
     pub attack_cooldown: f32,
     pub alive: bool,
@@ -87,7 +87,7 @@ pub struct Unit {
 }
 
 impl Unit {
-    pub fn new(id: u64, kind: UnitKind, pos: Vec2, player_id: u8) -> Self {
+    pub fn new(id: u64, kind: UnitKind, pos: Vec2, player_id: u16) -> Self {
         let stats = kind.stats();
         let hp = stats.max_hp;
         let shield_hp = stats.shield_hp;

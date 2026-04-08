@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use crate::arena::{ARENA_H, ARENA_W, HALF_W};
 
 /// (x, y, half_w, half_h, player_id) for cover placement configs.
-type CoverEntry = (f32, f32, f32, f32, u8);
+type CoverEntry = (f32, f32, f32, f32, u16);
 
 pub const GRID_CELL: f32 = 10.0;
 
@@ -22,7 +22,7 @@ pub struct Obstacle {
     pub obstacle_type: ObstacleType,
     pub hp: f32,
     pub max_hp: f32,
-    pub player_id: u8,        // 255 = neutral, 0 = player, 1 = opponent
+    pub player_id: u16,       // u16::MAX = neutral
     pub alive: bool,
 }
 
@@ -34,12 +34,12 @@ impl Obstacle {
             obstacle_type: ObstacleType::Wall,
             hp: f32::MAX,
             max_hp: f32::MAX,
-            player_id: 255,
+            player_id: u16::MAX,
             alive: true,
         }
     }
 
-    pub fn cover(pos: Vec2, half_size: Vec2, hp: f32, player_id: u8) -> Self {
+    pub fn cover(pos: Vec2, half_size: Vec2, hp: f32, player_id: u16) -> Self {
         Self {
             pos,
             half_size,
@@ -71,13 +71,13 @@ impl Obstacle {
     }
 
     /// Does this obstacle block a projectile from the given team?
-    pub fn blocks_projectile(&self, proj_player_id: u8) -> bool {
+    pub fn blocks_projectile(&self, proj_player_id: u16) -> bool {
         if !self.alive { return false; }
         match self.obstacle_type {
             ObstacleType::Wall => true, // Walls block everything
             ObstacleType::Cover => {
                 // Cover blocks enemy projectiles, allows friendly through
-                if self.player_id == 255 {
+                if self.player_id == u16::MAX {
                     true // Neutral cover blocks all
                 } else {
                     self.player_id != proj_player_id // Block enemy, allow friendly
@@ -160,7 +160,7 @@ pub fn has_line_of_sight_wide(from: Vec2, to: Vec2, half_width: f32, obstacles: 
 
 /// Check if a ray segment from `from` to `to` hits any obstacle that blocks projectiles for the given team.
 /// Used for swept projectile collision to prevent tunneling.
-pub fn ray_hits_blocking_obstacle(from: Vec2, to: Vec2, player_id: u8, obstacles: &[Obstacle]) -> bool {
+pub fn ray_hits_blocking_obstacle(from: Vec2, to: Vec2, player_id: u16, obstacles: &[Obstacle]) -> bool {
     let dir = to - from;
     let len = dir.length();
     if len < 0.001 {

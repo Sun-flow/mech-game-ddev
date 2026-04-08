@@ -15,7 +15,7 @@ pub struct SplashEffect {
     pub radius: f32,
     pub timer: f32,
     pub max_timer: f32,
-    pub player_id: u8,
+    pub player_id: u16,
 }
 
 pub fn update_splash_effects(effects: &mut Vec<SplashEffect>, dt: f32) {

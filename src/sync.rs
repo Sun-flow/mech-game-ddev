@@ -25,7 +25,7 @@ pub struct SyncUnit {
     pub kind: UnitKind,
     pub hp: f32,
     pub pos: (f32, f32),
-    pub player_id: u8,
+    pub player_id: u16,
     pub target_id: Option<u64>,
     pub attack_cooldown: f32,
     pub alive: bool,
@@ -49,7 +49,7 @@ pub struct SyncProjectile {
     pub origin: (f32, f32),
     pub max_range: f32,
     pub damage: f32,
-    pub player_id: u8,
+    pub player_id: u16,
     pub splash_radius: f32,
     pub alive: bool,
     pub proj_type: ProjectileType,
@@ -64,7 +64,7 @@ pub struct SyncObstacle {
     pub pos: (f32, f32),
     pub half_size: (f32, f32),
     pub hp: f32,
-    pub player_id: u8,
+    pub player_id: u16,
     pub alive: bool,
 }
 

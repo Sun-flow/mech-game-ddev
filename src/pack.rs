@@ -61,7 +61,7 @@ pub fn spawn_pack_units(
     pack: &PackDef,
     center: Vec2,
     rotated: bool,
-    player_id: u8,
+    player_id: u16,
     techs: &TechState,
     start_id: &mut u64,
 ) -> (Vec<Unit>, Vec<u64>) {
@@ -91,7 +91,7 @@ pub fn respawn_pack_units(
     pack: &PackDef,
     center: Vec2,
     rotated: bool,
-    player_id: u8,
+    player_id: u16,
     techs: &TechState,
     unit_ids: &[u64],
 ) -> Vec<Unit> {
