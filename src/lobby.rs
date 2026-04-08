@@ -212,12 +212,13 @@ impl LobbyState {
                     }
 
                     if net.is_peer_connected() {
+                        let my_pid: u8 = if self.is_room_creator { 0 } else { 1 };
                         // Only the room creator sends match settings to the joiner
                         if self.is_room_creator {
                             net.send(crate::net::NetMessage::SettingsSync(game_settings.clone()));
                         }
-                        net.send(crate::net::NetMessage::NameSync(self.player_name.clone()));
-                        net.send(crate::net::NetMessage::ColorChoice(game_settings.player_color_index));
+                        net.send(crate::net::NetMessage::NameSync { player_id: my_pid, name: self.player_name.clone() });
+                        net.send(crate::net::NetMessage::ColorChoice { player_id: my_pid, color_index: game_settings.player_color_index });
                         net.send(crate::net::NetMessage::ReadyToStart);
                         self.status = "Peer connected! Waiting for ready...".to_string();
                         self.mode = LobbyMode::Connected;
@@ -472,7 +473,8 @@ impl LobbyState {
                 if left_click && rbtn_hover {
                     // Send our color choice to the host
                     if let Some(ref mut net) = self.net {
-                        net.send(crate::net::NetMessage::ColorChoice(game_settings.player_color_index));
+                        let my_pid: u8 = if self.is_room_creator { 0 } else { 1 };
+                        net.send(crate::net::NetMessage::ColorChoice { player_id: my_pid, color_index: game_settings.player_color_index });
                     }
                     return LobbyResult::StartMultiplayer;
                 }

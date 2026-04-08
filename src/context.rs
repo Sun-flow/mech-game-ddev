@@ -1,4 +1,3 @@
-use crate::arena;
 use crate::chat;
 use crate::game_state::{BuildState, GamePhase};
 use crate::match_progress::MatchProgress;
@@ -36,9 +35,10 @@ impl GameContext {
         let mut peer_name = "Opponent".to_string();
         if let Some(ref mut n) = self.net {
             n.is_host = is_host;
-            // peer_name is Option<(u8, String)> after Task 2 changes net.rs
-            // For now use the current type; Task 2 will update net.rs
-            peer_name = n.peer_name.clone().unwrap_or_else(|| "Opponent".to_string());
+            // peer_name is Option<(u8, String)> — extract the String part
+            if let Some((_, name)) = n.peer_name.clone() {
+                peer_name = name;
+            }
         }
 
         self.progress = MatchProgress::new();
