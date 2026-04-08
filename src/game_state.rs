@@ -21,9 +21,9 @@ pub enum GamePhase {
     RoundResult {
         match_state: MatchState,
         lp_damage: i32,
-        loser_team: Option<u8>,
+        loser_team: Option<u16>,
     },
-    GameOver(u8),
+    GameOver(u16),
 }
 
 #[derive(Clone, Debug)]
@@ -102,14 +102,14 @@ pub struct BuildState {
 }
 
 impl BuildState {
-    pub fn new(gold: u32, is_host: bool) -> Self {
+    pub fn new(gold: u32, next_id: u64) -> Self {
         Self {
             gold_remaining: gold,
             placed_packs: Vec::new(),
             dragging: None,
             selected_pack: None,
             timer: BUILD_TIMER,
-            next_id: if is_host { 1 } else { 100_000 },
+            next_id,
             round_tech_purchases: Vec::new(),
             undo_history: Vec::new(),
             packs_bought_this_round: 0,
@@ -150,7 +150,7 @@ impl BuildState {
         round: u32,
         tech_state: &TechState,
         deploy_range: (f32, f32),
-        player_id: u8,
+        player_id: u16,
     ) -> Option<Vec<Unit>> {
         let packs = all_packs();
         let pack = &packs[pack_index];
@@ -371,7 +371,7 @@ impl BuildState {
     }
 
     /// Respawn all player units from locked packs at full HP with current techs.
-    pub fn respawn_player_units(&self, player_techs: &TechState, player_id: u8) -> Vec<Unit> {
+    pub fn respawn_player_units(&self, player_techs: &TechState, player_id: u16) -> Vec<Unit> {
         let mut spawned = Vec::new();
         for placed in &self.placed_packs {
             let pack = &all_packs()[placed.pack_index];

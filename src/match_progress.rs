@@ -21,7 +21,7 @@ pub struct AiMemory {
 
 impl AiMemory {
     /// Record the human player's army composition and the round outcome.
-    pub fn record_round(&mut self, player_units: &[Unit], human_player_id: u8, ai_won: bool) {
+    pub fn record_round(&mut self, player_units: &[Unit], human_player_id: u16, ai_won: bool) {
         let mut counts: HashMap<UnitKind, u32> = HashMap::new();
         for u in player_units.iter().filter(|u| u.player_id == human_player_id) {
             *counts.entry(u.kind).or_insert(0) += 1;
@@ -34,7 +34,7 @@ impl AiMemory {
 /// Canonical per-player state within a match.
 #[derive(Clone, Debug)]
 pub struct PlayerState {
-    pub player_id: u8,
+    pub player_id: u16,
     pub lp: i32,
     pub techs: TechState,
     pub name: String,
@@ -42,19 +42,23 @@ pub struct PlayerState {
     pub gold: u32,
     pub packs: Vec<PlacedPack>,
     pub ai_memory: AiMemory,
+    pub deploy_zone: (f32, f32),
+    pub color_index: u8,
 }
 
 impl PlayerState {
-    pub fn new(player_id: u8) -> Self {
+    pub fn new(player_id: u16) -> Self {
         Self {
             player_id,
             lp: STARTING_LP,
             techs: TechState::new(),
-            name: format!("Player {}", player_id + 1),
+            name: format!("Player {}", player_id),
             next_id: player_id as u64 * 100_000 + 1,
             gold: 0,
             packs: Vec::new(),
             ai_memory: AiMemory::default(),
+            deploy_zone: (0.0, 0.0),
+            color_index: 0,
         }
     }
 
@@ -90,15 +94,15 @@ impl PlayerState {
 #[derive(Clone, Debug)]
 pub struct MatchProgress {
     pub round: u32,
-    pub players: [PlayerState; 2],
+    pub players: Vec<PlayerState>,
     pub banned_kinds: Vec<UnitKind>,
 }
 
 impl MatchProgress {
-    pub fn new() -> Self {
+    pub fn new(player_ids: &[u16]) -> Self {
         Self {
             round: 1,
-            players: [PlayerState::new(0), PlayerState::new(1)],
+            players: player_ids.iter().map(|&pid| PlayerState::new(pid)).collect(),
             banned_kinds: Vec::new(),
         }
     }
@@ -107,7 +111,15 @@ impl MatchProgress {
         200 * self.round
     }
 
-    pub fn calculate_lp_damage(surviving_units: &[Unit], player_id: u8) -> i32 {
+    pub fn player(&self, pid: u16) -> &PlayerState {
+        self.players.iter().find(|p| p.player_id == pid).unwrap()
+    }
+
+    pub fn player_mut(&mut self, pid: u16) -> &mut PlayerState {
+        self.players.iter_mut().find(|p| p.player_id == pid).unwrap()
+    }
+
+    pub fn calculate_lp_damage(surviving_units: &[Unit], player_id: u16) -> i32 {
         let packs = all_packs();
         let mut total = 0i32;
         for unit in surviving_units {
@@ -127,21 +139,16 @@ impl MatchProgress {
     }
 
     pub fn is_game_over(&self) -> bool {
-        self.players[0].lp <= 0 || self.players[1].lp <= 0
+        self.players.iter().any(|p| p.lp <= 0)
     }
 
-    pub fn game_winner(&self) -> Option<u8> {
-        if self.players[1].lp <= 0 {
-            Some(0)
-        } else if self.players[0].lp <= 0 {
-            Some(1)
-        } else {
-            None
-        }
+    pub fn game_winner(&self) -> Option<u16> {
+        let alive: Vec<_> = self.players.iter().filter(|p| p.lp > 0).collect();
+        if alive.len() == 1 { Some(alive[0].player_id) } else { None }
     }
 
     /// Spawn new AI army from a list of purchased packs. Adds packs and returns units.
-    pub fn spawn_ai_army(&mut self, ai_packs: &[PackDef]) -> Vec<Unit> {
+    pub fn spawn_ai_army(&mut self, ai_packs: &[PackDef], ai_player_id: u16) -> Vec<Unit> {
         let packs = all_packs();
         let mut new_units = Vec::new();
 
@@ -153,6 +160,7 @@ impl MatchProgress {
 
         let arena_h = crate::arena::ARENA_H;
         let spacing = arena_h / (total_new as f32 + 1.0);
+        let round = self.round;
 
         for (pack_idx_in_build, pack_def) in ai_packs.iter().enumerate() {
             let pack_index = packs.iter().position(|p| p.name == pack_def.name).unwrap_or(0);
@@ -166,24 +174,25 @@ impl MatchProgress {
                 center_y,
             );
 
+            let ai = self.player_mut(ai_player_id);
             let (spawned, ids) = crate::pack::spawn_pack_units(
                 pack,
                 center,
                 false,
-                self.players[1].player_id,
-                &self.players[1].techs,
-                &mut self.players[1].next_id,
+                ai.player_id,
+                &ai.techs,
+                &mut ai.next_id,
             );
             new_units.extend(spawned);
 
-            self.players[1].packs.push(PlacedPack {
+            ai.packs.push(PlacedPack {
                 pack_index,
                 center,
                 unit_ids: ids,
                 pre_drag_center: center,
                 rotated: false,
                 locked: true,
-                round_placed: self.round,
+                round_placed: round,
             });
         }
 
@@ -197,7 +206,7 @@ pub fn apply_peer_build(progress: &mut MatchProgress, data: &PeerBuildData) -> V
     let packs = all_packs();
     let mut new_units = Vec::new();
     let round = progress.round;
-    let player = &mut progress.players[data.player_id as usize];
+    let player = progress.player_mut(data.player_id);
 
     // Apply tech purchases
     for &(kind, tech_id) in &data.tech_purchases {
