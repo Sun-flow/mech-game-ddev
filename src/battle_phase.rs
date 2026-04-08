@@ -56,7 +56,7 @@ impl BattleState {
 
 pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input::MouseState, dt: f32) {
     let screen_mouse = ms.screen_mouse;
-    let role = ctx.role;
+    let local_player_id = ctx.local_player_id;
 
     // Surrender toggle
     if is_key_pressed(KeyCode::Escape) {
@@ -189,12 +189,10 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         let yes_x = cx - btn_w - crate::ui::s(10.0);
         let yes_y = cy + crate::ui::s(10.0);
         if screen_mouse.x >= yes_x && screen_mouse.x <= yes_x + btn_w && screen_mouse.y >= yes_y && screen_mouse.y <= yes_y + btn_h {
-            let local = role.player_id() as usize;
-            ctx.progress.players[local].lp = 0;
+            ctx.progress.players[local_player_id as usize].lp = 0;
             battle.show_surrender_confirm = false;
-            // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
-            let peer_pid = 1 - role.player_id();
-            ctx.phase = GamePhase::GameOver(peer_pid);
+            let winner = ctx.progress.game_winner().unwrap_or(0);
+            ctx.phase = GamePhase::GameOver(winner);
         }
         // "Cancel" button
         let no_x = cx + crate::ui::s(10.0);
@@ -218,36 +216,25 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
         battle.round_end_timeout -= dt;
         if let Some(ref mut n) = ctx.net {
             if let Some(rd) = n.received_round_end.take() {
-                // Flip host's perspective to guest's: host team 0 = guest team 1
-                let flipped_winner = rd.winner.map(|w| 1 - w);
-                let flipped_loser = rd.loser_team.map(|l| 1 - l);
-
-                let final_state = match flipped_winner {
+                // Use canonical values directly — no flipping
+                let final_state = match rd.winner {
                     Some(w) => MatchState::Winner(w),
                     None => MatchState::Draw,
                 };
 
-                // Log desync check (flip host counts to match guest perspective)
+                // Desync check — compare canonical counts directly
                 let local_alive_0 = ctx.units.iter().filter(|u| u.alive && u.player_id == 0).count() as u16;
                 let local_alive_1 = ctx.units.iter().filter(|u| u.alive && u.player_id == 1).count() as u16;
-                if local_alive_0 != rd.alive_1 || local_alive_1 != rd.alive_0 {
-                    eprintln!("[DESYNC] Unit count mismatch! Local: {}/{} Host(flipped): {}/{}", local_alive_0, local_alive_1, rd.alive_1, rd.alive_0);
+                if local_alive_0 != rd.alive_0 || local_alive_1 != rd.alive_1 {
+                    eprintln!("[DESYNC] Unit count mismatch! Local: {}/{} Host: {}/{}", local_alive_0, local_alive_1, rd.alive_0, rd.alive_1);
                 }
 
-                // Apply timeout mutual damage (flipped for guest perspective)
-                // Host team 0 = host, team 1 = guest. Guest sees team 0 = guest, team 1 = host.
+                // Apply LP damage — canonical indexing
                 if rd.timeout_dmg_0 > 0 || rd.timeout_dmg_1 > 0 {
-                    // Host's team 0 = host, so timeout_dmg_0 applies to host LP
-                    // Host's team 1 = guest, so timeout_dmg_1 applies to guest LP
                     ctx.progress.players[0].lp -= rd.timeout_dmg_0;
                     ctx.progress.players[1].lp -= rd.timeout_dmg_1;
-                } else if let Some(loser) = flipped_loser {
-                    if loser == 0 {
-                        // Guest's "team 0" lost — that's the guest in guest perspective
-                        ctx.progress.players[1].lp -= rd.lp_damage;
-                    } else {
-                        ctx.progress.players[0].lp -= rd.lp_damage;
-                    }
+                } else if let Some(loser) = rd.loser_team {
+                    ctx.progress.players[loser as usize].lp -= rd.lp_damage;
                 }
 
                 battle.waiting_for_round_end = false;
@@ -255,7 +242,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, ms: &crate::input
                 ctx.phase = GamePhase::RoundResult {
                     match_state: final_state,
                     lp_damage: rd.lp_damage,
-                    loser_team: flipped_loser,
+                    loser_team: rd.loser_team,
                 };
             } else if battle.round_end_timeout <= 0.0 {
                 // Timeout — fall back to local computation
