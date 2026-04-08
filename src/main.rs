@@ -133,9 +133,11 @@ async fn main() {
             // WASD / Arrow key camera panning (relative to screen orientation)
             if !ctx.chat.open {
                 let pan_speed = 400.0 * dt;
-                let angle_rad = camera_angle.to_radians();
-                let screen_right = vec2(angle_rad.cos(), angle_rad.sin());
-                let screen_up = vec2(-angle_rad.sin(), angle_rad.cos());
+                // Derive screen directions in world space from the camera transform
+                let center = vec2(screen_width() / 2.0, screen_height() / 2.0);
+                let center_world = arena_camera.screen_to_world(center);
+                let screen_right = (arena_camera.screen_to_world(center + vec2(1.0, 0.0)) - center_world).normalize();
+                let screen_up = (arena_camera.screen_to_world(center + vec2(0.0, -1.0)) - center_world).normalize();
 
                 if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) {
                     camera_target -= screen_right * pan_speed;
@@ -239,6 +241,17 @@ async fn main() {
 
             GamePhase::GameOver(_) => {
                 game_over::update(&mut ctx, &mut battle, &mut lobby, mouse.screen_mouse, mouse.left_click);
+            }
+        }
+
+        // Check for peer surrender during any match phase
+        if let Some(ref mut n) = ctx.net {
+            n.poll();
+            if let Some(surrendered_pid) = n.surrendered_player.take() {
+                ctx.progress.player_mut(surrendered_pid).lp = 0;
+                let winner = ctx.progress.game_winner().unwrap_or(ctx.local_player_id);
+                ctx.phase = GamePhase::GameOver(winner);
+                ctx.show_escape_menu = false;
             }
         }
 
@@ -369,6 +382,10 @@ async fn main() {
 
                 // Surrender
                 if draw_menu_btn("Surrender", btn_y) {
+                    // Send surrender to peer
+                    if let Some(ref mut n) = ctx.net {
+                        n.send(net::NetMessage::Surrender { player_id: ctx.local_player_id });
+                    }
                     ctx.progress.player_mut(ctx.local_player_id).lp = 0;
                     ctx.show_escape_menu = false;
                     ctx.escape_menu_settings = false;
