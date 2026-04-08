@@ -30,7 +30,7 @@ mod waiting_phase;
 
 use macroquad::prelude::*;
 
-use arena::{ARENA_H, ARENA_W};
+use arena::{ARENA_H, ARENA_W, HALF_W};
 use game_state::{BuildState, GamePhase};
 use match_progress::MatchProgress;
 
@@ -52,6 +52,7 @@ async fn main() {
     let mut main_settings = settings::MainSettings::default();
     let mut camera_zoom: f32 = 1.0;
     let mut camera_target = vec2(ARENA_W / 2.0, ARENA_H / 2.0);
+    let mut camera_angle: f32 = 0.0;
     let mut is_fullscreen_mode = false;
     let mut pan_grab_world: Option<Vec2> = None; // world point pinned to cursor during drag
 
@@ -60,22 +61,20 @@ async fn main() {
         let screen_mouse = vec2(mouse_position().0, mouse_position().1);
         let left_click = is_mouse_button_pressed(MouseButton::Left);
         let right_click = is_mouse_button_pressed(MouseButton::Right);
-        // Set colors canonically: my color goes to my player_id slot
-        team::set_color(ctx.role.player_id(), ctx.game_settings.player_color_index);
+        // Set colors canonically
+        team::set_color(ctx.local_player_id, ctx.game_settings.player_color_index);
         if let Some(ref n) = ctx.net {
-            // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
-            let peer_id = 1 - ctx.role.player_id();
-            if let Some(opp_color) = n.peer_color {
-                team::set_color(peer_id, opp_color);
+            if let Some((pid, color_idx)) = n.peer_color {
+                team::set_color(pid, color_idx);
             }
         }
         ui::set_text_scale(main_settings.ui_scale);
 
         // Build the arena camera (used for all world-space rendering)
-        let x_flip = if ctx.role == role::Role::Guest { -1.0 } else { 1.0 };
         let arena_camera = Camera2D {
             target: camera_target,
-            zoom: vec2(camera_zoom * 2.0 / screen_width() * x_flip, camera_zoom * 2.0 / screen_height()),
+            zoom: vec2(camera_zoom * 2.0 / screen_width(), camera_zoom * 2.0 / screen_height()),
+            rotation: camera_angle,
             ..Default::default()
         };
         let world_mouse = arena_camera.screen_to_world(screen_mouse);
@@ -123,6 +122,14 @@ async fn main() {
             let margin_y = ARENA_H * 0.2;
             camera_target.x = camera_target.x.clamp(-margin_x, ARENA_W + margin_x);
             camera_target.y = camera_target.y.clamp(-margin_y, ARENA_H + margin_y);
+            // Q/E camera rotation (90 degrees/sec)
+            if is_key_down(KeyCode::Q) {
+                camera_angle -= 90.0 * dt;
+            }
+            if is_key_down(KeyCode::E) {
+                camera_angle += 90.0 * dt;
+            }
+            camera_angle = camera_angle.rem_euclid(360.0);
         }
 
         match &mut ctx.phase {
@@ -131,11 +138,13 @@ async fn main() {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
                         ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
+                        camera_angle = if arena::deploy_x_range(ctx.local_player_id).0 >= HALF_W { 180.0 } else { 0.0 };
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
                         ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
                         ctx.progress.players[1].name = "AI".to_string();
+                        camera_angle = 0.0;
                         continue;
                     }
                     lobby::LobbyResult::Waiting => {}
@@ -145,11 +154,13 @@ async fn main() {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
                         ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
+                        camera_angle = if arena::deploy_x_range(ctx.local_player_id).0 >= HALF_W { 180.0 } else { 0.0 };
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
                         ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
                         ctx.progress.players[1].name = "AI".to_string();
+                        camera_angle = 0.0;
                         continue;
                     }
                     _ => {}
@@ -215,7 +226,7 @@ async fn main() {
         );
 
         if is_build {
-            rendering::draw_build_overlays(&ctx.build, &ctx.progress, mouse.world_mouse, ctx.role);
+            rendering::draw_build_overlays(&ctx.build, &ctx.progress, mouse.world_mouse, ctx.local_player_id);
         }
 
         // Reset camera for UI overlays (screen-space)
@@ -226,23 +237,23 @@ async fn main() {
             GamePhase::Lobby | GamePhase::DraftBan { .. } => {}
 
             GamePhase::Build => {
-                phase_ui::draw_build_ui(&ctx.build, &ctx.progress, &ctx.units, mouse.screen_mouse, &arena_camera, ctx.role);
+                phase_ui::draw_build_ui(&ctx.build, &ctx.progress, &ctx.units, mouse.screen_mouse, &arena_camera, ctx.local_player_id);
             }
 
             GamePhase::WaitingForOpponent => {
-                phase_ui::draw_waiting_ui(&ctx.progress, &ctx.build, ctx.role);
+                phase_ui::draw_waiting_ui(&ctx.progress, &ctx.build, ctx.local_player_id);
             }
 
             GamePhase::Battle => {
-                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, battle.show_surrender_confirm, mouse.screen_mouse, mouse.world_mouse, ctx.role);
+                phase_ui::draw_battle_ui(&ctx.progress, &ctx.units, &ctx.obstacles, battle.timer, battle_phase::ROUND_TIMEOUT, battle.show_surrender_confirm, mouse.screen_mouse, mouse.world_mouse, ctx.local_player_id);
             }
 
             GamePhase::RoundResult { match_state, lp_damage, loser_team } => {
-                phase_ui::draw_round_result_ui(&ctx.progress, match_state, *lp_damage, *loser_team, ctx.role);
+                phase_ui::draw_round_result_ui(&ctx.progress, match_state, *lp_damage, *loser_team, ctx.local_player_id);
             }
 
             GamePhase::GameOver(winner) => {
-                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, mouse.screen_mouse, ctx.role);
+                phase_ui::draw_game_over_ui(*winner, &ctx.progress, &ctx.units, mouse.screen_mouse, ctx.local_player_id);
             }
         }
 
@@ -264,12 +275,9 @@ async fn main() {
         }
 
         // Chat system
-        // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
-        let peer_id = 1 - ctx.role.player_id();
-        ctx.chat.receive_from_net(&mut ctx.net, peer_id);
-        let local = ctx.role.player_id() as usize;
-        let my_name = ctx.progress.players[local].name.clone();
-        ctx.chat.update(&ctx.phase, &mut ctx.net, &my_name, ctx.role.player_id());
+        ctx.chat.receive_from_net(&mut ctx.net);
+        let my_name = ctx.progress.players[ctx.local_player_id as usize].name.clone();
+        ctx.chat.update(&ctx.phase, &mut ctx.net, &my_name, ctx.local_player_id);
         ctx.chat.tick(dt);
         ctx.chat.draw(&ctx.phase, &my_name);
 
