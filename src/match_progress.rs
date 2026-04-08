@@ -192,10 +192,12 @@ impl MatchProgress {
 }
 
 /// Apply peer's build data received over the network.
-/// Canonical coordinates — no mirroring needed.
-pub fn apply_peer_build(player: &mut PlayerState, data: &PeerBuildData, round: u32) -> Vec<Unit> {
+/// Uses the player_id embedded in the build data to find the correct PlayerState.
+pub fn apply_peer_build(progress: &mut MatchProgress, data: &PeerBuildData) -> Vec<Unit> {
     let packs = all_packs();
     let mut new_units = Vec::new();
+    let round = progress.round;
+    let player = &mut progress.players[data.player_id as usize];
 
     // Apply tech purchases
     for &(kind, tech_id) in &data.tech_purchases {
