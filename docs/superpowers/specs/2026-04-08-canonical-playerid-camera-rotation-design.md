@@ -215,15 +215,30 @@ fn peer_player_id(&self) -> u8 {
 | `peer_color: Option<u8>` | `peer_color: Option<(u8, u8)>` — `(player_id, color_index)` |
 | `peer_name: Option<String>` | `peer_name: Option<(u8, String)>` — `(player_id, name)` |
 
+### apply_peer_build signature change
+
+The function receives `&mut MatchProgress` and indexes the correct player internally using the player_id embedded in the build data. The caller doesn't decide which PlayerState to target.
+
+```rust
+// Before — caller picks which PlayerState to pass in
+pub fn apply_peer_build(player: &mut PlayerState, data: &PeerBuildData, round: u32) -> Vec<Unit>
+
+// After — function uses data.player_id to find the right player
+pub fn apply_peer_build(progress: &mut MatchProgress, data: &PeerBuildData) -> Vec<Unit> {
+    let player = &mut progress.players[data.player_id as usize];
+    let round = progress.round;
+    // ... apply tech purchases and spawn packs on player
+}
+```
+
 ### Game code consumption (waiting_phase.rs)
 
 ```rust
 if let Some(build_data) = n.take_peer_build() {
-    let pid = build_data.player_id as usize;
-    let round = ctx.progress.round;
-    apply_peer_build(&mut ctx.progress.players[pid], &build_data, round);
-    ctx.units.retain(|u| u.player_id != build_data.player_id);
-    ctx.units.extend(ctx.progress.players[pid].respawn_units());
+    let new_units = apply_peer_build(&mut ctx.progress, &build_data);
+    let pid = build_data.player_id;
+    ctx.units.retain(|u| u.player_id != pid);
+    ctx.units.extend(ctx.progress.players[pid as usize].respawn_units());
     // ...
 }
 ```
