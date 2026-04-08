@@ -294,6 +294,56 @@ async fn main() {
             }
         }
 
+        // === Escape Menu Overlay ===
+        if ctx.show_escape_menu {
+            // Dark overlay
+            draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.7));
+
+            let btn_w = ui::s(200.0);
+            let btn_h = ui::s(40.0);
+            let cx = screen_width() / 2.0;
+            let gap = ui::s(12.0);
+
+            let title = "PAUSED";
+            let tdims = ui::measure_scaled_text(title, 36);
+            let menu_top = screen_height() / 2.0 - ui::s(100.0);
+            ui::draw_scaled_text(title, cx - tdims.width / 2.0, menu_top, 36.0, WHITE);
+
+            let mut btn_y = menu_top + ui::s(40.0);
+
+            let draw_menu_btn = |label: &str, y: f32| -> bool {
+                let bx = cx - btn_w / 2.0;
+                let hover = screen_mouse.x >= bx && screen_mouse.x <= bx + btn_w && screen_mouse.y >= y && screen_mouse.y <= y + btn_h;
+                let bg = if hover { Color::new(0.25, 0.25, 0.3, 0.95) } else { Color::new(0.15, 0.15, 0.2, 0.9) };
+                draw_rectangle(bx, y, btn_w, btn_h, bg);
+                draw_rectangle_lines(bx, y, btn_w, btn_h, 1.0, Color::new(0.5, 0.5, 0.6, 0.8));
+                let dims = ui::measure_scaled_text(label, 20);
+                ui::draw_scaled_text(label, bx + btn_w / 2.0 - dims.width / 2.0, y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+                hover && left_click
+            };
+
+            // Resume
+            if draw_menu_btn("Resume", btn_y) {
+                ctx.show_escape_menu = false;
+                ctx.escape_menu_settings = false;
+            }
+            btn_y += btn_h + gap;
+
+            // Settings (placeholder — Task 5 adds sub-view)
+            if draw_menu_btn("Settings", btn_y) {
+                ctx.escape_menu_settings = true;
+            }
+            btn_y += btn_h + gap;
+
+            // Surrender
+            if draw_menu_btn("Surrender", btn_y) {
+                ctx.progress.player_mut(ctx.local_player_id).lp = 0;
+                ctx.show_escape_menu = false;
+                ctx.escape_menu_settings = false;
+                let winner = ctx.progress.game_winner().unwrap_or(0);
+                ctx.phase = GamePhase::GameOver(winner);
+            }
+        }
 
         // Disconnection overlay (shown over any ctx.phase if ctx.net is disconnected)
         if let Some(ref n) = ctx.net {
