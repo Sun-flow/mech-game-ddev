@@ -255,12 +255,11 @@ pub fn draw_obstacles(obstacles: &[Obstacle]) {
             ObstacleType::Cover => {
                 let hp_frac = obs.hp / obs.max_hp;
                 let alpha = 0.4 + 0.4 * hp_frac;
-                let color = if obs.player_id == 0 {
-                    Color::new(0.6, 0.3, 0.2, alpha)
-                } else if obs.player_id == 1 {
-                    Color::new(0.2, 0.3, 0.6, alpha)
+                let color = if obs.player_id == u16::MAX {
+                    Color::new(0.4, 0.4, 0.3, alpha) // neutral
                 } else {
-                    Color::new(0.4, 0.4, 0.3, alpha)
+                    let tc = crate::team::team_color(obs.player_id);
+                    Color::new(tc.r * 0.7, tc.g * 0.7, tc.b * 0.7, alpha)
                 };
                 draw_rectangle(min.x, min.y, w, h, color);
                 draw_rectangle_lines(min.x, min.y, w, h, 1.5, Color::new(0.6, 0.6, 0.5, 0.6));

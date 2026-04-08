@@ -152,24 +152,22 @@ pub fn draw_battle_ui(
     let remaining = (round_timeout - battle_timer).max(0.0);
     crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, local_player_id);
 
-    let alive_0 = units.iter().filter(|u| u.alive && u.player_id == 0).count();
-    let alive_1 = units.iter().filter(|u| u.alive && u.player_id == 1).count();
-    crate::ui::draw_scaled_text(
-        &format!("Red: {}", alive_0),
-        crate::ui::s(10.0),
-        screen_height() - crate::ui::s(15.0),
-        20.0,
-        team_color(0),
-    );
-    let blue_text = format!("Blue: {}", alive_1);
-    let bdims = crate::ui::measure_scaled_text(&blue_text, 20);
-    crate::ui::draw_scaled_text(
-        &blue_text,
-        screen_width() - bdims.width - crate::ui::s(10.0),
-        screen_height() - crate::ui::s(15.0),
-        20.0,
-        team_color(1),
-    );
+    // Per-player alive counts
+    let mut x_left = crate::ui::s(10.0);
+    for player in &progress.players {
+        let alive = units.iter().filter(|u| u.alive && u.player_id == player.player_id).count();
+        let text = format!("{}: {}", player.name, alive);
+        let color = team_color(player.player_id);
+        let dims = crate::ui::measure_scaled_text(&text, 20);
+        crate::ui::draw_scaled_text(
+            &text,
+            x_left,
+            screen_height() - crate::ui::s(15.0),
+            20.0,
+            color,
+        );
+        x_left += dims.width + crate::ui::s(30.0);
+    }
 
     // Obstacle tooltip on hover (hit test in world coords, draw in screen coords)
     if !show_surrender_confirm {
