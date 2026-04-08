@@ -187,7 +187,7 @@ fn draw_splash_effects(effects: &[SplashEffect]) {
     }
 }
 
-pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_mouse: Vec2, local_player_id: u8) {
+pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_mouse: Vec2, local_player_id: u16) {
     // Placement zone overlay
     draw_rectangle(0.0, 0.0, HALF_W, ARENA_H, Color::new(0.2, 0.3, 0.5, 0.05));
     draw_rectangle(HALF_W, 0.0, HALF_W, ARENA_H, Color::new(0.5, 0.2, 0.2, 0.05));

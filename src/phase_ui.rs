@@ -15,7 +15,7 @@ pub fn draw_build_ui(
     units: &[Unit],
     screen_mouse: Vec2,
     arena_camera: &Camera2D,
-    local_player_id: u8,
+    local_player_id: u16,
 ) {
     let lpid = local_player_id as usize;
     crate::shop::draw_shop(build.gold_remaining, screen_mouse, false, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round);
@@ -123,7 +123,7 @@ pub fn draw_build_ui(
 pub fn draw_waiting_ui(
     progress: &MatchProgress,
     build: &BuildState,
-    local_player_id: u8,
+    local_player_id: u16,
 ) {
     crate::ui::draw_hud(progress, build.gold_remaining, 0.0, 0, 0.0, local_player_id);
 
@@ -148,7 +148,7 @@ pub fn draw_battle_ui(
     show_surrender_confirm: bool,
     screen_mouse: Vec2,
     world_mouse: Vec2,
-    local_player_id: u8,
+    local_player_id: u16,
 ) {
     let remaining = (round_timeout - battle_timer).max(0.0);
     crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, local_player_id);
@@ -247,8 +247,8 @@ pub fn draw_round_result_ui(
     progress: &MatchProgress,
     match_state: &MatchState,
     lp_damage: i32,
-    loser_team: Option<u8>,
-    local_player_id: u8,
+    loser_team: Option<u16>,
+    local_player_id: u16,
 ) {
     crate::ui::draw_hud(progress, 0, 0.0, 0, 0.0, local_player_id);
 
@@ -304,11 +304,11 @@ pub fn draw_round_result_ui(
 }
 
 pub fn draw_game_over_ui(
-    winner: u8,
+    winner: u16,
     progress: &MatchProgress,
     units: &[Unit],
     screen_mouse: Vec2,
-    local_player_id: u8,
+    local_player_id: u16,
 ) {
     let headline = if winner == local_player_id { "YOU WIN!".to_string() } else { "YOU LOSE!".to_string() };
     let winner_name = &progress.players[winner as usize].name;

@@ -7,7 +7,7 @@ use crate::team;
 pub struct ChatMessage {
     pub name: String,
     pub text: String,
-    pub player_id: u8,
+    pub player_id: u16,
     pub lifetime: f32,
 }
 
@@ -46,7 +46,7 @@ impl ChatState {
         phase: &GamePhase,
         net: &mut Option<net::NetState>,
         player_name: &str,
-        local_id: u8,
+        local_id: u16,
     ) {
         let chat_allowed = matches!(
             phase,

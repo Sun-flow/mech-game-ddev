@@ -86,6 +86,7 @@ pub struct NetState {
     pub received_state_hash: Option<(u32, u64)>,
     pub received_state_request: Option<u32>,
     pub received_state_sync: Option<StateSyncData>,
+    pub local_player_id: u16,
 }
 
 #[derive(Clone, Debug)]
@@ -122,6 +123,7 @@ impl NetState {
             received_state_hash: None,
             received_state_request: None,
             received_state_sync: None,
+            local_player_id: 0,
         }
     }
 

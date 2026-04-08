@@ -137,13 +137,15 @@ async fn main() {
                 match lobby.update(&mut ctx.game_settings, &mut main_settings, &mouse) {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
-                        ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
-                        camera_angle = if arena::deploy_x_range(ctx.local_player_id).0 >= HALF_W { 180.0 } else { 0.0 };
+                        let local_pid = lobby.net.as_ref().map(|n| n.local_player_id).unwrap_or(0);
+                        let peer_pid = lobby.net.as_ref().and_then(|n| n.peer_color.map(|(pid, _)| pid));
+                        ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled, local_pid, peer_pid);
+                        camera_angle = if ctx.progress.player(ctx.local_player_id).deploy_zone.0 >= HALF_W { 180.0 } else { 0.0 };
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
-                        ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
-                        ctx.progress.players[1].name = "AI".to_string();
+                        ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled, 0, Some(1));
+                        ctx.progress.player_mut(1).name = "AI".to_string();
                         camera_angle = 0.0;
                         continue;
                     }
@@ -153,13 +155,15 @@ async fn main() {
                 match lobby.draw(&mut ctx.game_settings, &mut main_settings, &mouse) {
                     lobby::LobbyResult::StartMultiplayer => {
                         let is_host = lobby.is_room_creator;
-                        ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
-                        camera_angle = if arena::deploy_x_range(ctx.local_player_id).0 >= HALF_W { 180.0 } else { 0.0 };
+                        let local_pid = lobby.net.as_ref().map(|n| n.local_player_id).unwrap_or(0);
+                        let peer_pid = lobby.net.as_ref().and_then(|n| n.peer_color.map(|(pid, _)| pid));
+                        ctx.start_game(lobby.net.take(), is_host, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled, local_pid, peer_pid);
+                        camera_angle = if ctx.progress.player(ctx.local_player_id).deploy_zone.0 >= HALF_W { 180.0 } else { 0.0 };
                         continue;
                     }
                     lobby::LobbyResult::StartVsAi => {
-                        ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled);
-                        ctx.progress.players[1].name = "AI".to_string();
+                        ctx.start_game(None, true, lobby.player_name.clone(), ctx.game_settings.draft_ban_enabled, 0, Some(1));
+                        ctx.progress.player_mut(1).name = "AI".to_string();
                         camera_angle = 0.0;
                         continue;
                     }
@@ -263,9 +267,9 @@ async fn main() {
             if n.disconnected {
                 phase_ui::draw_disconnect_overlay();
                 if is_key_pressed(KeyCode::R) {
-                    ctx.progress = MatchProgress::new();
+                    ctx.progress = MatchProgress::new(&[0]);
                     ctx.phase = GamePhase::Lobby;
-                    ctx.build = BuildState::new(ctx.progress.round_allowance(), true);
+                    ctx.build = BuildState::new(ctx.progress.round_allowance(), 1);
                     ctx.units.clear();
                     battle.projectiles.clear();
                     ctx.net = None;

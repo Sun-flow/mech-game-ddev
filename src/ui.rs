@@ -45,16 +45,15 @@ pub fn measure_scaled_text(text: &str, base_font_size: u16) -> TextDimensions {
     measure_text(text, None, scaled, 1.0)
 }
 
-pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, local_player_id: u8) {
-    let lpid = local_player_id as usize;
-    let player = &progress.players[lpid];
+pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, local_player_id: u16) {
+    let player = progress.player(local_player_id);
     let player_lp = player.lp;
     let player_name = &player.name;
 
     let mut opponent_lp = 0;
     let mut opponent_name = "";
-    for (i, p) in progress.players.iter().enumerate() {
-        if i != lpid {
+    for p in progress.players.iter() {
+        if p.player_id != local_player_id {
             opponent_lp = p.lp;
             opponent_name = &p.name;
             break;

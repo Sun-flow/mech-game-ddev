@@ -42,7 +42,6 @@ pub struct LobbyState {
     pub net: Option<NetState>,
     pub player_name: String,
     pub name_editing: bool,
-    pub host_color_index: Option<u8>,
     pub is_room_creator: bool,
 }
 
@@ -56,7 +55,6 @@ impl LobbyState {
             net: None,
             player_name: "Player".to_string(),
             name_editing: false,
-            host_color_index: None,
             is_room_creator: false,
         }
     }
@@ -212,8 +210,10 @@ impl LobbyState {
                     }
 
                     if net.is_peer_connected() {
-                        let my_pid: u8 = if self.is_room_creator { 0 } else { 1 };
-                        // Only the room creator sends match settings to the joiner
+                        // Derive player ID from PeerId
+                        let my_pid = net.derive_local_player_id().unwrap_or(macroquad::rand::gen_range(1000, 60000));
+                        net.local_player_id = my_pid;
+
                         if self.is_room_creator {
                             net.send(crate::net::NetMessage::SettingsSync(game_settings.clone()));
                         }
@@ -242,14 +242,14 @@ impl LobbyState {
                     // Joiner: apply host's match settings and go to color pick
                     if !self.is_room_creator {
                         if let Some(settings) = net.received_settings.take() {
-                            self.host_color_index = Some(settings.player_color_index);
+                            let peer_color_idx = net.peer_color.map(|(_, c)| c).unwrap_or(255);
                             let my_color = game_settings.player_color_index;
                             *game_settings = settings;
                             game_settings.player_color_index = my_color;
-                            // If host color matches ours, pick a different one
-                            if my_color == self.host_color_index.unwrap_or(255) {
+                            // If peer color matches ours, pick a different one
+                            if my_color == peer_color_idx {
                                 for i in 0..6u8 {
-                                    if i != self.host_color_index.unwrap_or(255) {
+                                    if i != peer_color_idx {
                                         game_settings.player_color_index = i;
                                         break;
                                     }
@@ -440,7 +440,7 @@ impl LobbyState {
 
             LobbyMode::ColorPick => {
                 let left_click = ms.left_click;
-                let host_color = self.host_color_index.unwrap_or(255);
+                let peer_color_idx = if let Some(ref n) = self.net { n.peer_color.map(|(_, c)| c).unwrap_or(255) } else { 255 };
 
                 let pick_title = "Choose Your Team Color";
                 let ptdims = crate::ui::measure_scaled_text(pick_title, 28);
@@ -452,7 +452,7 @@ impl LobbyState {
 
                 if let Some(color_idx) = crate::settings::draw_color_swatches(
                     game_settings.player_color_index, mouse, left_click,
-                    sw() / 2.0, sy, swatch_size, swatch_gap, Some(host_color),
+                    sw() / 2.0, sy, swatch_size, swatch_gap, Some(peer_color_idx),
                 ) {
                     game_settings.player_color_index = color_idx;
                 }
@@ -473,7 +473,7 @@ impl LobbyState {
                 if left_click && rbtn_hover {
                     // Send our color choice to the host
                     if let Some(ref mut net) = self.net {
-                        let my_pid: u8 = if self.is_room_creator { 0 } else { 1 };
+                        let my_pid = net.local_player_id;
                         net.send(crate::net::NetMessage::ColorChoice { player_id: my_pid, color_index: game_settings.player_color_index });
                     }
                     return LobbyResult::StartMultiplayer;
