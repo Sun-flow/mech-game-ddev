@@ -13,27 +13,22 @@ pub enum NetMessage {
     ReadyToStart,
     SettingsSync(crate::settings::GameSettings),
     BuildComplete {
-        player_id: u8,
+        player_id: u16,
         new_packs: Vec<(usize, (f32, f32), bool)>,
         tech_purchases: Vec<(UnitKind, TechId)>,
         gold_remaining: u32,
     },
-    ChatMessage { player_id: u8, name: String, text: String },
-    Surrender { player_id: u8 },
-    RematchRequest { player_id: u8 },
+    ChatMessage { player_id: u16, name: String, text: String },
+    Surrender { player_id: u16 },
+    RematchRequest { player_id: u16 },
     BanSelection(Vec<u8>),
-    ColorChoice { player_id: u8, color_index: u8 },
-    NameSync { player_id: u8, name: String },
+    ColorChoice { player_id: u16, color_index: u8 },
+    NameSync { player_id: u16, name: String },
     RoundEnd {
-        winner: Option<u8>,
+        winner: Option<u16>,
         lp_damage: i32,
-        loser_team: Option<u8>,
-        alive_0: u16,
-        alive_1: u16,
-        total_hp_0: i32,
-        total_hp_1: i32,
-        timeout_dmg_0: i32,
-        timeout_dmg_1: i32,
+        loser: Option<u16>,
+        per_player: Vec<RoundEndPlayerData>,
     },
     /// Host sends state hash to guest every SYNC_INTERVAL frames
     StateHash { frame: u32, hash: u64 },
@@ -48,9 +43,17 @@ pub enum NetMessage {
     },
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RoundEndPlayerData {
+    pub player_id: u16,
+    pub alive_count: u16,
+    pub total_hp: i32,
+    pub timeout_damage: i32,
+}
+
 #[derive(Clone, Debug)]
 pub struct PeerBuildData {
-    pub player_id: u8,
+    pub player_id: u16,
     pub new_packs: Vec<(usize, (f32, f32), bool)>,
     pub tech_purchases: Vec<(UnitKind, TechId)>,
 }
@@ -71,13 +74,13 @@ pub struct NetState {
     pub peer_ready: bool,
     pub peer_build: Option<PeerBuildData>,
     pub disconnected: bool,
-    pub received_chats: Vec<(u8, String, String)>, // (player_id, sender_name, text)
-    pub surrendered_player: Option<u8>,
-    pub rematch_player: Option<u8>,
+    pub received_chats: Vec<(u16, String, String)>, // (player_id, sender_name, text)
+    pub surrendered_player: Option<u16>,
+    pub rematch_player: Option<u16>,
     pub peer_bans: Option<Vec<u8>>,
     pub received_settings: Option<crate::settings::GameSettings>,
-    pub peer_color: Option<(u8, u8)>, // (player_id, color_index)
-    pub peer_name: Option<(u8, String)>, // (player_id, name)
+    pub peer_color: Option<(u16, u8)>, // (player_id, color_index)
+    pub peer_name: Option<(u16, String)>, // (player_id, name)
     pub received_round_end: Option<RoundEndData>,
     // Desync detection & state sync
     pub received_state_hash: Option<(u32, u64)>,
@@ -87,13 +90,10 @@ pub struct NetState {
 
 #[derive(Clone, Debug)]
 pub struct RoundEndData {
-    pub winner: Option<u8>,
+    pub winner: Option<u16>,
     pub lp_damage: i32,
-    pub loser_team: Option<u8>,
-    pub alive_0: u16,
-    pub alive_1: u16,
-    pub timeout_dmg_0: i32,
-    pub timeout_dmg_1: i32,
+    pub loser: Option<u16>,
+    pub per_player: Vec<RoundEndPlayerData>,
 }
 
 impl NetState {
@@ -184,9 +184,9 @@ impl NetState {
                         NetMessage::NameSync { player_id, name } => {
                             self.peer_name = Some((player_id, name));
                         }
-                        NetMessage::RoundEnd { winner, lp_damage, loser_team, alive_0, alive_1, total_hp_0: _, total_hp_1: _, timeout_dmg_0, timeout_dmg_1 } => {
+                        NetMessage::RoundEnd { winner, lp_damage, loser, per_player } => {
                             self.received_round_end = Some(RoundEndData {
-                                winner, lp_damage, loser_team, alive_0, alive_1, timeout_dmg_0, timeout_dmg_1,
+                                winner, lp_damage, loser, per_player,
                             });
                         }
                         NetMessage::StateHash { frame, hash } => {
@@ -237,13 +237,17 @@ impl NetState {
     pub fn take_peer_build(&mut self) -> Option<PeerBuildData> {
         self.peer_build.take()
     }
+
+    pub fn derive_local_player_id(&mut self) -> Option<u16> {
+        self.socket.id().map(|pid| player_id_from_peer(&pid))
+    }
 }
 
 /// Send BuildComplete message over the network with this round's new packs and tech purchases.
 pub fn send_build_complete(
     net: &mut Option<NetState>,
     build: &BuildState,
-    local_player_id: u8,
+    local_player_id: u16,
 ) {
     if let Some(ref mut n) = net {
         let new_packs: Vec<(usize, (f32, f32), bool)> = build
@@ -262,4 +266,10 @@ pub fn send_build_complete(
             gold_remaining: build.gold_remaining,
         });
     }
+}
+
+/// Derive a u16 player_id from a matchbox PeerId (UUID).
+pub fn player_id_from_peer(peer_id: &PeerId) -> u16 {
+    let bytes = peer_id.0.as_bytes();
+    u16::from_be_bytes([bytes[0], bytes[1]])
 }
