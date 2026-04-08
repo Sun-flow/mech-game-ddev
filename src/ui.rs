@@ -3,7 +3,6 @@ use std::cell::Cell;
 
 use crate::arena::shop_w;
 use crate::match_progress::MatchProgress;
-use crate::role::Role;
 
 thread_local! {
     static TEXT_SCALE: Cell<f32> = const { Cell::new(1.0) };
@@ -46,16 +45,21 @@ pub fn measure_scaled_text(text: &str, base_font_size: u16) -> TextDimensions {
     measure_text(text, None, scaled, 1.0)
 }
 
-pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, role: Role) {
-    let local = role.player_id() as usize;
-    // TODO: 2-player assumption
-    let peer = 1 - local;
-    let player = &progress.players[local];
-    let opponent = &progress.players[peer];
+pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, local_player_id: u8) {
+    let lpid = local_player_id as usize;
+    let player = &progress.players[lpid];
     let player_lp = player.lp;
-    let opponent_lp = opponent.lp;
     let player_name = &player.name;
-    let opponent_name = &opponent.name;
+
+    let mut opponent_lp = 0;
+    let mut opponent_name = "";
+    for (i, p) in progress.players.iter().enumerate() {
+        if i != lpid {
+            opponent_lp = p.lp;
+            opponent_name = &p.name;
+            break;
+        }
+    }
 
     // Background bar (screen-wide)
     draw_rectangle(

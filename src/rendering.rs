@@ -187,7 +187,7 @@ fn draw_splash_effects(effects: &[SplashEffect]) {
     }
 }
 
-pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_mouse: Vec2, role: crate::role::Role) {
+pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_mouse: Vec2, local_player_id: u8) {
     // Placement zone overlay
     draw_rectangle(0.0, 0.0, HALF_W, ARENA_H, Color::new(0.2, 0.3, 0.5, 0.05));
     draw_rectangle(HALF_W, 0.0, HALF_W, ARENA_H, Color::new(0.5, 0.2, 0.2, 0.05));
@@ -258,25 +258,26 @@ pub fn draw_build_overlays(build: &BuildState, progress: &MatchProgress, world_m
     }
 
     // Opponent pack bounding boxes (from previous rounds, visible during build)
-    let local = role.player_id() as usize;
-    // TODO: 2-player assumption
-    let peer = 1 - local;
+    let lpid = local_player_id as usize;
     let packs = all_packs();
-    for opponent_pack in &progress.players[peer].packs {
-        let pack = &packs[opponent_pack.pack_index];
-        let half = PlacedPack::bbox_half_size_rotated(
-            pack,
-            opponent_pack.rotated,
-        );
-        let min = opponent_pack.center - half;
-        let bbox_color = Color::new(0.3, 0.3, 0.5, 0.2);
-        draw_rectangle_lines(
-            min.x,
-            min.y,
-            half.x * 2.0,
-            half.y * 2.0,
-            1.0,
-            bbox_color,
-        );
+    for (i, player) in progress.players.iter().enumerate() {
+        if i == lpid { continue; }
+        for opponent_pack in &player.packs {
+            let pack = &packs[opponent_pack.pack_index];
+            let half = PlacedPack::bbox_half_size_rotated(
+                pack,
+                opponent_pack.rotated,
+            );
+            let min = opponent_pack.center - half;
+            let bbox_color = Color::new(0.3, 0.3, 0.5, 0.2);
+            draw_rectangle_lines(
+                min.x,
+                min.y,
+                half.x * 2.0,
+                half.y * 2.0,
+                1.0,
+                bbox_color,
+            );
+        }
     }
 }

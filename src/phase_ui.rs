@@ -4,7 +4,6 @@ use crate::arena::{shop_w, MatchState};
 use crate::game_state::{self, BuildState, PlacedPack};
 use crate::match_progress::MatchProgress;
 use crate::pack::all_packs;
-use crate::role::Role;
 use crate::settings;
 use crate::team::team_color;
 use crate::terrain;
@@ -16,11 +15,9 @@ pub fn draw_build_ui(
     units: &[Unit],
     screen_mouse: Vec2,
     arena_camera: &Camera2D,
-    role: Role,
+    local_player_id: u8,
 ) {
-    let local = role.player_id() as usize;
-    // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
-    let peer = 1 - local;
+    let lpid = local_player_id as usize;
     crate::shop::draw_shop(build.gold_remaining, screen_mouse, false, &progress.banned_kinds, game_state::BUILD_LIMIT - build.packs_bought_this_round);
 
     // Pack labels (drawn in screen-space so text isn't distorted by camera zoom)
@@ -43,13 +40,16 @@ pub fn draw_build_ui(
             };
             crate::ui::draw_scaled_text(&label, screen_pos.x, screen_pos.y, 14.0, label_color);
         }
-        for opponent_pack in &progress.players[peer].packs {
-            let pack = &packs[opponent_pack.pack_index];
-            let half = PlacedPack::bbox_half_size_rotated(pack, opponent_pack.rotated);
-            let world_pos = vec2(opponent_pack.center.x - half.x + 2.0, opponent_pack.center.y - half.y - 2.0);
-            let screen_pos = arena_camera.world_to_screen(world_pos);
-            let label = format!("{} (R{})", pack.name, opponent_pack.round_placed);
-            crate::ui::draw_scaled_text(&label, screen_pos.x, screen_pos.y, 12.0, Color::new(0.4, 0.4, 0.6, 0.4));
+        for (i, player) in progress.players.iter().enumerate() {
+            if i == lpid { continue; }
+            for opponent_pack in &player.packs {
+                let pack = &packs[opponent_pack.pack_index];
+                let half = PlacedPack::bbox_half_size_rotated(pack, opponent_pack.rotated);
+                let world_pos = vec2(opponent_pack.center.x - half.x + 2.0, opponent_pack.center.y - half.y - 2.0);
+                let screen_pos = arena_camera.world_to_screen(world_pos);
+                let label = format!("{} (R{})", pack.name, opponent_pack.round_placed);
+                crate::ui::draw_scaled_text(&label, screen_pos.x, screen_pos.y, 12.0, Color::new(0.4, 0.4, 0.6, 0.4));
+            }
         }
     }
 
@@ -61,7 +61,7 @@ pub fn draw_build_ui(
             let cs = crate::tech_ui::PackCombatStats::from_units(units, &placed.unit_ids);
             crate::tech_ui::draw_tech_panel(
                 kind,
-                &progress.players[local].techs,
+                &progress.players[lpid].techs,
                 build.gold_remaining,
                 screen_mouse,
                 false,
@@ -75,7 +75,7 @@ pub fn draw_build_ui(
         let packs = all_packs();
         build.placed_packs.iter().map(|p| packs[p.pack_index].cost).sum()
     };
-    crate::ui::draw_hud(progress, build.gold_remaining, build.timer, army_value, 0.0, role);
+    crate::ui::draw_hud(progress, build.gold_remaining, build.timer, army_value, 0.0, local_player_id);
 
     // Begin Round button (screen-space)
     let btn_w = crate::ui::s(160.0);
@@ -123,9 +123,9 @@ pub fn draw_build_ui(
 pub fn draw_waiting_ui(
     progress: &MatchProgress,
     build: &BuildState,
-    role: Role,
+    local_player_id: u8,
 ) {
-    crate::ui::draw_hud(progress, build.gold_remaining, 0.0, 0, 0.0, role);
+    crate::ui::draw_hud(progress, build.gold_remaining, 0.0, 0, 0.0, local_player_id);
 
     let dots = ".".repeat((get_time() * 2.0) as usize % 4);
     let wait_text = format!("Waiting for opponent{}", dots);
@@ -148,15 +148,10 @@ pub fn draw_battle_ui(
     show_surrender_confirm: bool,
     screen_mouse: Vec2,
     world_mouse: Vec2,
-    role: Role,
+    local_player_id: u8,
 ) {
-    let local = role.player_id() as usize;
-    // TODO: 2-player assumption — derive peer index from connection identity when supporting N players
-    let peer = 1 - local;
-    let mp_player_name = &progress.players[local].name;
-    let mp_opponent_name = &progress.players[peer].name;
     let remaining = (round_timeout - battle_timer).max(0.0);
-    crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, role);
+    crate::ui::draw_hud(progress, 0, 0.0, 0, remaining, local_player_id);
 
     let alive_0 = units.iter().filter(|u| u.alive && u.player_id == 0).count();
     let alive_1 = units.iter().filter(|u| u.alive && u.player_id == 1).count();
@@ -201,7 +196,11 @@ pub fn draw_battle_ui(
                     crate::ui::draw_scaled_text(&format!("HP: {:.0}/{:.0}", obs.hp, obs.max_hp), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
                     ty += crate::ui::s(14.0);
                 }
-                let team_name = match obs.player_id { 0 => mp_player_name, 1 => mp_opponent_name, _ => "Neutral" };
+                let team_name = if (obs.player_id as usize) < progress.players.len() {
+                    progress.players[obs.player_id as usize].name.as_str()
+                } else {
+                    "Neutral"
+                };
                 crate::ui::draw_scaled_text(&format!("Owner: {}", team_name), tip_x + crate::ui::s(6.0), ty, 12.0, LIGHTGRAY);
                 break;
             }
@@ -249,17 +248,13 @@ pub fn draw_round_result_ui(
     match_state: &MatchState,
     lp_damage: i32,
     loser_team: Option<u8>,
-    role: Role,
+    local_player_id: u8,
 ) {
-    let local = role.player_id() as usize;
-    let peer = 1 - local;
-    let mp_player_name = &progress.players[local].name;
-    let mp_opponent_name = &progress.players[peer].name;
-    crate::ui::draw_hud(progress, 0, 0.0, 0, 0.0, role);
+    crate::ui::draw_hud(progress, 0, 0.0, 0, 0.0, local_player_id);
 
     let text = match match_state {
         MatchState::Winner(tid) => {
-            let winner_name = if *tid == role.player_id() { mp_player_name } else { mp_opponent_name };
+            let winner_name = &progress.players[*tid as usize].name;
             let color_idx = crate::team::color_index(*tid);
             let color_name = settings::TEAM_COLOR_OPTIONS
                 .get(color_idx as usize)
@@ -281,7 +276,7 @@ pub fn draw_round_result_ui(
     );
 
     if let Some(loser) = loser_team {
-        let loser_name = if loser == 0 { mp_player_name } else { mp_opponent_name };
+        let loser_name = &progress.players[loser as usize].name;
         let dmg_text = format!("{} loses {} LP", loser_name, lp_damage);
         let ddims = crate::ui::measure_scaled_text(&dmg_text, 22);
         crate::ui::draw_scaled_text(
@@ -313,22 +308,18 @@ pub fn draw_game_over_ui(
     progress: &MatchProgress,
     units: &[Unit],
     screen_mouse: Vec2,
-    role: Role,
+    local_player_id: u8,
 ) {
-    let local = role.player_id() as usize;
-    let peer = 1 - local;
-    let mp_player_name = &progress.players[local].name;
-    let mp_opponent_name = &progress.players[peer].name;
-    let local_pid = role.player_id();
-    let headline = if winner == local_pid { "YOU WIN!".to_string() } else { "YOU LOSE!".to_string() };
-    let winner_name = if winner == local_pid { mp_player_name } else { mp_opponent_name };
+    let lpid = local_player_id as usize;
+    let headline = if winner == local_player_id { "YOU WIN!".to_string() } else { "YOU LOSE!".to_string() };
+    let winner_name = &progress.players[winner as usize].name;
     let winner_color_idx = crate::team::color_index(winner);
     let color_name = settings::TEAM_COLOR_OPTIONS
         .get(winner_color_idx as usize)
         .map(|(name, _)| *name)
         .unwrap_or("???");
     let subtitle = format!("{} ({}) wins!", winner_name, color_name);
-    let headline_color = if winner == local_pid {
+    let headline_color = if winner == local_player_id {
         Color::new(0.2, 1.0, 0.3, 1.0)
     } else {
         Color::new(1.0, 0.3, 0.2, 1.0)
@@ -371,7 +362,7 @@ pub fn draw_game_over_ui(
 
     // MVP
     let mvp = units.iter()
-        .filter(|u| u.player_id == local_pid)
+        .filter(|u| u.player_id == local_player_id)
         .max_by(|a, b| a.damage_dealt_total.partial_cmp(&b.damage_dealt_total).unwrap_or(std::cmp::Ordering::Equal));
     if let Some(mvp_unit) = mvp {
         let mvp_text = format!("MVP: {:?} - {:.0} dmg, {} kills", mvp_unit.kind, mvp_unit.damage_dealt_total, mvp_unit.kills_total);
@@ -380,18 +371,25 @@ pub fn draw_game_over_ui(
     sy += crate::ui::s(18.0);
 
     let total_dmg: f32 = units.iter()
-        .filter(|u| u.player_id == local_pid)
+        .filter(|u| u.player_id == local_player_id)
         .map(|u| u.damage_dealt_total)
         .sum();
     crate::ui::draw_scaled_text(&format!("Total Damage: {:.0}", total_dmg), sx, sy, 15.0, LIGHTGRAY);
     sy += crate::ui::s(18.0);
 
-    let surviving = units.iter().filter(|u| u.player_id == local_pid && u.alive).count();
-    let total_units = units.iter().filter(|u| u.player_id == local_pid).count();
+    let surviving = units.iter().filter(|u| u.player_id == local_player_id && u.alive).count();
+    let total_units = units.iter().filter(|u| u.player_id == local_player_id).count();
     crate::ui::draw_scaled_text(&format!("Surviving: {} / {}", surviving, total_units), sx, sy, 15.0, LIGHTGRAY);
     sy += crate::ui::s(18.0);
 
-    crate::ui::draw_scaled_text(&format!("LP: {} {} vs {} {}", mp_player_name, progress.players[local].lp, mp_opponent_name, progress.players[peer].lp), sx, sy, 15.0, LIGHTGRAY);
+    let mut lp_text = String::new();
+    for (i, player) in progress.players.iter().enumerate() {
+        if !lp_text.is_empty() {
+            lp_text.push_str(" vs ");
+        }
+        lp_text.push_str(&format!("{} {}", player.name, player.lp));
+    }
+    crate::ui::draw_scaled_text(&format!("LP: {}", lp_text), sx, sy, 15.0, LIGHTGRAY);
 
     let below_panel = panel_y + panel_h + crate::ui::s(8.0);
     crate::ui::draw_scaled_text(
