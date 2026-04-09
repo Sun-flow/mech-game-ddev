@@ -425,14 +425,9 @@ pub fn update(
     // Begin Round button (screen-space UI)
     let btn_w = crate::ui::s(160.0);
     let btn_h = crate::ui::s(40.0);
-    let btn_x = screen_width() / 2.0 - btn_w / 2.0;
+    let btn_x = crate::ui::center_x(btn_w);
     let btn_y = screen_height() - crate::ui::s(55.0);
-    if left_click
-        && screen_mouse.x >= btn_x
-        && screen_mouse.x <= btn_x + btn_w
-        && screen_mouse.y >= btn_y
-        && screen_mouse.y <= btn_y + btn_h
-    {
+    if left_click && crate::ui::point_in_rect(screen_mouse, btn_x, btn_y, btn_w, btn_h) {
         if ctx.net.is_some() {
             // Multiplayer: send ctx.build data, wait for opponent
             net::send_build_complete(&mut ctx.net, &ctx.build, ctx.local_player_id);

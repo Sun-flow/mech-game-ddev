@@ -39,8 +39,7 @@ pub fn draw_build_ui(
             };
             crate::ui::draw_scaled_text(&label, screen_pos.x, screen_pos.y, 14.0, label_color);
         }
-        for player in progress.players.iter() {
-            if player.player_id == local_player_id { continue; }
+        for player in progress.other_players(local_player_id) {
             for opponent_pack in &player.packs {
                 let pack = &packs[opponent_pack.pack_index];
                 let half = PlacedPack::bbox_half_size_rotated(pack, opponent_pack.rotated);
@@ -79,12 +78,9 @@ pub fn draw_build_ui(
     // Begin Round button (screen-space)
     let btn_w = crate::ui::s(160.0);
     let btn_h = crate::ui::s(40.0);
-    let btn_x = screen_width() / 2.0 - btn_w / 2.0;
+    let btn_x = crate::ui::center_x(btn_w);
     let btn_y = screen_height() - crate::ui::s(55.0);
-    let btn_hovered = screen_mouse.x >= btn_x
-        && screen_mouse.x <= btn_x + btn_w
-        && screen_mouse.y >= btn_y
-        && screen_mouse.y <= btn_y + btn_h;
+    let btn_hovered = crate::ui::point_in_rect(screen_mouse, btn_x, btn_y, btn_w, btn_h);
     let btn_bg = if btn_hovered {
         Color::new(0.2, 0.6, 0.3, 0.9)
     } else {
@@ -99,15 +95,7 @@ pub fn draw_build_ui(
         2.0,
         Color::new(0.3, 0.8, 0.4, 1.0),
     );
-    let btn_text = "Begin Round";
-    let tdims = crate::ui::measure_scaled_text(btn_text, 22);
-    crate::ui::draw_scaled_text(
-        btn_text,
-        btn_x + btn_w / 2.0 - tdims.width / 2.0,
-        btn_y + btn_h / 2.0 + 7.0,
-        22.0,
-        WHITE,
-    );
+    crate::ui::draw_centered_text("Begin Round", btn_x + btn_w / 2.0, btn_y + btn_h / 2.0 + 7.0, 22.0, WHITE);
 
     // Hint text (screen-space)
     crate::ui::draw_scaled_text(
@@ -128,10 +116,9 @@ pub fn draw_waiting_ui(
 
     let dots = ".".repeat((get_time() * 2.0) as usize % 4);
     let wait_text = format!("Waiting for opponent{}", dots);
-    let wdims = crate::ui::measure_scaled_text(&wait_text, 28);
-    crate::ui::draw_scaled_text(
+    crate::ui::draw_centered_text(
         &wait_text,
-        screen_width() / 2.0 - wdims.width / 2.0,
+        screen_width() / 2.0,
         screen_height() / 2.0,
         28.0,
         Color::new(0.7, 0.7, 0.9, 1.0),
@@ -225,10 +212,9 @@ pub fn draw_round_result_ui(
         MatchState::InProgress => unreachable!(),
     };
 
-    let dims = crate::ui::measure_scaled_text(&text, 36);
-    crate::ui::draw_scaled_text(
+    crate::ui::draw_centered_text(
         &text,
-        screen_width() / 2.0 - dims.width / 2.0,
+        screen_width() / 2.0,
         screen_height() / 2.0 - crate::ui::s(30.0),
         36.0,
         WHITE,
@@ -237,10 +223,9 @@ pub fn draw_round_result_ui(
     if let Some(loser) = loser_team {
         let loser_name = &progress.player(loser).name;
         let dmg_text = format!("{} loses {} LP", loser_name, lp_damage);
-        let ddims = crate::ui::measure_scaled_text(&dmg_text, 22);
-        crate::ui::draw_scaled_text(
+        crate::ui::draw_centered_text(
             &dmg_text,
-            screen_width() / 2.0 - ddims.width / 2.0,
+            screen_width() / 2.0,
             screen_height() / 2.0 + crate::ui::s(5.0),
             22.0,
             Color::new(1.0, 0.4, 0.3, 1.0),
@@ -252,10 +237,9 @@ pub fn draw_round_result_ui(
     } else {
         "Press Space for next round"
     };
-    let ndims = crate::ui::measure_scaled_text(next_text, 18);
-    crate::ui::draw_scaled_text(
+    crate::ui::draw_centered_text(
         next_text,
-        screen_width() / 2.0 - ndims.width / 2.0,
+        screen_width() / 2.0,
         screen_height() / 2.0 + crate::ui::s(35.0),
         18.0,
         LIGHTGRAY,
@@ -282,22 +266,20 @@ pub fn draw_game_over_ui(
     } else {
         Color::new(1.0, 0.3, 0.2, 1.0)
     };
-    let dims = crate::ui::measure_scaled_text(&headline, 48);
-    crate::ui::draw_scaled_text(
+    crate::ui::draw_centered_text(
         &headline,
-        screen_width() / 2.0 - dims.width / 2.0,
+        screen_width() / 2.0,
         screen_height() / 2.0 - crate::ui::s(40.0),
         48.0,
         headline_color,
     );
-    let sub_dims = crate::ui::measure_scaled_text(&subtitle, 22);
     let (_, (cr, cg, cb)) = settings::TEAM_COLOR_OPTIONS
         .get(winner_color_idx as usize)
         .copied()
         .unwrap_or(("White", (1.0, 1.0, 1.0)));
-    crate::ui::draw_scaled_text(
+    crate::ui::draw_centered_text(
         &subtitle,
-        screen_width() / 2.0 - sub_dims.width / 2.0,
+        screen_width() / 2.0,
         screen_height() / 2.0 - crate::ui::s(10.0),
         22.0,
         Color::new(cr, cg, cb, 1.0),
@@ -306,7 +288,7 @@ pub fn draw_game_over_ui(
     // Stats panel
     let panel_w = crate::ui::s(320.0);
     let panel_h = crate::ui::s(140.0);
-    let panel_x = screen_width() / 2.0 - panel_w / 2.0;
+    let panel_x = crate::ui::center_x(panel_w);
     let panel_y = screen_height() / 2.0 + 10.0;
     draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.08, 0.08, 0.12, 0.9));
     draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 1.0, Color::new(0.4, 0.5, 0.6, 0.7));
@@ -361,34 +343,28 @@ pub fn draw_game_over_ui(
     // Rematch button
     let rmatch_w = crate::ui::s(160.0);
     let rmatch_h = crate::ui::s(40.0);
-    let rmatch_x = screen_width() / 2.0 - rmatch_w / 2.0;
+    let rmatch_x = crate::ui::center_x(rmatch_w);
     let rmatch_y = below_panel + crate::ui::s(15.0);
-    let rmatch_hover = screen_mouse.x >= rmatch_x && screen_mouse.x <= rmatch_x + rmatch_w && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h;
+    let rmatch_hover = crate::ui::point_in_rect(screen_mouse, rmatch_x, rmatch_y, rmatch_w, rmatch_h);
     let rmatch_bg = if rmatch_hover { Color::new(0.2, 0.5, 0.3, 0.9) } else { Color::new(0.15, 0.35, 0.2, 0.8) };
     draw_rectangle(rmatch_x, rmatch_y, rmatch_w, rmatch_h, rmatch_bg);
     draw_rectangle_lines(rmatch_x, rmatch_y, rmatch_w, rmatch_h, 2.0, Color::new(0.3, 0.8, 0.4, 1.0));
-    let rt = "Rematch";
-    let rdims2 = crate::ui::measure_scaled_text(rt, 22);
-    crate::ui::draw_scaled_text(rt, rmatch_x + rmatch_w / 2.0 - rdims2.width / 2.0, rmatch_y + rmatch_h / 2.0 + 7.0, 22.0, WHITE);
+    crate::ui::draw_centered_text("Rematch", rmatch_x + rmatch_w / 2.0, rmatch_y + rmatch_h / 2.0 + 7.0, 22.0, WHITE);
 }
 
 pub fn draw_disconnect_overlay() {
     // Semi-transparent dark overlay
     draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.7));
-    let disc_text = "Opponent Disconnected";
-    let ddims = crate::ui::measure_scaled_text(disc_text, 36);
-    crate::ui::draw_scaled_text(
-        disc_text,
-        screen_width() / 2.0 - ddims.width / 2.0,
+    crate::ui::draw_centered_text(
+        "Opponent Disconnected",
+        screen_width() / 2.0,
         screen_height() / 2.0 - crate::ui::s(10.0),
         36.0,
         Color::new(1.0, 0.3, 0.2, 1.0),
     );
-    let hint = "Press R to return to lobby";
-    let hdims = crate::ui::measure_scaled_text(hint, 18);
-    crate::ui::draw_scaled_text(
-        hint,
-        screen_width() / 2.0 - hdims.width / 2.0,
+    crate::ui::draw_centered_text(
+        "Press R to return to lobby",
+        screen_width() / 2.0,
         screen_height() / 2.0 + crate::ui::s(20.0),
         18.0,
         LIGHTGRAY,

@@ -315,14 +315,12 @@ async fn main() {
                 // Settings sub-view
                 let panel_w = ui::s(400.0);
                 let panel_h = ui::s(350.0);
-                let px = screen_width() / 2.0 - panel_w / 2.0;
-                let py = screen_height() / 2.0 - panel_h / 2.0;
+                let px = ui::center_x(panel_w);
+                let py = ui::center_y(panel_h);
                 draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
                 draw_rectangle_lines(px, py, panel_w, panel_h, 2.0, Color::new(0.4, 0.4, 0.5, 1.0));
 
-                let title = "Settings";
-                let tdims = ui::measure_scaled_text(title, 24);
-                ui::draw_scaled_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + ui::s(30.0), 24.0, WHITE);
+                ui::draw_centered_text("Settings", px + panel_w / 2.0, py + ui::s(30.0), 24.0, WHITE);
 
                 settings::draw_ui_scale_slider(&mut main_settings, screen_mouse, left_click, mouse.left_down, px, py + ui::s(55.0));
 
@@ -333,14 +331,7 @@ async fn main() {
                 let back_h = ui::s(35.0);
                 let back_x = px + panel_w / 2.0 - back_w / 2.0;
                 let back_y = py + panel_h - ui::s(50.0);
-                let back_hover = screen_mouse.x >= back_x && screen_mouse.x <= back_x + back_w && screen_mouse.y >= back_y && screen_mouse.y <= back_y + back_h;
-                let back_bg = if back_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
-                draw_rectangle(back_x, back_y, back_w, back_h, back_bg);
-                draw_rectangle_lines(back_x, back_y, back_w, back_h, 1.0, WHITE);
-                let bt = "Back";
-                let bdims = ui::measure_scaled_text(bt, 18);
-                ui::draw_scaled_text(bt, back_x + back_w / 2.0 - bdims.width / 2.0, back_y + back_h / 2.0 + 5.0, 18.0, WHITE);
-                if back_hover && left_click {
+                if ui::draw_button("Back", back_x, back_y, back_w, back_h, screen_mouse, left_click, 18.0) {
                     ctx.escape_menu_settings = false;
                 }
             } else {
@@ -349,39 +340,27 @@ async fn main() {
                 let cx = screen_width() / 2.0;
                 let gap = ui::s(12.0);
 
-                let title = "PAUSED";
-                let tdims = ui::measure_scaled_text(title, 36);
                 let menu_top = screen_height() / 2.0 - ui::s(100.0);
-                ui::draw_scaled_text(title, cx - tdims.width / 2.0, menu_top, 36.0, WHITE);
+                ui::draw_centered_text("PAUSED", cx, menu_top, 36.0, WHITE);
 
                 let mut btn_y = menu_top + ui::s(40.0);
-
-                let draw_menu_btn = |label: &str, y: f32| -> bool {
-                    let bx = cx - btn_w / 2.0;
-                    let hover = screen_mouse.x >= bx && screen_mouse.x <= bx + btn_w && screen_mouse.y >= y && screen_mouse.y <= y + btn_h;
-                    let bg = if hover { Color::new(0.25, 0.25, 0.3, 0.95) } else { Color::new(0.15, 0.15, 0.2, 0.9) };
-                    draw_rectangle(bx, y, btn_w, btn_h, bg);
-                    draw_rectangle_lines(bx, y, btn_w, btn_h, 1.0, Color::new(0.5, 0.5, 0.6, 0.8));
-                    let dims = ui::measure_scaled_text(label, 20);
-                    ui::draw_scaled_text(label, bx + btn_w / 2.0 - dims.width / 2.0, y + btn_h / 2.0 + 6.0, 20.0, WHITE);
-                    hover && left_click
-                };
+                let bx = cx - btn_w / 2.0;
 
                 // Resume
-                if draw_menu_btn("Resume", btn_y) {
+                if ui::draw_button("Resume", bx, btn_y, btn_w, btn_h, screen_mouse, left_click, 20.0) {
                     ctx.show_escape_menu = false;
                     ctx.escape_menu_settings = false;
                 }
                 btn_y += btn_h + gap;
 
                 // Settings
-                if draw_menu_btn("Settings", btn_y) {
+                if ui::draw_button("Settings", bx, btn_y, btn_w, btn_h, screen_mouse, left_click, 20.0) {
                     ctx.escape_menu_settings = true;
                 }
                 btn_y += btn_h + gap;
 
                 // Surrender
-                if draw_menu_btn("Surrender", btn_y) {
+                if ui::draw_button("Surrender", bx, btn_y, btn_w, btn_h, screen_mouse, left_click, 20.0) {
                     // Send surrender to peer
                     if let Some(ref mut n) = ctx.net {
                         n.send(net::NetMessage::Surrender { player_id: ctx.local_player_id });

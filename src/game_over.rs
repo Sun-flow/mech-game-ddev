@@ -26,13 +26,11 @@ pub fn update(
 
     let rmatch_w = crate::ui::s(160.0);
     let rmatch_h = crate::ui::s(40.0);
-    let rmatch_x = screen_width() / 2.0 - rmatch_w / 2.0;
+    let rmatch_x = crate::ui::center_x(rmatch_w);
     let rmatch_panel_y = screen_height() / 2.0 + 10.0;
     let rmatch_panel_h = crate::ui::s(140.0);
     let rmatch_y = rmatch_panel_y + rmatch_panel_h + crate::ui::s(8.0) + crate::ui::s(15.0);
-    if left_click && screen_mouse.x >= rmatch_x && screen_mouse.x <= rmatch_x + rmatch_w
-        && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
-    {
+    if left_click && crate::ui::point_in_rect(screen_mouse, rmatch_x, rmatch_y, rmatch_w, rmatch_h) {
         // Preserve player IDs, deploy zones, colors, and names across rematch
         let player_info: Vec<(u16, (f32, f32), u8, String)> = ctx.progress.players.iter()
             .map(|p| (p.player_id, p.deploy_zone, p.color_index, p.name.clone()))

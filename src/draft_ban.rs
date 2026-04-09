@@ -28,9 +28,7 @@ pub fn update_and_draw(
     clear_background(Color::new(0.08, 0.08, 0.12, 1.0));
 
     // Title
-    let title = "Ban Phase — Select up to 2 unit types to ban";
-    let tdims = crate::ui::measure_scaled_text(title, 24);
-    crate::ui::draw_scaled_text(title, screen_width() / 2.0 - tdims.width / 2.0, crate::ui::s(50.0), 24.0, WHITE);
+    crate::ui::draw_centered_text("Ban Phase — Select up to 2 unit types to ban", screen_width() / 2.0, crate::ui::s(50.0), 24.0, WHITE);
 
     // Draw unit cards in a grid (4 cols)
     let cols = 4;
@@ -48,7 +46,7 @@ pub fn update_and_draw(
         let y = start_y + row * (card_h + gap);
 
         let is_banned = bans.contains(kind);
-        let is_hovered = screen_mouse.x >= x && screen_mouse.x <= x + card_w && screen_mouse.y >= y && screen_mouse.y <= y + card_h;
+        let is_hovered = crate::ui::point_in_rect(screen_mouse, x, y, card_w, card_h);
 
         let bg = if is_banned {
             Color::new(0.6, 0.15, 0.15, 0.9)
@@ -67,9 +65,7 @@ pub fn update_and_draw(
         crate::ui::draw_scaled_text(&info, x + crate::ui::s(8.0), y + crate::ui::s(20.0), 14.0, if is_banned { Color::new(1.0, 0.5, 0.5, 1.0) } else { WHITE });
 
         if is_banned {
-            let ban_text = "BANNED";
-            let bdims = crate::ui::measure_scaled_text(ban_text, 16);
-            crate::ui::draw_scaled_text(ban_text, x + card_w / 2.0 - bdims.width / 2.0, y + crate::ui::s(40.0), 16.0, RED);
+            crate::ui::draw_centered_text("BANNED", x + card_w / 2.0, y + crate::ui::s(40.0), 16.0, RED);
         } else {
             let detail = format!("RNG:{:.0} SPD:{:.0} AS:{:.1}", stats.attack_range, stats.move_speed, stats.attack_speed);
             crate::ui::draw_scaled_text(&detail, x + crate::ui::s(8.0), y + crate::ui::s(38.0), 12.0, LIGHTGRAY);
@@ -88,15 +84,14 @@ pub fn update_and_draw(
     // Confirm button
     let btn_w = crate::ui::s(200.0);
     let btn_h = crate::ui::s(45.0);
-    let btn_x = screen_width() / 2.0 - btn_w / 2.0;
+    let btn_x = crate::ui::center_x(btn_w);
     let btn_y = start_y + 4.0 * (card_h + gap) + crate::ui::s(20.0);
-    let btn_hover = screen_mouse.x >= btn_x && screen_mouse.x <= btn_x + btn_w && screen_mouse.y >= btn_y && screen_mouse.y <= btn_y + btn_h;
+    let btn_hover = crate::ui::point_in_rect(screen_mouse, btn_x, btn_y, btn_w, btn_h);
     let btn_color = if btn_hover { Color::new(0.2, 0.6, 0.3, 0.9) } else { Color::new(0.15, 0.45, 0.2, 0.8) };
     draw_rectangle(btn_x, btn_y, btn_w, btn_h, btn_color);
     draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 1.0, WHITE);
     let confirm_text = format!("Confirm Bans ({}/ 2)", bans.len());
-    let cdims = crate::ui::measure_scaled_text(&confirm_text, 20);
-    crate::ui::draw_scaled_text(&confirm_text, btn_x + btn_w / 2.0 - cdims.width / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+    crate::ui::draw_centered_text(&confirm_text, btn_x + btn_w / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
 
     // Poll network for peer bans
     if let Some(ref mut n) = net {
@@ -125,8 +120,7 @@ pub fn update_and_draw(
         let wait_y = btn_y + btn_h + crate::ui::s(15.0);
         let dots = ".".repeat((get_time() * 2.0) as usize % 4);
         let wait_text = format!("Waiting for opponent bans{}", dots);
-        let wdims = crate::ui::measure_scaled_text(&wait_text, 16);
-        crate::ui::draw_scaled_text(&wait_text, screen_width() / 2.0 - wdims.width / 2.0, wait_y, 16.0, LIGHTGRAY);
+        crate::ui::draw_centered_text(&wait_text, screen_width() / 2.0, wait_y, 16.0, LIGHTGRAY);
     }
 
     // Transition when ready

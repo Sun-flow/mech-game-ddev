@@ -119,7 +119,7 @@ pub fn draw_color_swatches(
         let sx = sx_start + i as f32 * (swatch_size + swatch_gap);
         let is_disabled = disabled_index == Some(i as u8);
         let is_selected = i as u8 == selected;
-        let is_hovered = mouse.x >= sx && mouse.x <= sx + swatch_size && mouse.y >= y && mouse.y <= y + swatch_size;
+        let is_hovered = crate::ui::point_in_rect(mouse, sx, y, swatch_size, swatch_size);
 
         if is_disabled {
             draw_rectangle(sx, y, swatch_size, swatch_size, Color::new(*r * 0.3, *g * 0.3, *b * 0.3, 0.5));
@@ -195,7 +195,7 @@ pub fn draw_settings_content(settings: &mut GameSettings, mouse: Vec2, clicked: 
         crate::ui::draw_scaled_text(state_text, tx + toggle_w + 8.0, row_y + 17.0, 12.0, Color::new(0.6, 0.6, 0.6, text_alpha));
 
         // Click to toggle
-        if toggle.active && clicked && mouse.x >= tx && mouse.x <= tx + toggle_w && mouse.y >= ty && mouse.y <= ty + toggle_h {
+        if toggle.active && clicked && crate::ui::point_in_rect(mouse, tx, ty, toggle_w, toggle_h) {
             match i {
                 0 => settings.terrain_enabled = !settings.terrain_enabled,
                 1 => settings.terrain_destructible = !settings.terrain_destructible,
@@ -234,15 +234,13 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
     // Panel
     let panel_w = crate::ui::s(400.0);
     let panel_h = crate::ui::s(420.0);
-    let px = sw / 2.0 - panel_w / 2.0;
-    let py = sh / 2.0 - panel_h / 2.0;
+    let px = crate::ui::center_x(panel_w);
+    let py = crate::ui::center_y(panel_h);
     draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
     draw_rectangle_lines(px, py, panel_w, panel_h, 2.0, Color::new(0.4, 0.4, 0.5, 1.0));
 
     // Title
-    let title = "Match Settings";
-    let tdims = crate::ui::measure_scaled_text(title, 24);
-    crate::ui::draw_scaled_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
+    crate::ui::draw_centered_text("Match Settings", px + panel_w / 2.0, py + 30.0, 24.0, WHITE);
 
     // Settings content
     draw_settings_content(settings, mouse, clicked, px, py + crate::ui::s(55.0), panel_w);
@@ -252,13 +250,11 @@ pub fn draw_settings_panel(settings: &mut GameSettings, mouse: Vec2, clicked: bo
     let btn_h = crate::ui::s(36.0);
     let btn_x = px + panel_w / 2.0 - btn_w / 2.0;
     let btn_y = py + panel_h - crate::ui::s(50.0);
-    let btn_hover = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= btn_y && mouse.y <= btn_y + btn_h;
+    let btn_hover = crate::ui::point_in_rect(mouse, btn_x, btn_y, btn_w, btn_h);
     let btn_bg = if btn_hover { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
     draw_rectangle(btn_x, btn_y, btn_w, btn_h, btn_bg);
     draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 1.0, GRAY);
-    let bt = "Start Game";
-    let bdims = crate::ui::measure_scaled_text(bt, 20);
-    crate::ui::draw_scaled_text(bt, btn_x + btn_w / 2.0 - bdims.width / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
+    crate::ui::draw_centered_text("Start Game", btn_x + btn_w / 2.0, btn_y + btn_h / 2.0 + 6.0, 20.0, WHITE);
 
     clicked && btn_hover
 }

@@ -83,12 +83,9 @@ pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32
 
     let mut opponent_lp = 0;
     let mut opponent_name = "";
-    for p in progress.players.iter() {
-        if p.player_id != local_player_id {
-            opponent_lp = p.lp;
-            opponent_name = &p.name;
-            break;
-        }
+    if let Some(p) = progress.other_players(local_player_id).next() {
+        opponent_lp = p.lp;
+        opponent_name = &p.name;
     }
 
     // Background bar (screen-wide)

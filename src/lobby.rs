@@ -92,8 +92,7 @@ impl LobbyState {
                 let name_w = s(200.0);
                 let name_x = sw() / 2.0 - name_w / 2.0;
                 let name_h = s(30.0);
-                let name_hovered = mouse.x >= name_x && mouse.x <= name_x + name_w
-                    && mouse.y >= name_y && mouse.y <= name_y + name_h;
+                let name_hovered = crate::ui::point_in_rect(mouse, name_x, name_y, name_w, name_h);
                 if left_click && name_hovered {
                     self.name_editing = true;
                 } else if left_click {
@@ -115,38 +114,26 @@ impl LobbyState {
                 let create_y = sh() / 2.0 - s(25.0);
 
                 // "Create Room" → go to Match Settings
-                if left_click
-                    && mouse.x >= btn_x && mouse.x <= btn_x + btn_w
-                    && mouse.y >= create_y && mouse.y <= create_y + btn_h
-                {
+                if left_click && crate::ui::point_in_rect(mouse, btn_x, create_y, btn_w, btn_h) {
                     self.mode = LobbyMode::MatchSettings { next_action: MatchSettingsNext::CreateRoom };
                 }
 
                 // "Join Room" button
                 let join_y = create_y + s(55.0);
-                if left_click
-                    && mouse.x >= btn_x && mouse.x <= btn_x + btn_w
-                    && mouse.y >= join_y && mouse.y <= join_y + btn_h
-                {
+                if left_click && crate::ui::point_in_rect(mouse, btn_x, join_y, btn_w, btn_h) {
                     self.input_code.clear();
                     self.mode = LobbyMode::EnteringCode;
                 }
 
                 // "Play vs AI" → go to Match Settings
                 let ai_y = join_y + s(55.0);
-                if left_click
-                    && mouse.x >= btn_x && mouse.x <= btn_x + btn_w
-                    && mouse.y >= ai_y && mouse.y <= ai_y + btn_h
-                {
+                if left_click && crate::ui::point_in_rect(mouse, btn_x, ai_y, btn_w, btn_h) {
                     self.mode = LobbyMode::MatchSettings { next_action: MatchSettingsNext::VsAi };
                 }
 
                 // "Settings" button (placeholder)
                 let settings_y = ai_y + s(55.0);
-                if left_click
-                    && mouse.x >= btn_x && mouse.x <= btn_x + btn_w
-                    && mouse.y >= settings_y && mouse.y <= settings_y + btn_h
-                {
+                if left_click && crate::ui::point_in_rect(mouse, btn_x, settings_y, btn_w, btn_h) {
                     self.mode = LobbyMode::Settings;
                 }
             }
@@ -178,14 +165,12 @@ impl LobbyState {
                 }
 
                 if self.input_code.len() == 4 {
-                    let connect_x = sw() / 2.0 - 80.0;
-                    let connect_y = sh() / 2.0 + 50.0;
                     let cbw = s(160.0);
                     let cbh = s(40.0);
+                    let connect_x = crate::ui::center_x(cbw);
+                    let connect_y = sh() / 2.0 + 50.0;
 
-                    let should_connect = (left_click
-                        && mouse.x >= connect_x && mouse.x <= connect_x + cbw
-                        && mouse.y >= connect_y && mouse.y <= connect_y + cbh)
+                    let should_connect = (left_click && crate::ui::point_in_rect(mouse, connect_x, connect_y, cbw, cbh))
                         || is_key_pressed(KeyCode::Enter);
 
                     if should_connect {
@@ -283,13 +268,8 @@ impl LobbyState {
     pub fn draw(&mut self, game_settings: &mut crate::settings::GameSettings, main_settings: &mut crate::settings::MainSettings, ms: &crate::input::MouseState) -> LobbyResult {
         clear_background(Color::new(0.08, 0.08, 0.1, 1.0));
 
-        let title = "RTS Unit Arena";
-        let tdims = crate::ui::measure_scaled_text(title, 40);
-        crate::ui::draw_scaled_text(title, sw() / 2.0 - tdims.width / 2.0, sh() / 2.0 - s(140.0), 40.0, WHITE);
-
-        let subtitle = "Multiplayer";
-        let sdims = crate::ui::measure_scaled_text(subtitle, 24);
-        crate::ui::draw_scaled_text(subtitle, sw() / 2.0 - sdims.width / 2.0, sh() / 2.0 - s(105.0), 24.0, Color::new(0.5, 0.7, 1.0, 1.0));
+        crate::ui::draw_centered_text("RTS Unit Arena", sw() / 2.0, sh() / 2.0 - s(140.0), 40.0, WHITE);
+        crate::ui::draw_centered_text("Multiplayer", sw() / 2.0, sh() / 2.0 - s(105.0), 24.0, Color::new(0.5, 0.7, 1.0, 1.0));
 
         let mouse = ms.screen_mouse;
         let btn_w = s(240.0);
@@ -314,56 +294,46 @@ impl LobbyState {
                 let create_y = sh() / 2.0 - s(25.0);
 
                 // Create Room
-                let hover = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= create_y && mouse.y <= create_y + btn_h;
+                let hover = crate::ui::point_in_rect(mouse, btn_x, create_y, btn_w, btn_h);
                 let bg = if hover { Color::new(0.2, 0.5, 0.3, 0.9) } else { Color::new(0.15, 0.35, 0.2, 0.8) };
                 draw_rectangle(btn_x, create_y, btn_w, btn_h, bg);
                 draw_rectangle_lines(btn_x, create_y, btn_w, btn_h, 2.0, Color::new(0.3, 0.8, 0.4, 1.0));
-                let t = "Create Room";
-                let d = crate::ui::measure_scaled_text(t, 22);
-                crate::ui::draw_scaled_text(t, btn_x + btn_w / 2.0 - d.width / 2.0, create_y + btn_h / 2.0 + s(7.0), 22.0, WHITE);
+                crate::ui::draw_centered_text("Create Room", btn_x + btn_w / 2.0, create_y + btn_h / 2.0 + s(7.0), 22.0, WHITE);
 
                 // Join Room
                 let join_y = create_y + s(55.0);
-                let hover2 = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= join_y && mouse.y <= join_y + btn_h;
+                let hover2 = crate::ui::point_in_rect(mouse, btn_x, join_y, btn_w, btn_h);
                 let bg2 = if hover2 { Color::new(0.2, 0.3, 0.5, 0.9) } else { Color::new(0.15, 0.2, 0.35, 0.8) };
                 draw_rectangle(btn_x, join_y, btn_w, btn_h, bg2);
                 draw_rectangle_lines(btn_x, join_y, btn_w, btn_h, 2.0, Color::new(0.3, 0.5, 0.9, 1.0));
-                let t2 = "Join Room";
-                let d2 = crate::ui::measure_scaled_text(t2, 22);
-                crate::ui::draw_scaled_text(t2, btn_x + btn_w / 2.0 - d2.width / 2.0, join_y + btn_h / 2.0 + s(7.0), 22.0, WHITE);
+                crate::ui::draw_centered_text("Join Room", btn_x + btn_w / 2.0, join_y + btn_h / 2.0 + s(7.0), 22.0, WHITE);
 
                 // Play vs AI
                 let ai_y = join_y + s(55.0);
-                let hover3 = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= ai_y && mouse.y <= ai_y + btn_h;
+                let hover3 = crate::ui::point_in_rect(mouse, btn_x, ai_y, btn_w, btn_h);
                 let bg3 = if hover3 { Color::new(0.4, 0.3, 0.2, 0.9) } else { Color::new(0.3, 0.2, 0.15, 0.8) };
                 draw_rectangle(btn_x, ai_y, btn_w, btn_h, bg3);
                 draw_rectangle_lines(btn_x, ai_y, btn_w, btn_h, 2.0, Color::new(0.9, 0.6, 0.3, 1.0));
-                let t3 = "Play vs AI";
-                let d3 = crate::ui::measure_scaled_text(t3, 22);
-                crate::ui::draw_scaled_text(t3, btn_x + btn_w / 2.0 - d3.width / 2.0, ai_y + btn_h / 2.0 + s(7.0), 22.0, WHITE);
+                crate::ui::draw_centered_text("Play vs AI", btn_x + btn_w / 2.0, ai_y + btn_h / 2.0 + s(7.0), 22.0, WHITE);
 
                 // Settings
                 let settings_y = ai_y + s(55.0);
-                let hover4 = mouse.x >= btn_x && mouse.x <= btn_x + btn_w && mouse.y >= settings_y && mouse.y <= settings_y + btn_h;
+                let hover4 = crate::ui::point_in_rect(mouse, btn_x, settings_y, btn_w, btn_h);
                 let bg4 = if hover4 { Color::new(0.3, 0.3, 0.35, 0.9) } else { Color::new(0.2, 0.2, 0.25, 0.8) };
                 draw_rectangle(btn_x, settings_y, btn_w, btn_h, bg4);
                 draw_rectangle_lines(btn_x, settings_y, btn_w, btn_h, 2.0, Color::new(0.6, 0.6, 0.7, 1.0));
-                let t4 = "Settings";
-                let d4 = crate::ui::measure_scaled_text(t4, 22);
-                crate::ui::draw_scaled_text(t4, btn_x + btn_w / 2.0 - d4.width / 2.0, settings_y + btn_h / 2.0 + s(7.0), 22.0, WHITE);
+                crate::ui::draw_centered_text("Settings", btn_x + btn_w / 2.0, settings_y + btn_h / 2.0 + s(7.0), 22.0, WHITE);
             }
 
             LobbyMode::Settings => {
                 let panel_w = s(400.0);
                 let panel_h = s(150.0);
-                let px = sw() / 2.0 - panel_w / 2.0;
-                let py = sh() / 2.0 - panel_h / 2.0;
+                let px = crate::ui::center_x(panel_w);
+                let py = crate::ui::center_y(panel_h);
                 draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
                 draw_rectangle_lines(px, py, panel_w, panel_h, 2.0, Color::new(0.4, 0.4, 0.5, 1.0));
 
-                let title = "Settings";
-                let tdims = crate::ui::measure_scaled_text(title, 24);
-                crate::ui::draw_scaled_text(title, px + panel_w / 2.0 - tdims.width / 2.0, py + 30.0, 24.0, WHITE);
+                crate::ui::draw_centered_text("Settings", px + panel_w / 2.0, py + 30.0, 24.0, WHITE);
 
                 crate::settings::draw_ui_scale_slider(main_settings, ms.screen_mouse, ms.left_click, ms.left_down, px, py + 55.0);
 
@@ -390,9 +360,7 @@ impl LobbyState {
             }
 
             LobbyMode::EnteringCode => {
-                let label = "Enter Room Code:";
-                let ldims = crate::ui::measure_scaled_text(label, 22);
-                crate::ui::draw_scaled_text(label, sw() / 2.0 - ldims.width / 2.0, sh() / 2.0 - 20.0, 22.0, LIGHTGRAY);
+                crate::ui::draw_centered_text("Enter Room Code:", sw() / 2.0, sh() / 2.0 - 20.0, 22.0, LIGHTGRAY);
 
                 let code_display = if self.input_code.is_empty() {
                     "____".to_string()
@@ -400,21 +368,18 @@ impl LobbyState {
                     // Pad with underscores to show remaining chars needed
                     format!("{:_<4}", self.input_code)
                 };
-                let cdims = crate::ui::measure_scaled_text(&code_display, 48);
-                crate::ui::draw_scaled_text(&code_display, sw() / 2.0 - cdims.width / 2.0, sh() / 2.0 + 30.0, 48.0, Color::new(0.3, 0.8, 1.0, 1.0));
+                crate::ui::draw_centered_text(&code_display, sw() / 2.0, sh() / 2.0 + 30.0, 48.0, Color::new(0.3, 0.8, 1.0, 1.0));
 
                 if self.input_code.len() == 4 {
-                    let connect_x = sw() / 2.0 - 80.0;
-                    let connect_y = sh() / 2.0 + s(55.0);
                     let cbw = s(160.0);
                     let cbh = s(40.0);
-                    let hover = mouse.x >= connect_x && mouse.x <= connect_x + cbw && mouse.y >= connect_y && mouse.y <= connect_y + cbh;
+                    let connect_x = crate::ui::center_x(cbw);
+                    let connect_y = sh() / 2.0 + s(55.0);
+                    let hover = crate::ui::point_in_rect(mouse, connect_x, connect_y, cbw, cbh);
                     let bg = if hover { Color::new(0.2, 0.5, 0.3, 0.9) } else { Color::new(0.15, 0.35, 0.2, 0.8) };
                     draw_rectangle(connect_x, connect_y, cbw, cbh, bg);
                     draw_rectangle_lines(connect_x, connect_y, cbw, cbh, 2.0, Color::new(0.3, 0.8, 0.4, 1.0));
-                    let ct = "Connect";
-                    let cd = crate::ui::measure_scaled_text(ct, 20);
-                    crate::ui::draw_scaled_text(ct, connect_x + cbw / 2.0 - cd.width / 2.0, connect_y + cbh / 2.0 + 6.0, 20.0, WHITE);
+                    crate::ui::draw_centered_text("Connect", connect_x + cbw / 2.0, connect_y + cbh / 2.0 + 6.0, 20.0, WHITE);
                 }
 
                 crate::ui::draw_scaled_text("Press Escape to go back", sw() / 2.0 - 100.0, sh() / 2.0 + s(120.0), 14.0, DARKGRAY);
@@ -422,17 +387,13 @@ impl LobbyState {
 
             LobbyMode::WaitingForPeer | LobbyMode::Connected => {
                 let code_text = format!("Room: {}", self.room_code);
-                let cdims = crate::ui::measure_scaled_text(&code_text, 36);
-                crate::ui::draw_scaled_text(&code_text, sw() / 2.0 - cdims.width / 2.0, sh() / 2.0 - 10.0, 36.0, Color::new(0.3, 0.8, 1.0, 1.0));
-
-                let sdims = crate::ui::measure_scaled_text(&self.status, 20);
-                crate::ui::draw_scaled_text(&self.status, sw() / 2.0 - sdims.width / 2.0, sh() / 2.0 + 25.0, 20.0, LIGHTGRAY);
+                crate::ui::draw_centered_text(&code_text, sw() / 2.0, sh() / 2.0 - 10.0, 36.0, Color::new(0.3, 0.8, 1.0, 1.0));
+                crate::ui::draw_centered_text(&self.status, sw() / 2.0, sh() / 2.0 + 25.0, 20.0, LIGHTGRAY);
 
                 if self.mode == LobbyMode::WaitingForPeer {
                     let dots = ".".repeat((get_time() * 2.0) as usize % 4);
                     let wait_text = format!("Waiting for opponent{}", dots);
-                    let wdims = crate::ui::measure_scaled_text(&wait_text, 18);
-                    crate::ui::draw_scaled_text(&wait_text, sw() / 2.0 - wdims.width / 2.0, sh() / 2.0 + s(55.0), 18.0, Color::new(0.6, 0.6, 0.6, 1.0));
+                    crate::ui::draw_centered_text(&wait_text, sw() / 2.0, sh() / 2.0 + s(55.0), 18.0, Color::new(0.6, 0.6, 0.6, 1.0));
                 }
 
                 crate::ui::draw_scaled_text("Press Escape to cancel", sw() / 2.0 - 90.0, sh() / 2.0 + s(100.0), 14.0, DARKGRAY);
@@ -442,9 +403,7 @@ impl LobbyState {
                 let left_click = ms.left_click;
                 let peer_color_idx = if let Some(ref n) = self.net { n.peer_color.map(|(_, c)| c).unwrap_or(255) } else { 255 };
 
-                let pick_title = "Choose Your Team Color";
-                let ptdims = crate::ui::measure_scaled_text(pick_title, 28);
-                crate::ui::draw_scaled_text(pick_title, sw() / 2.0 - ptdims.width / 2.0, sh() / 2.0 - 60.0, 28.0, WHITE);
+                crate::ui::draw_centered_text("Choose Your Team Color", sw() / 2.0, sh() / 2.0 - 60.0, 28.0, WHITE);
 
                 let swatch_size = s(50.0);
                 let swatch_gap = s(16.0);
@@ -460,15 +419,13 @@ impl LobbyState {
                 // Ready button
                 let rbtn_w = s(200.0);
                 let rbtn_h = s(45.0);
-                let rbtn_x = sw() / 2.0 - rbtn_w / 2.0;
+                let rbtn_x = crate::ui::center_x(rbtn_w);
                 let rbtn_y = sy + swatch_size + 45.0;
-                let rbtn_hover = mouse.x >= rbtn_x && mouse.x <= rbtn_x + rbtn_w && mouse.y >= rbtn_y && mouse.y <= rbtn_y + rbtn_h;
+                let rbtn_hover = crate::ui::point_in_rect(mouse, rbtn_x, rbtn_y, rbtn_w, rbtn_h);
                 let rbtn_bg = if rbtn_hover { Color::new(0.2, 0.6, 0.3, 0.9) } else { Color::new(0.15, 0.45, 0.2, 0.8) };
                 draw_rectangle(rbtn_x, rbtn_y, rbtn_w, rbtn_h, rbtn_bg);
                 draw_rectangle_lines(rbtn_x, rbtn_y, rbtn_w, rbtn_h, 2.0, Color::new(0.3, 0.8, 0.4, 1.0));
-                let rt = "Ready";
-                let rdims = crate::ui::measure_scaled_text(rt, 22);
-                crate::ui::draw_scaled_text(rt, rbtn_x + rbtn_w / 2.0 - rdims.width / 2.0, rbtn_y + rbtn_h / 2.0 + s(7.0), 22.0, WHITE);
+                crate::ui::draw_centered_text("Ready", rbtn_x + rbtn_w / 2.0, rbtn_y + rbtn_h / 2.0 + s(7.0), 22.0, WHITE);
 
                 if left_click && rbtn_hover {
                     // Send our color choice to the host

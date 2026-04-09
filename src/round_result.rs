@@ -60,10 +60,8 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
             }
 
             // Respawn other players' units
-            for player in ctx.progress.players.iter() {
-                if player.player_id != pid {
-                    ctx.units.extend(player.respawn_units());
-                }
+            for player in ctx.progress.other_players(pid) {
+                ctx.units.extend(player.respawn_units());
             }
 
             battle.projectiles.clear();
