@@ -119,6 +119,11 @@ impl MatchProgress {
         self.players.iter_mut().find(|p| p.player_id == pid).unwrap()
     }
 
+    /// Iterate over all players except the given one.
+    pub fn other_players(&self, exclude_pid: u16) -> impl Iterator<Item = &PlayerState> {
+        self.players.iter().filter(move |p| p.player_id != exclude_pid)
+    }
+
     pub fn calculate_lp_damage(surviving_units: &[Unit], player_id: u16) -> i32 {
         let packs = all_packs();
         let mut total = 0i32;

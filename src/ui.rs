@@ -45,6 +45,37 @@ pub fn measure_scaled_text(text: &str, base_font_size: u16) -> TextDimensions {
     measure_text(text, None, scaled, 1.0)
 }
 
+/// Check if a point is inside a rectangle.
+pub fn point_in_rect(p: Vec2, x: f32, y: f32, w: f32, h: f32) -> bool {
+    p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h
+}
+
+/// Draw text centered horizontally at the given x coordinate.
+pub fn draw_centered_text(text: &str, center_x: f32, y: f32, base_font_size: f32, color: Color) {
+    let dims = measure_scaled_text(text, base_font_size as u16);
+    draw_scaled_text(text, center_x - dims.width / 2.0, y, base_font_size, color);
+}
+
+/// Screen x coordinate to center an element of the given width.
+pub fn center_x(w: f32) -> f32 {
+    screen_width() / 2.0 - w / 2.0
+}
+
+/// Screen y coordinate to center an element of the given height.
+pub fn center_y(h: f32) -> f32 {
+    screen_height() / 2.0 - h / 2.0
+}
+
+/// Draw a button and return true if clicked. Handles hover color, border, centered text.
+pub fn draw_button(label: &str, x: f32, y: f32, w: f32, h: f32, mouse: Vec2, clicked: bool, font_size: f32) -> bool {
+    let hover = point_in_rect(mouse, x, y, w, h);
+    let bg = if hover { Color::new(0.25, 0.25, 0.3, 0.95) } else { Color::new(0.15, 0.15, 0.2, 0.9) };
+    draw_rectangle(x, y, w, h, bg);
+    draw_rectangle_lines(x, y, w, h, 1.0, Color::new(0.5, 0.5, 0.6, 0.8));
+    draw_centered_text(label, x + w / 2.0, y + h / 2.0 + font_size * 0.3, font_size, WHITE);
+    hover && clicked
+}
+
 pub fn draw_hud(progress: &MatchProgress, gold: u32, timer: f32, army_value: u32, battle_remaining: f32, local_player_id: u16) {
     let player = progress.player(local_player_id);
     let player_lp = player.lp;
