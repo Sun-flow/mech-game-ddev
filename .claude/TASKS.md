@@ -6,6 +6,7 @@ _(No active tasks)_
 
 ## Backlog
 
+- [ ] **Keybindings reference in pause menu** — Show a list of current keybindings somewhere in the escape menu (either as a sub-view like Settings, or inline). WASD/arrows = pan, Q/E = rotate, R = rotate pack, G = grid, Escape = menu, Enter = chat, etc.
 
 ## Completed
 

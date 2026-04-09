@@ -109,6 +109,45 @@
 1. Polish settings panel layout in escape menu vs lobby
 2. More gameplay features (user to decide)
 
+## 2026-04-09
+
+### Patch Notes
+
+- `[internal]` Added UI helpers: `point_in_rect`, `draw_button`, `draw_centered_text`, `center_x`/`center_y`
+- `[internal]` Added `MatchProgress::other_players()` iterator helper
+- `[internal]` Adopted helpers across 10 files, eliminating ~200 lines of duplicate UI code
+- `[ui]` Escape menu settings now shows client settings only (UI scale), not match settings
+- `[docs]` Saved feedback: match settings = host-only, lobby-only; client settings = escape menu
+
+### Session Handoff — Codebase Consolidation & Settings Scope
+
+**Git State:** branch `main`, 1 uncommitted change (TASKS.md), pushed to origin at `55409ce`
+**Tests:** No test suite
+
+**Work Completed:**
+- Ran condensation report — identified 4 high-priority and 6 medium-priority consolidation opportunities
+- Implemented all high-priority helpers in ui.rs (point_in_rect, draw_button, draw_centered_text, center_x/center_y)
+- Added other_players() iterator to MatchProgress
+- Swept 10 files to adopt all helpers (replaced ~9 rect checks, ~5 button patterns, ~20 centered text patterns, ~9 skip-by-id loops)
+- Fixed escape menu settings to show client settings only (removed match settings)
+- Saved settings scope feedback to memory
+
+**In Progress:**
+- Nothing — clean stopping point
+
+**Decisions Made:**
+- Match settings (terrain, draft/ban, smart AI) are host-only, lobby-only — never shown in escape menu
+- Client settings (UI scale, keybindings) belong in escape menu — editable anytime
+- Net polls left as-is after verifying main loop polls AFTER phase updates, so per-phase polls are the primary mechanism
+- draw_button has 8 args (1 over clippy threshold) — acceptable for now, could take a struct later
+
+**Blockers:**
+- None
+
+**Next Steps:**
+1. Keybindings reference list in pause menu
+2. More gameplay features (user to decide)
+
 ## 2026-04-07
 
 ### Patch Notes
