@@ -59,6 +59,56 @@
 3. R key to rotate packs (small gameplay feature)
 4. Pause/options menu
 
+### Patch Notes (continued)
+
+- `[gameplay]` Added escape menu with Resume/Settings/Surrender — available during all match phases
+- `[gameplay]` Added WASD/arrow camera panning relative to screen orientation
+- `[gameplay]` Added Q/E camera rotation at 90 degrees/sec
+- `[gameplay]` Added R key to rotate packs (alternative to middle-click)
+- `[ui]` Settings sub-view in escape menu reuses existing game settings panel
+- `[internal]` Removed old show_surrender_confirm system from BattleState
+- `[internal]` Extracted draw_settings_content from draw_settings_panel to avoid double overlay
+- `[fix]` Fixed rematch crash — deploy zones/colors now preserved across rematch
+- `[fix]` Fixed W/S camera panning direction (was inverted)
+- `[fix]` Fixed camera panning at non-90-degree rotations using screen_to_world derivation
+- `[fix]` Fixed surrender not communicated to peer — now sends Surrender message and polls in all phases
+- `[fix]` Fixed remaining players[id as usize] index patterns that crashed with arbitrary player IDs
+
+### Session Handoff — Escape Menu, Camera Controls, Bug Fixes
+
+**Git State:** branch `main`, clean, pushed to origin at `d21dfb5`
+**Tests:** No test suite. Manual multiplayer testing passed — surrender, rematch, camera, R-rotate all verified.
+
+**Work Completed:**
+- Designed and implemented escape menu (Resume/Settings/Surrender) during all match phases
+- Single-player pauses while escape menu is open; multiplayer continues
+- Old surrender confirm overlay fully removed; surrender now lives in escape menu
+- WASD/arrow camera panning relative to screen orientation (accounts for camera rotation)
+- R key to rotate packs alongside existing middle-click
+- Settings sub-view extracted from draw_settings_panel to avoid double overlay
+- Fixed surrender not communicating to peer — sends net message and polls in all phases
+- Fixed rematch crash (deploy zones/colors not preserved in new MatchProgress)
+- Fixed W/S panning direction inversion
+- Fixed camera panning direction at non-90-degree angles using screen_to_world
+- Fixed 13 remaining players[lpid] index patterns and 3 hardcoded player_id 0/1 patterns
+
+**In Progress:**
+- Nothing — clean stopping point
+
+**Decisions Made:**
+- Escape menu overlay blocks ALL game and camera input — only menu buttons are interactive
+- Single-player pause: dt not applied to combat or build timer while menu is open
+- Settings sub-view reuses existing settings::draw_settings_content (extracted from draw_settings_panel)
+- Camera panning derives world-space directions from screen_to_world (no manual trig conventions)
+- Surrender sends net message immediately; peer polls for surrendered_player every frame during match
+
+**Blockers:**
+- None
+
+**Next Steps:**
+1. Polish settings panel layout in escape menu vs lobby
+2. More gameplay features (user to decide)
+
 ## 2026-04-07
 
 ### Patch Notes

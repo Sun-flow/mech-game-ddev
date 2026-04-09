@@ -6,9 +6,8 @@ _(No active tasks)_
 
 ## Backlog
 
-- [ ] **R key to rotate packs** — Add KeyCode::R as an alternative to middle-click for rotating packs during build phase. Check `is_key_pressed(KeyCode::R)` in build_phase.rs alongside existing middle_click rotation logic.
-- [ ] **Pause/options menu** — Add an in-match pause menu triggered by Escape. Should overlay current phase, provide access to settings, and option to surrender/quit. Currently Escape is used for surrender confirm in battle phase and back-navigation in lobby — needs to coexist.
 - [ ] **Camera mode architecture** — Review `set_camera`/`set_default_camera` naming. Deferred — assessed as acceptable.
+- [ ] **Settings panel polish** — `draw_settings_content` extracted but layout could be improved when used inside escape menu vs lobby
 
 ## Completed
 
@@ -28,6 +27,9 @@ _(No active tasks)_
 - [x] Canonical player-ID system — Deleted Role enum, replaced with local_player_id u8. Camera rotation replacing x-flip. Sender-embedded player_id in net messages. Removed flipped_winner/loser bug.
 - [x] Arbitrary player IDs — player_id u8→u16 from PeerId. Vec<PlayerState> with lookup helpers. Deploy zone/color on PlayerState. Per-player RoundEnd. HashMap team colors. Combat takes &[PlayerState] for techs.
 - [x] Free camera rotation — Q/E smooth rotation at 90 deg/sec, camera angle replaces x-flip mirror
+- [x] Escape menu — Resume/Settings/Surrender during all match phases, single-player pause, replaces old surrender confirm
+- [x] WASD/arrow camera panning — relative to screen orientation, works at any rotation angle
+- [x] R to rotate packs — alternative to middle-click during build phase
 
 ## Session Log
 

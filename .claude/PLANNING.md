@@ -14,8 +14,7 @@
 
 ### Next Up
 
-- [ ] R key to rotate packs (gameplay feature)
-- [ ] Pause/options menu (gameplay feature)
+- [ ] More gameplay features (TBD)
 
 ## Roadmap
 
