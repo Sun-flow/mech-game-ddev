@@ -6,8 +6,6 @@ _(No active tasks)_
 
 ## Backlog
 
-- [ ] **Camera mode architecture** — Review `set_camera`/`set_default_camera` naming. Deferred — assessed as acceptable.
-- [ ] **Settings panel polish** — `draw_settings_content` extracted but layout could be improved when used inside escape menu vs lobby
 
 ## Completed
 

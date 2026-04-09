@@ -312,9 +312,9 @@ async fn main() {
             draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.7));
 
             if ctx.escape_menu_settings {
-                // Settings sub-view
+                // Client settings sub-view (not match settings — those are host-only, lobby-only)
                 let panel_w = ui::s(400.0);
-                let panel_h = ui::s(350.0);
+                let panel_h = ui::s(200.0);
                 let px = ui::center_x(panel_w);
                 let py = ui::center_y(panel_h);
                 draw_rectangle(px, py, panel_w, panel_h, Color::new(0.1, 0.1, 0.15, 0.95));
@@ -323,8 +323,6 @@ async fn main() {
                 ui::draw_centered_text("Settings", px + panel_w / 2.0, py + ui::s(30.0), 24.0, WHITE);
 
                 settings::draw_ui_scale_slider(&mut main_settings, screen_mouse, left_click, mouse.left_down, px, py + ui::s(55.0));
-
-                settings::draw_settings_content(&mut ctx.game_settings, screen_mouse, left_click, px, py + ui::s(85.0), panel_w);
 
                 // Back button
                 let back_w = ui::s(120.0);
