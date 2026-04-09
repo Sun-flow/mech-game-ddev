@@ -15,10 +15,9 @@ pub fn update(
     left_click: bool,
 ) {
     if is_key_pressed(KeyCode::R) {
-        let player_ids: Vec<u16> = ctx.progress.players.iter().map(|p| p.player_id).collect();
-        ctx.progress = MatchProgress::new(&player_ids);
+        ctx.progress = MatchProgress::new(&[0]);
         ctx.phase = GamePhase::Lobby;
-        ctx.build = BuildState::new(ctx.progress.round_allowance(), ctx.progress.player(ctx.local_player_id).next_id);
+        ctx.build = BuildState::new(ctx.progress.round_allowance(), 1);
         ctx.units.clear();
         battle.projectiles.clear();
         ctx.net = None;
@@ -34,8 +33,18 @@ pub fn update(
     if left_click && screen_mouse.x >= rmatch_x && screen_mouse.x <= rmatch_x + rmatch_w
         && screen_mouse.y >= rmatch_y && screen_mouse.y <= rmatch_y + rmatch_h
     {
-        let player_ids: Vec<u16> = ctx.progress.players.iter().map(|p| p.player_id).collect();
+        // Preserve player IDs, deploy zones, colors, and names across rematch
+        let player_info: Vec<(u16, (f32, f32), u8, String)> = ctx.progress.players.iter()
+            .map(|p| (p.player_id, p.deploy_zone, p.color_index, p.name.clone()))
+            .collect();
+        let player_ids: Vec<u16> = player_info.iter().map(|(pid, _, _, _)| *pid).collect();
         ctx.progress = MatchProgress::new(&player_ids);
+        for (pid, zone, color, name) in &player_info {
+            let p = ctx.progress.player_mut(*pid);
+            p.deploy_zone = *zone;
+            p.color_index = *color;
+            p.name = name.clone();
+        }
         let allowance = ctx.progress.round_allowance();
         ctx.build = BuildState::new(allowance, ctx.progress.player(ctx.local_player_id).next_id);
         ctx.units.clear();

@@ -146,10 +146,10 @@ async fn main() {
                     camera_target += screen_right * pan_speed;
                 }
                 if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) {
-                    camera_target -= screen_up * pan_speed;
+                    camera_target += screen_up * pan_speed;
                 }
                 if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) {
-                    camera_target += screen_up * pan_speed;
+                    camera_target -= screen_up * pan_speed;
                 }
             }
         }
