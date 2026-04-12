@@ -66,6 +66,7 @@ pub struct Unit {
     pub stats: UnitStats,
     pub hp: f32,
     pub pos: Vec2,
+    pub spawn_pos: Vec2,      // position at spawn (for Bruiser Charge distance check)
     pub player_id: u16,
     pub target_id: Option<u64>,
     pub attack_cooldown: f32,
@@ -77,7 +78,11 @@ pub struct Unit {
     // Behavioral tech fields
     pub slow_timer: f32,
     pub evasion_chance: f32,
-    pub shield_hp: f32,       // current barrier durability
+    pub shield_hp: f32,        // current barrier durability
+    pub stationary_timer: f32, // time since last movement (Entrench stacks)
+    pub has_charged: bool,     // Bruiser Charge one-time bonus consumed
+    pub expendable_stacks: u8, // Chaff Expendable buff count (0-3)
+    pub expendable_timer: f32, // Chaff Expendable buff remaining duration
     // Stat tracking
     pub damage_dealt_round: f32,
     pub damage_dealt_total: f32,
@@ -97,6 +102,7 @@ impl Unit {
             stats,
             hp,
             pos,
+            spawn_pos: pos,
             player_id,
             target_id: None,
             attack_cooldown: 0.0,
@@ -107,6 +113,10 @@ impl Unit {
             slow_timer: 0.0,
             evasion_chance: 0.0,
             shield_hp,
+            stationary_timer: 0.0,
+            has_charged: false,
+            expendable_stacks: 0,
+            expendable_timer: 0.0,
             damage_dealt_round: 0.0,
             damage_dealt_total: 0.0,
             damage_soaked_round: 0.0,
@@ -155,8 +165,8 @@ impl Unit {
     pub fn effective_attack_speed(&self) -> f32 {
         if self.kind == UnitKind::Berserker {
             let hp_frac = self.hp / self.stats.max_hp;
-            // At full HP: 1x attack speed, at 0% HP: 3x attack speed
-            let multiplier = 1.0 + 2.0 * (1.0 - hp_frac);
+            // At full HP: 1x attack speed, at 0% HP: 2.5x attack speed
+            let multiplier = 1.0 + 1.5 * (1.0 - hp_frac);
             self.stats.attack_speed * multiplier
         } else {
             self.stats.attack_speed
@@ -189,7 +199,7 @@ impl UnitKind {
             // === ORIGINAL UNITS ===
             UnitKind::Striker => UnitStats {
                 max_hp: 600.0,
-                damage: 250.0,
+                damage: 220.0,
                 attack_range: 200.0,
                 attack_speed: 1.5,
                 projectile_speed: 400.0,
@@ -204,26 +214,26 @@ impl UnitKind {
                 shape: UnitShape::Triangle,
             },
             UnitKind::Sentinel => UnitStats {
-                max_hp: 2000.0,
-                damage: 80.0,
+                max_hp: 2200.0,
+                damage: 100.0,
                 attack_range: 80.0,
                 attack_speed: 0.8,
                 projectile_speed: 0.0,
                 projectile_type: ProjectileType::Bullet,
-                move_speed: 60.0,
+                move_speed: 65.0,
                 size: 20.0,
-                armor: 80.0,
-                splash_radius: 15.0,
+                armor: 60.0,
+                splash_radius: 20.0,
                 shield_radius: 0.0,
                 shield_hp: 0.0,
                 min_attack_range: 0.0,
                 shape: UnitShape::Square,
             },
             UnitKind::Ranger => UnitStats {
-                max_hp: 700.0,
-                damage: 180.0,
-                attack_range: 350.0,
-                attack_speed: 0.7,
+                max_hp: 750.0,
+                damage: 170.0,
+                attack_range: 300.0,
+                attack_speed: 0.75,
                 projectile_speed: 500.0,
                 projectile_type: ProjectileType::Laser,
                 move_speed: 80.0,
@@ -236,14 +246,14 @@ impl UnitKind {
                 shape: UnitShape::Diamond,
             },
             UnitKind::Scout => UnitStats {
-                max_hp: 500.0,
+                max_hp: 350.0,
                 damage: 100.0,
-                attack_range: 120.0,
-                attack_speed: 2.0,
+                attack_range: 100.0,
+                attack_speed: 1.5,
                 projectile_speed: 300.0,
                 projectile_type: ProjectileType::Bullet,
-                move_speed: 180.0,
-                size: 10.0,
+                move_speed: 190.0,
+                size: 8.0,
                 armor: 0.0,
                 splash_radius: 0.0,
                 shield_radius: 0.0,
@@ -252,15 +262,15 @@ impl UnitKind {
                 shape: UnitShape::Circle,
             },
             UnitKind::Bruiser => UnitStats {
-                max_hp: 1700.0,
-                damage: 150.0,
+                max_hp: 1500.0,
+                damage: 160.0,
                 attack_range: 100.0,
                 attack_speed: 1.0,
                 projectile_speed: 0.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 90.0,
                 size: 15.0,
-                armor: 20.0,
+                armor: 25.0,
                 splash_radius: 25.0,
                 shield_radius: 0.0,
                 shield_hp: 0.0,
@@ -268,8 +278,8 @@ impl UnitKind {
                 shape: UnitShape::Hexagon,
             },
             UnitKind::Artillery => UnitStats {
-                max_hp: 700.0,
-                damage: 500.0,
+                max_hp: 800.0,
+                damage: 450.0,
                 attack_range: 450.0,
                 attack_speed: 0.4,
                 projectile_speed: 300.0,
@@ -277,14 +287,14 @@ impl UnitKind {
                 move_speed: 50.0,
                 size: 15.0,
                 armor: 0.0,
-                splash_radius: 40.0,
+                splash_radius: 45.0,
                 shield_radius: 0.0,
                 shield_hp: 0.0,
                 min_attack_range: 150.0,
                 shape: UnitShape::Pentagon,
             },
             UnitKind::Chaff => UnitStats {
-                max_hp: 120.0,
+                max_hp: 100.0,
                 damage: 30.0,
                 attack_range: 30.0,
                 attack_speed: 1.5,
@@ -300,13 +310,13 @@ impl UnitKind {
                 shape: UnitShape::Dot,
             },
             UnitKind::Sniper => UnitStats {
-                max_hp: 400.0,
-                damage: 1200.0,
+                max_hp: 500.0,
+                damage: 800.0,
                 attack_range: 500.0,
                 attack_speed: 0.25,
                 projectile_speed: 1100.0,
                 projectile_type: ProjectileType::Laser,
-                move_speed: 40.0,
+                move_speed: 45.0,
                 size: 10.0,
                 armor: 0.0,
                 splash_radius: 0.0,
@@ -316,15 +326,14 @@ impl UnitKind {
                 shape: UnitShape::Cross,
             },
 
-            // Skirmisher: nerfed damage (25 instead of naive 40)
             UnitKind::Skirmisher => UnitStats {
                 max_hp: 70.0,
                 damage: 25.0,
-                attack_range: 180.0,
-                attack_speed: 2.5,
+                attack_range: 160.0,
+                attack_speed: 2.0,
                 projectile_speed: 350.0,
                 projectile_type: ProjectileType::Bullet,
-                move_speed: 160.0,
+                move_speed: 150.0,
                 size: 5.0,
                 armor: 0.0,
                 splash_radius: 0.0,
@@ -335,34 +344,34 @@ impl UnitKind {
             },
 
             UnitKind::Dragoon => UnitStats {
-                max_hp: 1000.0,
-                damage: 200.0,
+                max_hp: 1100.0,
+                damage: 180.0,
                 attack_range: 150.0,
-                attack_speed: 0.5,
+                attack_speed: 0.55,
                 projectile_speed: 350.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 85.0,
                 size: 15.0,
-                armor: 40.0,
-                splash_radius: 4.0,
+                armor: 35.0,
+                splash_radius: 0.0,
                 shield_radius: 0.0,
                 shield_hp: 0.0,
                 min_attack_range: 0.0,
                 shape: UnitShape::Octagon,
             },
 
-            // Berserker: melee, attack speed scales up as HP drops
+            // Berserker: melee, attack speed scales up as HP drops (peak 2.5x at 0 HP)
             UnitKind::Berserker => UnitStats {
-                max_hp: 900.0,
-                damage: 220.0,
+                max_hp: 1000.0,
+                damage: 200.0,
                 attack_range: 60.0,
                 attack_speed: 1.0,
                 projectile_speed: 0.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 130.0,
                 size: 15.0,
-                armor: 20.0,
-                splash_radius: 10.0,
+                armor: 15.0,
+                splash_radius: 12.0,
                 shield_radius: 0.0,
                 shield_hp: 0.0,
                 min_attack_range: 0.0,
@@ -370,18 +379,18 @@ impl UnitKind {
             },
 
             UnitKind::Shield => UnitStats {
-                max_hp: 1500.0,
-                damage: 50.0,
+                max_hp: 1300.0,
+                damage: 60.0,
                 attack_range: 100.0,
                 attack_speed: 0.5,
                 projectile_speed: 0.0,
                 projectile_type: ProjectileType::Bullet,
                 move_speed: 55.0,
                 size: 15.0,
-                armor: 50.0,
+                armor: 40.0,
                 splash_radius: 0.0,
                 shield_radius: 80.0,
-                shield_hp: 3000.0,
+                shield_hp: 2500.0,
                 min_attack_range: 0.0,
                 shape: UnitShape::Square,
             },

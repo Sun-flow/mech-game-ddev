@@ -25,6 +25,7 @@ pub struct SyncUnit {
     pub kind: UnitKind,
     pub hp: f32,
     pub pos: (f32, f32),
+    pub spawn_pos: (f32, f32),
     pub player_id: u16,
     pub target_id: Option<u64>,
     pub attack_cooldown: f32,
@@ -35,6 +36,10 @@ pub struct SyncUnit {
     pub slow_timer: f32,
     pub evasion_chance: f32,
     pub shield_hp: f32,
+    pub stationary_timer: f32,
+    pub has_charged: bool,
+    pub expendable_stacks: u8,
+    pub expendable_timer: f32,
     pub damage_dealt_round: f32,
     pub damage_dealt_total: f32,
     pub damage_soaked_round: f32,
@@ -79,6 +84,7 @@ impl SyncUnit {
             kind: u.kind,
             hp: u.hp,
             pos: t2(u.pos),
+            spawn_pos: t2(u.spawn_pos),
             player_id: u.player_id,
             target_id: u.target_id,
             attack_cooldown: u.attack_cooldown,
@@ -89,6 +95,10 @@ impl SyncUnit {
             slow_timer: u.slow_timer,
             evasion_chance: u.evasion_chance,
             shield_hp: u.shield_hp,
+            stationary_timer: u.stationary_timer,
+            has_charged: u.has_charged,
+            expendable_stacks: u.expendable_stacks,
+            expendable_timer: u.expendable_timer,
             damage_dealt_round: u.damage_dealt_round,
             damage_dealt_total: u.damage_dealt_total,
             damage_soaked_round: u.damage_soaked_round,
@@ -101,6 +111,7 @@ impl SyncUnit {
     pub fn apply_to(&self, u: &mut Unit) {
         u.hp = self.hp;
         u.pos = v2(self.pos);
+        u.spawn_pos = v2(self.spawn_pos);
         u.target_id = self.target_id;
         u.attack_cooldown = self.attack_cooldown;
         u.alive = self.alive;
@@ -110,6 +121,10 @@ impl SyncUnit {
         u.slow_timer = self.slow_timer;
         u.evasion_chance = self.evasion_chance;
         u.shield_hp = self.shield_hp;
+        u.stationary_timer = self.stationary_timer;
+        u.has_charged = self.has_charged;
+        u.expendable_stacks = self.expendable_stacks;
+        u.expendable_timer = self.expendable_timer;
         u.damage_dealt_round = self.damage_dealt_round;
         u.damage_dealt_total = self.damage_dealt_total;
         u.damage_soaked_round = self.damage_soaked_round;
@@ -202,9 +217,22 @@ pub fn compute_state_hash(
         u.attack_cooldown.to_bits().hash(&mut hasher);
         u.shield_hp.to_bits().hash(&mut hasher);
         u.slow_timer.to_bits().hash(&mut hasher);
+        u.stationary_timer.to_bits().hash(&mut hasher);
+        u.has_charged.hash(&mut hasher);
+        u.expendable_stacks.hash(&mut hasher);
+        u.expendable_timer.to_bits().hash(&mut hasher);
     }
 
-    for p in projectiles {
+    // Sort projectiles by a deterministic key for hashing. Projectiles don't
+    // have stable IDs, so we sort by (attacker_id, position bits) which is
+    // unique enough to produce a consistent order regardless of Vec insertion order.
+    let mut proj_indices: Vec<usize> = (0..projectiles.len()).collect();
+    proj_indices.sort_unstable_by_key(|&i| {
+        let p = &projectiles[i];
+        (p.attacker_id, p.pos.x.to_bits(), p.pos.y.to_bits())
+    });
+    for &i in &proj_indices {
+        let p = &projectiles[i];
         p.pos.x.to_bits().hash(&mut hasher);
         p.pos.y.to_bits().hash(&mut hasher);
         p.vel.x.to_bits().hash(&mut hasher);
@@ -244,35 +272,154 @@ pub fn serialize_state(
     )
 }
 
-/// Apply host's authoritative state to local game state.
-/// Canonical coordinates — no mirroring needed.
-pub fn apply_state_sync(
-    units: &mut [Unit],
+/// Apply host's authoritative state snapshot, then fast-forward the simulation
+/// to catch up to the guest's current frame.
+///
+/// Given a snapshot from host's frame `snapshot_frame`, this function:
+///   1. Deserializes the snapshot
+///   2. Replaces local unit/projectile/obstacle state with the snapshot
+///      - Units matched by ID: existing ones updated, missing ones spawned,
+///        units not in the snapshot are removed
+///      - Projectiles fully replaced (they have no stable ID)
+///      - Obstacles updated in place (same count assumed)
+///   3. Sets `current_frame` to `snapshot_frame` (rollback)
+///   4. Replays combat forward via `combat::run_one_frame` until `current_frame`
+///      matches the ORIGINAL value (catch-up to target)
+///
+/// Because combat is deterministic, the post-catch-up state at the target frame
+/// matches what host's state is at that same frame — the guest and host are now
+/// in lockstep again. Splash effects are cleared (visual only).
+///
+/// Returns Ok(frames_replayed) on success, Err(reason) on deserialization failure.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_and_fast_forward(
+    snapshot_frame: u32,
+    current_frame: &mut u32,
+    units: &mut Vec<Unit>,
     projectiles: &mut Vec<Projectile>,
     obstacles: &mut [Obstacle],
+    nav_grid: Option<&crate::terrain::NavGrid>,
+    players: &mut [crate::match_progress::PlayerState],
+    splash_effects: &mut Vec<crate::rendering::SplashEffect>,
     units_data: &[u8],
     projectiles_data: &[u8],
     obstacles_data: &[u8],
-) {
-    // Deserialize sync structs
-    if let Ok(sync_units) = bincode::deserialize::<Vec<SyncUnit>>(units_data) {
-        for su in sync_units {
-            if let Some(u) = units.iter_mut().find(|u| u.id == su.id) {
-                su.apply_to(u);
+    dt: f32,
+    arena_w: f32,
+    arena_h: f32,
+) -> Result<u32, String> {
+    // Remember the frame we need to catch up to
+    let target_frame = *current_frame;
+
+    // Deserialize all three state blobs before touching anything mutable,
+    // so a deserialization failure leaves local state untouched.
+    let sync_units: Vec<SyncUnit> = bincode::deserialize(units_data)
+        .map_err(|e| format!("units deserialize failed: {}", e))?;
+    let sync_projs: Vec<SyncProjectile> = bincode::deserialize(projectiles_data)
+        .map_err(|e| format!("projectiles deserialize failed: {}", e))?;
+    let sync_obs: Vec<SyncObstacle> = bincode::deserialize(obstacles_data)
+        .map_err(|e| format!("obstacles deserialize failed: {}", e))?;
+
+    // ---- Replace units ----
+    // Units are keyed by id. For incoming units that don't exist locally,
+    // we reconstruct a fresh Unit with stats from kind + player's current tech
+    // state, then overlay the synced dynamic fields.
+    let incoming_ids: std::collections::HashSet<u64> = sync_units.iter().map(|u| u.id).collect();
+    units.retain(|u| incoming_ids.contains(&u.id));
+    for su in &sync_units {
+        if let Some(u) = units.iter_mut().find(|u| u.id == su.id) {
+            if u.kind != su.kind {
+                eprintln!(
+                    "[SYNC WARNING] Unit {} kind mismatch: local={:?} snapshot={:?} pid={}. \
+                     Keeping local kind (owned by spawning client). \
+                     This indicates a bug — unit IDs drifted between host and guest.",
+                    u.id, u.kind, su.kind, u.player_id
+                );
             }
+            su.apply_to(u);
+            // Validate stats match what we'd derive from kind + techs.
+            // Stats are never transmitted — both sides derive them independently.
+            // A mismatch here means tech state or kind drifted silently.
+            if let Some(p) = players.iter().find(|p| p.player_id == u.player_id) {
+                let mut expected = u.kind.stats();
+                p.techs.apply_to_stats(u.kind, &mut expected);
+                if (u.stats.max_hp - expected.max_hp).abs() > 0.01
+                    || (u.stats.damage - expected.damage).abs() > 0.01
+                    || (u.stats.armor - expected.armor).abs() > 0.01
+                    || (u.stats.attack_speed - expected.attack_speed).abs() > 0.01
+                {
+                    eprintln!(
+                        "[SYNC WARNING] Unit {} ({:?}) stats drift: hp={}/{} dmg={}/{} arm={}/{} spd={}/{}",
+                        u.id, u.kind,
+                        u.stats.max_hp, expected.max_hp,
+                        u.stats.damage, expected.damage,
+                        u.stats.armor, expected.armor,
+                        u.stats.attack_speed, expected.attack_speed,
+                    );
+                }
+            }
+        } else {
+            // Spawn new unit from snapshot data
+            let mut new_unit = Unit::new(
+                su.id,
+                su.kind,
+                macroquad::prelude::vec2(su.pos.0, su.pos.1),
+                su.player_id,
+            );
+            if let Some(player) = players.iter().find(|p| p.player_id == su.player_id) {
+                player.techs.apply_to_stats(su.kind, &mut new_unit.stats);
+            }
+            su.apply_to(&mut new_unit);
+            units.push(new_unit);
         }
     }
 
-    if let Ok(sync_projs) = bincode::deserialize::<Vec<SyncProjectile>>(projectiles_data) {
-        *projectiles = sync_projs.iter().map(|sp| sp.to_projectile()).collect();
+    // ---- Replace projectiles ----
+    *projectiles = sync_projs.iter().map(|sp| sp.to_projectile()).collect();
+
+    // ---- Replace obstacles (in place; counts should match) ----
+    if sync_obs.len() != obstacles.len() {
+        eprintln!(
+            "[SYNC] Obstacle count mismatch: snapshot {} vs local {}",
+            sync_obs.len(),
+            obstacles.len()
+        );
+    }
+    for (so, o) in sync_obs.into_iter().zip(obstacles.iter_mut()) {
+        so.apply_to(o);
     }
 
-    if let Ok(sync_obs) = bincode::deserialize::<Vec<SyncObstacle>>(obstacles_data) {
-        if sync_obs.len() != obstacles.len() {
-            eprintln!("[SYNC] Obstacle count mismatch: received {} vs local {}", sync_obs.len(), obstacles.len());
-        }
-        for (so, o) in sync_obs.into_iter().zip(obstacles.iter_mut()) {
-            so.apply_to(o);
-        }
+    // ---- Clear visual-only splash effects (they don't affect gameplay state) ----
+    splash_effects.clear();
+
+    // ---- Rollback + fast-forward ----
+    *current_frame = snapshot_frame;
+    let mut frames_replayed = 0u32;
+    while *current_frame < target_frame {
+        crate::combat::run_one_frame(
+            units,
+            projectiles,
+            obstacles,
+            nav_grid,
+            players,
+            splash_effects,
+            dt,
+            arena_w,
+            arena_h,
+        );
+        *current_frame += 1;
+        frames_replayed += 1;
     }
+
+    // If target_frame < snapshot_frame (snapshot is ahead — should not happen
+    // under normal lockstep), current_frame will be set to snapshot_frame and
+    // no replay runs. Caller should see a jump in frame counter. Log it.
+    if snapshot_frame > target_frame {
+        eprintln!(
+            "[SYNC] Snapshot frame {} is ahead of local frame {}, jumped forward",
+            snapshot_frame, target_frame
+        );
+    }
+
+    Ok(frames_replayed)
 }

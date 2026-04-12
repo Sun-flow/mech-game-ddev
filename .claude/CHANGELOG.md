@@ -1,5 +1,120 @@
 # Changelog
 
+## 2026-04-09 — 2026-04-11 (multi-day session, continued)
+
+### Patch Notes (2026-04-11 additions)
+
+- `[fix]` Fixed unit ID drift between host and guest when player sells/undoes packs — `BuildComplete` now transmits `unit_ids` per pack; `apply_peer_build` uses received IDs via `respawn_pack_units` instead of generating sequential IDs
+- `[fix]` Fixed mid-battle desync from Vec ordering — host had `[host_units, guest_units]`, guest had `[guest_units, host_units]`, causing different projectile creation order. Added canonical sort by ID at battle start + per-frame sort in `run_one_frame`
+- `[fix]` Projectile hash now order-independent — sorted by `(attacker_id, pos)` before hashing in `compute_state_hash`
+- `[net]` Kind mismatch warning in `apply_and_fast_forward` — logs `[SYNC WARNING]` if a unit's kind differs between local and snapshot (indicates ID drift bug, never overwrites)
+- `[net]` Stats validation in `apply_and_fast_forward` — warns if unit stats don't match `kind + techs` derivation (detects silent tech-state drift)
+- `[internal]` Canonical unit Vec ordering enforced at three levels: assembly in `waiting_phase.rs`/`round_result.rs`, and per-frame in `combat::run_one_frame`
+
+### Patch Notes (original)
+
+
+- `[balance]` Full unit balance pass — all 13 units restated; Chaff HP 120→100; Skirmisher 2.5→2.0 atk speed, range 180→160; Scout HP 500→350, speed 180→190, pack 2x3 kept with nerfed stats; Striker dmg 250→220; Bruiser HP 1700→1500, dmg 150→160, armor 20→25; Sentinel armor 80→60, HP 2000→2200, dmg 80→100, splash 15→20; Ranger range 350→300, dmg 180→170, HP 700→750, atk speed 0.7→0.75; Dragoon pack 5→4, HP 1000→1100, armor 40→35, splash removed; Berserker HP 900→1000, dmg 220→200, rage cap 3x→2.5x; Artillery HP 700→800, dmg 500→450, splash 40→45; Shield HP 1500→1300, armor 50→40, shield_hp 3000→2500, dmg 50→60
+- `[balance]` Sniper moved from T3 (300g) to T1 (100g), dmg 1200→800, HP 400→500 — spammable anti-armor specialist
+- `[balance]` New generic techs: HardenedFrame (+20% HP), Overdrive (+20% move speed), HighCaliber (+15% damage)
+- `[balance]` New unit techs: ChaffFrenzy, ChaffExpendable (on-death atk-speed buff to nearby chaff), ChaffScavenge (spawn chaff on kill based on victim tier), Entrench (Skirmisher+Ranger stationary atk-speed stacks), SentinelTaunt (force-target aura), BerserkerDeathThroes (on-death splash), BerserkerUnstoppable (slow-immune <50% HP), BruiserCharge (2x on first attack after travel), ShieldReflect (15% damage reflected from barrier), ShieldFortress (+1500 barrier HP, immobile), InterceptorFlak (intercepted rockets detonate using rocket's own damage+splash), SniperStabilizer (min range 150→75)
+- `[balance]` Existing tech tuning: RangeBoost +30→+40 (removed from Artillery/Sniper), StrikerRapidFire +0.5→+0.4, DragoonFortify +300/+20→+250/+15, ChaffOverwhelm +2→+3 per stack with 10-stack cap, SkirmisherSwarm removed (redundant with Overdrive)
+- `[gameplay]` Entrench yellow-glow visual on stacked Skirmishers/Rangers using existing Berserker-rage tint pattern
+- `[net]` **Deterministic lockstep sync with rollback+replay recovery** — host-authoritative; both peers hash and exchange every frame; host detects mismatches via guest's incoming hashes and proactively pushes full state (debounced); guest applies with rollback to snapshot frame + fast-forward via deterministic simulation replay
+- `[net]` Removed broken `StateRequest` handshake and `apply_state_sync` (which replaced state without rolling back the frame counter — the root cause of compounding desyncs)
+- `[net]` `StateHash` now one-per-frame in both directions; `received_state_hash: Option` → `received_state_hashes: Vec` to handle burst delivery
+- `[internal]` Extracted `combat::run_one_frame` helper (used by normal battle loop and fast-forward catch-up)
+- `[internal]` New `sync::apply_and_fast_forward` — deserialize snapshot, replace state (add missing units by ID, remove extras, update existing), rollback frame counter, replay forward via `combat::run_one_frame` until caught up
+- `[internal]` New Unit fields: `spawn_pos` (Bruiser Charge), `stationary_timer` (Entrench), `has_charged` (Bruiser Charge), `expendable_stacks`/`expendable_timer` (Chaff Expendable) — wired into SyncUnit for network sync
+- `[internal]` 18 determinism tests in `src/determinism.rs` (#[cfg(test)]) — basic scenarios, Entrench behavior verification, multiplayer sync harness with simulated latency, complex battles with techs, drift injection + recovery, high-latency stress
+- `[internal]` Host-authoritative multiplayer sim harness exercises the real `compute_state_hash` and verifies rollback+replay produces identical host/guest state after injected drifts
+- `[docs]` Balance proposal docs in `balance/`: `units.md` (stat tables + rationales), `techs.md` (tech tree + new techs), `design-notes.md` (matchup math + tier philosophy + open questions)
+- `[docs]` Feedback memories saved: healing policy (self-heal OK, external heal banned), discussion-vs-implementation mode (don't code during debugging discussions)
+
+### Session Handoff — Balance Pass + Deterministic Lockstep Sync
+
+**Git State:** branch `main`, 9 modified source files + 1 new file (`src/determinism.rs`) + new `balance/` folder, not committed. Last commit `87982b0`.
+
+**Tests:** `cargo test determinism` — **18 passed, 0 failed** (6 base determinism + 3 Entrench behavior + 5 multiplayer sync + 3 complex battle + 1 stress). Full build + clippy clean (3 pre-existing `too_many_arguments` warnings, unrelated).
+
+**Work Completed:**
+
+*Balance pass (proposal → implementation):*
+- Full collaborative design pass over unit stats and techs
+- Iterated through ~15 rounds of feedback (Scout damage kept, Berserker HP bumped to survive Sniper, Ranger range reduced, Entrench/Dig In consolidated, Chaff gets Hardened Frame + Overdrive, Sniper stays 1-unit-pack at T1, etc.)
+- Wrote design docs in `balance/` first, then implemented in 6 sub-phases with verification between each
+- Every new tech has either a stat-modifier path (`apply_to_stats`) or a behavioral path in `combat.rs`
+
+*Determinism work:*
+- Built `src/determinism.rs` as a `#[cfg(test)]` module with a headless combat harness
+- Proved combat simulation is deterministic within a single process (tests clone state, seed RNG, run two identical runs, diff field-by-field)
+- Tested separately: swarm scenarios (packed Skirmishers), tech-modified stats, Scavenge spawning, long battles, complex mixed-arms with techs
+- Audited all HashMap usage — confirmed no iteration-order dependency in combat paths
+- Verified Entrench actually works (packed Skirmishers accumulate `stationary_timer` to 2.999s after 3 sim seconds)
+
+*Multiplayer sync investigation & rewrite:*
+- Built a `MultiplayerSim` harness in the same test file that simulates network latency with pending-message queues
+- Proved the original sync recovery was broken: every state correction applied host's stale snapshot to guest without rolling back the frame counter, creating permanent lag-sized drift that compounded into 500+ sync events per battle
+- Researched multiplayer approaches (lockstep, rollback/GGPO, snapshot interpolation, split authority, CRDT) and chose deterministic lockstep with Factorio-style full resync recovery
+- Implemented new protocol in both the harness (Phase 1) and production `battle_phase.rs` (Phase 2)
+- Verified convergence in all injected-drift scenarios including complex mid-combat state (8 units dead, 2 damaged, drift on a live unit during active combat)
+
+**In Progress:**
+- Phase 3 of the multiplayer sync work is live verification — launching two instances and confirming no false positives in real play. Not yet done.
+
+**Decisions Made:**
+- **Healing policy:** Self-heal (BerserkerLifesteal) is OK. External heal (dedicated healer units, aura heals) is banned — concern about mandatory "must-have" picks.
+- **Sync architecture:** Host-authoritative with rollback+replay. Bidirectional hash exchange every frame. Host pushes state proactively on mismatch, no request/response. Debounce = 12 frames (~200ms, covers typical good-internet RTT). Direct-copy harness (no WebRTC in tests).
+- **Fast-forward semantics:** Catch-up simulation is synchronous within a single render frame. Zero wall-clock time. Player sees a single frame with the post-correction state, never intermediate replay frames.
+- **Determinism tests in `src/determinism.rs`, not `tests/`:** Binary crate has no `[lib]` target, integration tests would require restructuring. `#[cfg(test)] mod determinism;` in `main.rs` gives test code full access to all modules.
+- **Entrench threshold unchanged (2.0):** Initial worry about separation push was unfounded — pack grid gap (12.5) > separation min_dist (10.5), so no push activates at spawn and `stationary_timer` ticks freely.
+- **ArtilleryBlastRadius kept** despite overlap with SplashBoost — enables "double-splash" Artillery build path as a 600g commitment.
+- **Entrench consolidated** into one tech shared by Skirmisher + Ranger (was two separate techs).
+- **Discussion-vs-implementation:** User correction during desync debugging — don't write code while exploring options. Wait for explicit go-ahead before editing.
+
+**Blockers:**
+- None. Ready for live multiplayer verification.
+
+**Next Steps:**
+1. **Launch 2 instances** and confirm no spurious `[DESYNC]` messages in logs during normal play
+2. Verify Build → Battle transition doesn't trigger false desync detection in first few frames
+3. Commit all changes once verified (there's ~9 modified files from an enormous session)
+4. Clean up `outputs/` if it contains old state
+5. Consider dynamic latency estimation for debounce (currently hardcoded to 12 frames / ~200ms)
+
+### Session Handoff — Desync Root Causes Found & Fixed
+
+**Git State:** branch `main`, 14 modified files + 1 new (`src/determinism.rs`) + `balance/` folder, not committed. Last commit `87982b0`.
+**Tests:** `cargo test determinism` — **18 passed, 0 failed**
+
+**Work Completed (2026-04-11 continuation):**
+- Diagnosed unit ID drift bug via per-frame diagnostic dumps — `BuildComplete` was NOT sending `unit_ids`, so host generated sequential IDs while guest's had gaps from sell/undo. Fix: include unit_ids in message, use `respawn_pack_units` in `apply_peer_build`.
+- Diagnosed mid-battle Vec ordering bug — host and guest assembled `ctx.units` in different order (local-first), causing projectile creation order and hash divergence at frame ~200. Fix: canonical sort by unit ID at assembly time + per-frame sort in `run_one_frame`.
+- Added kind mismatch warning and stats validation to `apply_and_fast_forward` — detect-and-log, never overwrite. User's design principle: owning client is authoritative for unit identity.
+- Sorted projectiles by `(attacker_id, pos)` in `compute_state_hash` for order-independent hashing.
+
+**In Progress:**
+- Tech panel UI rework requested — move from world-space to screen-space, lower-right, wide-and-flat layout. Not started.
+- Live multiplayer verification of all fixes still pending (fix #1 verified via diagnostic logs — hashes matched for 4/5 rounds, 5th had the sell/undo bug which is now fixed; fix #2 not yet tested live).
+
+**Decisions Made:**
+- `BuildComplete` now includes `unit_ids: Vec<u64>` per pack — receiver uses these exact IDs instead of generating new ones.
+- Unit Vec is sorted by ID at three levels: assembly (`waiting_phase.rs`, `round_result.rs`) and per-frame (`combat::run_one_frame`). pdqsort is O(n) on already-sorted input.
+- Kind mismatches during sync are LOGGED, not overwritten — owning client is authoritative for unit kind. Overwriting would hide future bugs.
+- Stats are validated against `kind + techs` derivation during sync — also logged, never overwritten.
+- `STATE_SEND_DEBOUNCE_FRAMES` reduced from 60 to 12 (~200ms).
+- `DEBUG_DUMP_FRAMES = 30` still active — to be disabled after clean live verification.
+
+**Blockers:**
+- None
+
+**Next Steps:**
+1. Tech panel UI rework (user's next request — screen-space, lower-right, wide-and-flat)
+2. Live multiplayer verification with sell/undo scenario
+3. Commit all changes (14 modified files + new files)
+4. Centralize battle unit assembly into a shared helper (backlog)
+5. Disable DEBUG_DUMP_FRAMES once sync is stable
+
 ## 2026-04-08
 
 ### Patch Notes

@@ -28,6 +28,9 @@ mod sync;
 mod phase_ui;
 mod waiting_phase;
 
+#[cfg(test)]
+mod determinism;
+
 use macroquad::prelude::*;
 
 use arena::{ARENA_H, ARENA_W, HALF_W};
@@ -272,7 +275,7 @@ async fn main() {
         let is_build = matches!(ctx.phase, GamePhase::Build);
         rendering::draw_world(
             &ctx.units, &battle.projectiles, &ctx.obstacles, &battle.splash_effects,
-            ctx.show_grid && is_build,
+            ctx.show_grid && is_build, &ctx.progress.players,
         );
 
         if is_build {

@@ -218,30 +218,40 @@ pub fn apply_peer_build(progress: &mut MatchProgress, data: &PeerBuildData) -> V
         player.techs.purchase(kind, tech_id);
     }
 
-    // Spawn peer's new packs (canonical coordinates)
-    for &(pack_index, (cx, cy), rotated) in &data.new_packs {
-        if pack_index >= packs.len() {
+    // Spawn peer's new packs using the PEER'S assigned unit_ids.
+    // We must use the exact IDs from the message because the peer's ID
+    // counter may have gaps from sold/undone packs that we don't know about.
+    for (pack_index, (cx, cy), rotated, unit_ids) in &data.new_packs {
+        if *pack_index >= packs.len() {
             continue;
         }
-        let pack = &packs[pack_index];
-        let center = vec2(cx, cy);
+        let pack = &packs[*pack_index];
+        let center = vec2(*cx, *cy);
 
-        let (spawned, ids) = crate::pack::spawn_pack_units(
+        // Use respawn_pack_units (takes pre-assigned IDs) instead of
+        // spawn_pack_units (generates sequential IDs from next_id).
+        let spawned = crate::pack::respawn_pack_units(
             pack,
             center,
-            rotated,
+            *rotated,
             player.player_id,
             &player.techs,
-            &mut player.next_id,
+            unit_ids,
         );
         new_units.extend(spawned);
 
+        // Advance next_id past the highest received ID so future spawns
+        // (e.g., Scavenge during combat) don't collide.
+        if let Some(&max_id) = unit_ids.iter().max() {
+            player.next_id = player.next_id.max(max_id + 1);
+        }
+
         player.packs.push(PlacedPack {
-            pack_index,
+            pack_index: *pack_index,
             center,
-            unit_ids: ids,
+            unit_ids: unit_ids.clone(),
             pre_drag_center: center,
-            rotated,
+            rotated: *rotated,
             locked: true,
             round_placed: round,
         });

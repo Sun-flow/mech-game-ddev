@@ -64,6 +64,9 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) {
                 ctx.units.extend(player.respawn_units());
             }
 
+            // Canonical unit ordering — matches waiting_phase and combat::run_one_frame
+            ctx.units.sort_unstable_by_key(|u| u.id);
+
             battle.projectiles.clear();
             ctx.phase = GamePhase::Build;
         }

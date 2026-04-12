@@ -5,6 +5,40 @@ use crate::tech::{TechId, TechState};
 use crate::terrain::Obstacle;
 use crate::unit::{Unit, UnitKind};
 
+/// Run one fixed-timestep frame of combat. Used by both the main battle loop
+/// and by sync::apply_and_fast_forward during state-correction catch-up.
+/// Does NOT increment any frame counter — the caller owns that.
+#[allow(clippy::too_many_arguments)]
+pub fn run_one_frame(
+    units: &mut Vec<Unit>,
+    projectiles: &mut Vec<Projectile>,
+    obstacles: &mut [Obstacle],
+    nav_grid: Option<&crate::terrain::NavGrid>,
+    players: &mut [crate::match_progress::PlayerState],
+    splash_effects: &mut Vec<crate::rendering::SplashEffect>,
+    dt: f32,
+    arena_w: f32,
+    arena_h: f32,
+) {
+    // Canonical unit ordering: sort by ID so both host and guest iterate
+    // in the same order. Without this, host=[host_units, guest_units] and
+    // guest=[guest_units, host_units], causing projectile creation order
+    // and splash application order to diverge. pdqsort is O(n) on
+    // already-sorted input, so this is effectively free after the first frame.
+    units.sort_unstable_by_key(|u| u.id);
+
+    update_targeting(units, obstacles, players);
+    update_movement(units, dt, arena_w, arena_h, obstacles, nav_grid, players);
+    update_attacks(units, projectiles, dt, players, splash_effects);
+    update_projectiles(projectiles, units, dt, obstacles, splash_effects, players);
+    // Death animation timer (kept identical to the old battle_phase inline code)
+    for unit in units.iter_mut() {
+        if !unit.alive && unit.death_timer > 0.0 {
+            unit.death_timer -= dt;
+        }
+    }
+}
+
 /// Apply damage to a unit, returning (damage_dealt, was_killed).
 fn apply_damage(unit: &mut Unit, damage: f32, armor_pierce: bool) -> (f32, bool) {
     let before_hp = unit.hp;
@@ -17,6 +51,59 @@ fn apply_damage(unit: &mut Unit, damage: f32, armor_pierce: bool) -> (f32, bool)
     (before_hp - unit.hp, was_alive && !unit.alive)
 }
 
+/// Compute the attack cooldown for a unit accounting for:
+/// - Berserker rage scaling (from Unit::effective_attack_speed)
+/// - Entrench stacks (Skirmisher, Ranger): +12% atk speed per stationary second, max 4 stacks
+/// - Chaff Expendable stacks: +15% atk speed per stack, max 3
+fn cooldown_from_techs(unit: &Unit, techs: &TechState) -> f32 {
+    let mut speed = unit.effective_attack_speed();
+
+    // Entrench: stationary stacking attack speed
+    if (unit.kind == UnitKind::Skirmisher || unit.kind == UnitKind::Ranger)
+        && techs.has_tech(unit.kind, TechId::Entrench)
+    {
+        let stacks = (unit.stationary_timer.floor() as u32).min(4);
+        speed *= 1.0 + 0.12 * stacks as f32;
+    }
+
+    // Expendable: Chaff attack speed buff from nearby deaths
+    if unit.kind == UnitKind::Chaff && unit.expendable_stacks > 0 {
+        speed *= 1.0 + 0.15 * unit.expendable_stacks as f32;
+    }
+
+    if speed > 0.0 { 1.0 / speed } else { 0.0 }
+}
+
+/// Apply a Berserker Death Throes splash centered at `pos`, damaging enemies of `attacker_team`.
+/// Does NOT re-trigger Death Throes if a Berserker killed by this splash also had Death Throes
+/// (prevents infinite chains).
+fn apply_death_throes(
+    units: &mut [Unit],
+    pos: Vec2,
+    attacker_team: u16,
+    splash_effects: &mut Vec<crate::rendering::SplashEffect>,
+) {
+    const DEATH_THROES_DAMAGE: f32 = 150.0;
+    const DEATH_THROES_RADIUS: f32 = 40.0;
+
+    splash_effects.push(crate::rendering::SplashEffect {
+        pos,
+        radius: DEATH_THROES_RADIUS,
+        timer: 0.3,
+        max_timer: 0.3,
+        player_id: attacker_team,
+    });
+
+    for unit in units.iter_mut() {
+        if !unit.alive || unit.player_id == attacker_team {
+            continue;
+        }
+        if unit.pos.distance(pos) < DEATH_THROES_RADIUS {
+            unit.take_damage(DEATH_THROES_DAMAGE);
+        }
+    }
+}
+
 /// Deterministic distance tiebreaker: prefer closer, then lower ID.
 fn is_closer(dist: f32, id: u64, best_dist: f32, best_id: Option<u64>) -> bool {
     dist < best_dist
@@ -26,14 +113,51 @@ fn is_closer(dist: f32, id: u64, best_dist: f32, best_id: Option<u64>) -> bool {
 /// Find the nearest alive enemy for each unit and assign as target.
 /// Prefers targets with line of sight, but falls back to nearest enemy
 /// without LOS so units will path toward hidden enemies.
-pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
+/// Sentinel Taunt overrides targeting within 120 range.
+pub fn update_targeting(
+    units: &mut [Unit],
+    obstacles: &[Obstacle],
+    players: &[crate::match_progress::PlayerState],
+) {
     let positions: Vec<(u64, u16, Vec2, bool)> = units
         .iter()
         .map(|u| (u.id, u.player_id, u.pos, u.alive))
         .collect();
 
+    // Pre-compute taunting Sentinels: (id, team, pos)
+    let taunters: Vec<(u64, u16, Vec2)> = units
+        .iter()
+        .filter(|u| u.alive && u.kind == UnitKind::Sentinel)
+        .filter(|u| {
+            players
+                .iter()
+                .find(|p| p.player_id == u.player_id)
+                .is_some_and(|p| p.techs.has_tech(UnitKind::Sentinel, TechId::SentinelTaunt))
+        })
+        .map(|u| (u.id, u.player_id, u.pos))
+        .collect();
+
+    const TAUNT_RANGE: f32 = 120.0;
+
     for unit in units.iter_mut() {
         if !unit.alive {
+            continue;
+        }
+
+        // Taunt override: if any enemy taunting Sentinel is within range, target it.
+        let mut taunt_target: Option<(u64, f32)> = None;
+        for &(tid, tteam, tpos) in &taunters {
+            if tteam == unit.player_id {
+                continue;
+            }
+            let d = unit.pos.distance(tpos);
+            if d < TAUNT_RANGE && (taunt_target.is_none() || d < taunt_target.unwrap().1) {
+                taunt_target = Some((tid, d));
+            }
+        }
+
+        if let Some((tid, _)) = taunt_target {
+            unit.target_id = Some(tid);
             continue;
         }
 
@@ -69,7 +193,16 @@ pub fn update_targeting(units: &mut [Unit], obstacles: &[Obstacle]) {
 
 /// Move units toward their targets using A* pathfinding.
 /// Falls back to direct movement when no nav grid is provided or no path is found.
-pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, obstacles: &[Obstacle], nav_grid: Option<&crate::terrain::NavGrid>) {
+/// Also handles Entrench stationary tracking and Berserker Unstoppable slow immunity.
+pub fn update_movement(
+    units: &mut [Unit],
+    dt: f32,
+    arena_w: f32,
+    arena_h: f32,
+    obstacles: &[Obstacle],
+    nav_grid: Option<&crate::terrain::NavGrid>,
+    players: &[crate::match_progress::PlayerState],
+) {
     let snapshot: Vec<(u64, Vec2, f32, bool)> = units
         .iter()
         .map(|u| (u.id, u.pos, u.stats.size, u.alive))
@@ -93,13 +226,28 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
             continue;
         }
 
+        // Track position for Entrench stationary detection (compare at end of iteration)
+        let pre_move_pos = unit.pos;
+
         // Decrement slow timer
         if unit.slow_timer > 0.0 {
             unit.slow_timer = (unit.slow_timer - dt).max(0.0);
         }
 
-        // Effective move speed (halved if slowed)
-        let effective_speed = if unit.slow_timer > 0.0 {
+        // Berserker Unstoppable: below 50% HP, immune to slow and +20% move speed
+        let techs = players
+            .iter()
+            .find(|p| p.player_id == unit.player_id)
+            .map(|p| &p.techs);
+        let is_unstoppable = unit.kind == UnitKind::Berserker
+            && (unit.hp / unit.stats.max_hp) < 0.5
+            && techs
+                .is_some_and(|t| t.has_tech(UnitKind::Berserker, TechId::BerserkerUnstoppable));
+
+        // Effective move speed (halved if slowed; Unstoppable ignores slow and gets +20%)
+        let effective_speed = if is_unstoppable {
+            unit.stats.move_speed * 1.2
+        } else if unit.slow_timer > 0.0 {
             unit.stats.move_speed * 0.5
         } else {
             unit.stats.move_speed
@@ -208,29 +356,44 @@ pub fn update_movement(units: &mut [Unit], dt: f32, arena_w: f32, arena_h: f32, 
         let s = unit.stats.size;
         unit.pos.x = unit.pos.x.clamp(s, arena_w - s);
         unit.pos.y = unit.pos.y.clamp(s, arena_h - s);
+
+        // Entrench: track how long this unit has been stationary.
+        // Threshold of 2.0 to ignore jitter from separation push.
+        if unit.pos.distance(pre_move_pos) > 2.0 {
+            unit.stationary_timer = 0.0;
+        } else {
+            unit.stationary_timer += dt;
+        }
     }
 }
 
 /// Process attacks with tech effects.
 pub fn update_attacks(
-    units: &mut [Unit],
+    units: &mut Vec<Unit>,
     projectiles: &mut Vec<Projectile>,
     dt: f32,
-    players: &[crate::match_progress::PlayerState],
+    players: &mut [crate::match_progress::PlayerState],
     splash_effects: &mut Vec<crate::rendering::SplashEffect>,
 ) {
-    // Update cooldowns
+    // Update cooldowns and decay Expendable buff timers
     for unit in units.iter_mut() {
         unit.update_cooldown(dt);
+        if unit.expendable_timer > 0.0 {
+            unit.expendable_timer = (unit.expendable_timer - dt).max(0.0);
+            if unit.expendable_timer == 0.0 {
+                unit.expendable_stacks = 0;
+            }
+        }
     }
 
-    // Helper to get the right tech state for a player
-    let tech_for_player = |player_id: u16| -> &TechState {
-        &players.iter().find(|p| p.player_id == player_id).unwrap().techs
+    // Helper to get the right tech state for a player (immutable read)
+    let tech_for_player = |pls: &[crate::match_progress::PlayerState], pid: u16| -> TechState {
+        pls.iter().find(|p| p.player_id == pid).unwrap().techs.clone()
     };
 
     // === Interceptor rocket interception ===
-    let interceptor_actions: Vec<(u64, usize, u16)> = {
+    // interceptor_actions: (interceptor_id, projectile_index, team, interception_pos)
+    let interceptor_actions: Vec<(u64, usize, u16, Vec2)> = {
         let mut actions = Vec::new();
         for unit in units.iter_mut() {
             if !unit.alive || !unit.can_attack() || !unit.is_interceptor() {
@@ -252,16 +415,48 @@ pub fn update_attacks(
                 }
             }
             if let Some((pi, _)) = best_rocket {
-                actions.push((unit.id, pi, unit.player_id));
+                let ipos = projectiles[pi].pos;
+                actions.push((unit.id, pi, unit.player_id, ipos));
                 unit.reset_cooldown();
             }
         }
         actions
     };
 
-    for (_unit_id, proj_idx, _team) in &interceptor_actions {
-        if *proj_idx < projectiles.len() {
-            projectiles[*proj_idx].alive = false;
+    // Kill intercepted rockets and apply Flak Burst if tech is present.
+    // Collect flak events first to avoid borrow issues with units.
+    let mut flak_events: Vec<(Vec2, f32, f32, u16)> = Vec::new();  // (pos, dmg, radius, team)
+    for &(_uid, proj_idx, team, ipos) in &interceptor_actions {
+        if proj_idx >= projectiles.len() { continue; }
+        let proj = &projectiles[proj_idx];
+        if !proj.alive { continue; }
+        let has_flak = players
+            .iter()
+            .find(|p| p.player_id == team)
+            .is_some_and(|p| p.techs.has_tech(UnitKind::Interceptor, TechId::InterceptorFlak));
+        if has_flak {
+            flak_events.push((ipos, proj.damage, proj.splash_radius, team));
+        }
+        projectiles[proj_idx].alive = false;
+    }
+    // Apply flak bursts: splash damage at interception point using rocket's own damage + radius.
+    // Enemies of the interceptor only (no friendly fire).
+    for (pos, damage, radius, team) in flak_events {
+        if radius <= 0.0 { continue; }
+        splash_effects.push(crate::rendering::SplashEffect {
+            pos,
+            radius,
+            timer: 0.3,
+            max_timer: 0.3,
+            player_id: team,
+        });
+        for unit in units.iter_mut() {
+            if !unit.alive || unit.player_id == team {
+                continue;
+            }
+            if unit.pos.distance(pos) < radius {
+                unit.take_damage(damage);
+            }
         }
     }
 
@@ -269,14 +464,14 @@ pub fn update_attacks(
     // attacking units — UNLESS they have the DualWeapon tech.
     let intercepted_unit_ids: Vec<u64> = interceptor_actions
         .iter()
-        .filter(|(_uid, _, team)| {
-            let techs = tech_for_player(*team);
+        .filter(|(_uid, _, team, _pos)| {
+            let techs = tech_for_player(players, *team);
             !techs.has_tech(UnitKind::Interceptor, TechId::InterceptorDualWeapon)
         })
-        .map(|(uid, _, _)| *uid)
+        .map(|(uid, _, _, _)| *uid)
         .collect();
 
-    // === Chaff Overwhelm: precompute bonus damage ===
+    // === Chaff Overwhelm: precompute nearby-chaff counts ===
     let chaff_positions: Vec<(Vec2, u16)> = units
         .iter()
         .filter(|u| u.alive && u.kind == UnitKind::Chaff)
@@ -319,20 +514,33 @@ pub fn update_attacks(
                 continue;
             }
 
-            unit.reset_cooldown();
-            let techs = tech_for_player(unit.player_id);
+            // Reset cooldown using tech-aware calculation (Entrench, Expendable)
+            let techs = tech_for_player(players, unit.player_id);
+            unit.attack_cooldown = cooldown_from_techs(unit, &techs);
 
-            // Calculate bonus damage from Chaff Overwhelm tech
+            // Calculate bonus damage from Chaff Overwhelm tech (+3 per stack, max 10 stacks)
             let mut bonus_damage = 0.0;
             if unit.kind == UnitKind::Chaff && techs.has_tech(UnitKind::Chaff, TechId::ChaffOverwhelm) {
+                let mut stacks: u32 = 0;
                 for &(cpos, cteam) in &chaff_positions {
                     if cteam == unit.player_id && cpos.distance(unit.pos) < 50.0 && cpos != unit.pos {
-                        bonus_damage += 2.0;
+                        stacks += 1;
                     }
                 }
+                bonus_damage += 3.0 * stacks.min(10) as f32;
             }
 
-            let total_damage = unit.stats.damage + bonus_damage;
+            let mut total_damage = unit.stats.damage + bonus_damage;
+
+            // Bruiser Charge: first attack after 100+ distance from spawn deals 2x damage
+            if unit.kind == UnitKind::Bruiser
+                && !unit.has_charged
+                && techs.has_tech(UnitKind::Bruiser, TechId::BruiserCharge)
+                && unit.pos.distance(unit.spawn_pos) >= 100.0
+            {
+                total_damage *= 2.0;
+                unit.has_charged = true;
+            }
 
             if unit.is_melee() {
                 let has_lifesteal = unit.kind == UnitKind::Berserker
@@ -342,6 +550,7 @@ pub fn update_attacks(
 
                 events.push(AttackEvent::Melee {
                     attacker_id: unit.id,
+                    attacker_kind: unit.kind,
                     target_id,
                     target_pos: target.1,
                     damage: total_damage,
@@ -376,10 +585,15 @@ pub fn update_attacks(
     }
 
     // Apply events
+    // Collect kill events for post-processing (Scavenge, Expendable, Death Throes)
+    // KillEvent: (killer_id, killer_team, victim_id, victim_kind, victim_pos, victim_had_death_throes)
+    let mut kill_events: Vec<(u64, u16, u64, UnitKind, Vec2, bool)> = Vec::new();
+
     for event in events {
         match event {
             AttackEvent::Melee {
                 attacker_id,
+                attacker_kind,
                 target_id,
                 target_pos,
                 damage,
@@ -393,9 +607,18 @@ pub fn update_attacks(
                 let mut kills = 0u32;
                 // Primary target
                 if let Some(target) = units.iter_mut().find(|u| u.id == target_id && u.alive) {
+                    let target_kind = target.kind;
+                    let target_pos_now = target.pos;
+                    let target_team = target.player_id;
                     let (dealt, killed) = apply_damage(target, damage, false);
                     total_damage_dealt += dealt;
-                    if killed { kills += 1; }
+                    if killed {
+                        kills += 1;
+                        let victim_techs = tech_for_player(players, target_team);
+                        let had_dt = target_kind == UnitKind::Berserker
+                            && victim_techs.has_tech(UnitKind::Berserker, TechId::BerserkerDeathThroes);
+                        kill_events.push((attacker_id, attacker_team, target_id, target_kind, target_pos_now, had_dt));
+                    }
                 }
                 // Splash damage
                 if splash_radius > 0.0 {
@@ -406,15 +629,30 @@ pub fn update_attacks(
                         max_timer: 0.3,
                         player_id: attacker_team,
                     });
+                    // Collect splash kill info before mutating (to avoid double-borrow of kill_events)
+                    let mut splash_kills: Vec<(u64, UnitKind, Vec2, u16)> = Vec::new();
                     for unit in units.iter_mut() {
                         if !unit.alive || unit.id == target_id || unit.player_id == attacker_team {
                             continue;
                         }
                         if unit.pos.distance(target_pos) < splash_radius {
+                            let victim_kind = unit.kind;
+                            let victim_pos = unit.pos;
+                            let victim_team = unit.player_id;
+                            let victim_id = unit.id;
                             let (dealt, killed) = apply_damage(unit, damage, cleave_ignores_armor);
                             total_damage_dealt += dealt;
-                            if killed { kills += 1; }
+                            if killed {
+                                kills += 1;
+                                splash_kills.push((victim_id, victim_kind, victim_pos, victim_team));
+                            }
                         }
+                    }
+                    for (vid, vkind, vpos, vteam) in splash_kills {
+                        let victim_techs = tech_for_player(players, vteam);
+                        let had_dt = vkind == UnitKind::Berserker
+                            && victim_techs.has_tech(UnitKind::Berserker, TechId::BerserkerDeathThroes);
+                        kill_events.push((attacker_id, attacker_team, vid, vkind, vpos, had_dt));
                     }
                 }
                 // Record stats on attacker (and apply lifesteal if applicable)
@@ -427,6 +665,8 @@ pub fn update_attacks(
                         attacker.hp = (attacker.hp + heal).min(attacker.stats.max_hp);
                     }
                 }
+                // Suppress unused warning
+                let _ = attacker_kind;
             }
             AttackEvent::Ranged {
                 attacker_id,
@@ -458,15 +698,103 @@ pub fn update_attacks(
             }
         }
     }
+
+    // === Post-kill effects: Death Throes, Chaff Expendable, Chaff Scavenge ===
+    for (killer_id, _killer_team, _victim_id, victim_kind, victim_pos, victim_had_death_throes) in kill_events {
+        // Snapshot killer info (the killer might have died from a simultaneous effect, so check alive)
+        let (killer_alive, killer_kind, killer_team) = units
+            .iter()
+            .find(|u| u.id == killer_id)
+            .map(|u| (u.alive, u.kind, u.player_id))
+            .unwrap_or((false, UnitKind::Chaff, 0));
+
+        // Berserker Death Throes (victim's ability)
+        if victim_had_death_throes {
+            // Enemies of the victim's team take damage
+            // Victim team is inferred from where the kill came from: victim was on the OTHER team from killer_team
+            // Actually we stored killer_team, and victim was enemy, so victim_team != killer_team.
+            // Apply damage to enemies of victim = allies of killer_team... wait that's wrong.
+            // Death Throes hits enemies of the Berserker. The Berserker's enemies are units on killer_team.
+            // So attacker_team (for the splash) should be the Berserker's team, NOT the killer's team.
+            // But we need the victim's team. Since victim died to killer_team, victim's team != killer_team.
+            // We need to look up the victim from kill_events... but victim is already dead.
+            // Simpler: we know the victim was killed by the killer, and victim_team != killer_team.
+            // The death splash damages enemies of victim (= killer_team allies),
+            // but since the killer dealt the killing blow, there might be no other killer_team units nearby.
+            // Since we don't have victim_team stored separately, and all enemies of victim are on killer_team,
+            // we pass killer_team as the "attacker_team" for damage purposes (which skips damaging itself).
+            apply_death_throes(units, victim_pos, killer_team, splash_effects);
+        }
+
+        // Chaff Expendable: when a Chaff dies, nearby allied chaff get attack speed buff
+        if victim_kind == UnitKind::Chaff {
+            // Find the victim's team (it's the OPPOSITE of killer_team if killer != victim)
+            // Since the killer is an enemy, victim_team = NOT killer_team.
+            // But we need to broadcast the buff to victim's ALLIES (same team as victim).
+            // The victim is dead now — we need its team. Find any other chaff to check.
+            // Simplest: the victim was killed by killer_team, so victim_team is any player_id != killer_team.
+            // Since there are only 2 players in practice, find any player != killer_team.
+            let victim_team = players
+                .iter()
+                .map(|p| p.player_id)
+                .find(|&pid| pid != killer_team);
+            if let Some(vteam) = victim_team {
+                let vhas_expendable = tech_for_player(players, vteam)
+                    .has_tech(UnitKind::Chaff, TechId::ChaffExpendable);
+                if vhas_expendable {
+                    for other in units.iter_mut() {
+                        if !other.alive || other.kind != UnitKind::Chaff || other.player_id != vteam {
+                            continue;
+                        }
+                        if other.pos.distance(victim_pos) < 40.0 {
+                            other.expendable_stacks = (other.expendable_stacks + 1).min(3);
+                            other.expendable_timer = 3.0;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Chaff Scavenge: when a Chaff kills an enemy, spawn new chaff based on victim tier
+        if killer_alive && killer_kind == UnitKind::Chaff {
+            let killer_techs = tech_for_player(players, killer_team);
+            if killer_techs.has_tech(UnitKind::Chaff, TechId::ChaffScavenge) {
+                let spawn_count = crate::pack::unit_tier(victim_kind);
+                if let Some(player) = players.iter_mut().find(|p| p.player_id == killer_team) {
+                    for i in 0..spawn_count {
+                        let angle = (i as f32) * std::f32::consts::TAU / spawn_count as f32;
+                        let offset = vec2(angle.cos(), angle.sin()) * 10.0;
+                        let new_unit = crate::pack::spawn_chaff_unit(
+                            victim_pos + offset,
+                            killer_team,
+                            &player.techs,
+                            &mut player.next_id,
+                        );
+                        units.push(new_unit);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Update projectiles with shield interception, evasion, pierce, and slow.
-pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit], dt: f32, obstacles: &mut [Obstacle], splash_effects: &mut Vec<crate::rendering::SplashEffect>) {
+pub fn update_projectiles(
+    projectiles: &mut Vec<Projectile>,
+    units: &mut [Unit],
+    dt: f32,
+    obstacles: &mut [Obstacle],
+    splash_effects: &mut Vec<crate::rendering::SplashEffect>,
+    players: &[crate::match_progress::PlayerState],
+) {
     let shields: Vec<(u64, u16, Vec2, f32, bool)> = units
         .iter()
         .filter(|u| u.is_shield() && u.alive)
         .map(|u| (u.id, u.player_id, u.pos, u.stats.shield_radius, u.shield_hp > 0.0))
         .collect();
+
+    // Post-frame effects: Death Throes positions triggered by projectile kills
+    let mut pending_death_throes: Vec<(Vec2, u16)> = Vec::new();
 
     for proj in projectiles.iter_mut() {
         if !proj.alive {
@@ -513,9 +841,24 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
         }
 
         if let Some(shield_id) = intercepted_by_shield {
+            let mut reflect_to_attacker: Option<f32> = None;
             if let Some(shield_unit) = units.iter_mut().find(|u| u.id == shield_id && u.alive) {
                 // Damage the barrier's separate HP pool
                 shield_unit.shield_hp = (shield_unit.shield_hp - proj.damage).max(0.0);
+                // Reflective Barrier tech: reflect 15% of damage back to attacker (bypasses armor)
+                let shield_team = shield_unit.player_id;
+                let has_reflect = players
+                    .iter()
+                    .find(|p| p.player_id == shield_team)
+                    .is_some_and(|p| p.techs.has_tech(UnitKind::Shield, TechId::ShieldReflect));
+                if has_reflect {
+                    reflect_to_attacker = Some(proj.damage * 0.15);
+                }
+            }
+            if let Some(reflect_dmg) = reflect_to_attacker {
+                if let Some(attacker) = units.iter_mut().find(|u| u.id == proj.attacker_id && u.alive) {
+                    attacker.take_raw_damage(reflect_dmg);
+                }
             }
             proj.alive = false;
             continue;
@@ -542,9 +885,24 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
                     }
                 }
 
+                let victim_kind = unit.kind;
+                let victim_pos = unit.pos;
+                let victim_team = unit.player_id;
                 let (dealt, killed) = apply_damage(unit, proj.damage, proj.armor_pierce);
                 proj_damage_dealt += dealt;
-                if killed { proj_kills += 1; }
+                if killed {
+                    proj_kills += 1;
+                    // Berserker Death Throes on ranged kill
+                    if victim_kind == UnitKind::Berserker {
+                        let had_dt = players
+                            .iter()
+                            .find(|p| p.player_id == victim_team)
+                            .is_some_and(|p| p.techs.has_tech(UnitKind::Berserker, TechId::BerserkerDeathThroes));
+                        if had_dt {
+                            pending_death_throes.push((victim_pos, proj.player_id));
+                        }
+                    }
+                }
 
                 if proj.applies_slow {
                     unit.slow_timer = 2.0;
@@ -578,9 +936,23 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
                 }
                 let dist = unit.pos.distance(impact_pos);
                 if dist < proj.splash_radius && dist > 0.001 {
+                    let victim_kind = unit.kind;
+                    let victim_pos = unit.pos;
+                    let victim_team = unit.player_id;
                     let (dealt, killed) = apply_damage(unit, proj.damage, proj.armor_pierce);
                     proj_damage_dealt += dealt;
-                    if killed { proj_kills += 1; }
+                    if killed {
+                        proj_kills += 1;
+                        if victim_kind == UnitKind::Berserker {
+                            let had_dt = players
+                                .iter()
+                                .find(|p| p.player_id == victim_team)
+                                .is_some_and(|p| p.techs.has_tech(UnitKind::Berserker, TechId::BerserkerDeathThroes));
+                            if had_dt {
+                                pending_death_throes.push((victim_pos, proj.player_id));
+                            }
+                        }
+                    }
                     if proj.applies_slow {
                         unit.slow_timer = 2.0;
                     }
@@ -599,11 +971,17 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, units: &mut [Unit],
     }
 
     projectiles.retain(|p| p.alive);
+
+    // Apply Berserker Death Throes triggered by projectile kills
+    for (pos, attacker_team) in pending_death_throes {
+        apply_death_throes(units, pos, attacker_team, splash_effects);
+    }
 }
 
 enum AttackEvent {
     Melee {
         attacker_id: u64,
+        attacker_kind: UnitKind,
         target_id: u64,
         target_pos: Vec2,
         damage: f32,

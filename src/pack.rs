@@ -113,6 +113,31 @@ pub fn respawn_pack_units(
         .collect()
 }
 
+/// Gold tier (1, 2, or 3) of a unit kind based on its pack cost.
+/// Used by Chaff Scavenge tech to determine how many chaff to spawn on kill.
+pub fn unit_tier(kind: UnitKind) -> u32 {
+    all_packs()
+        .iter()
+        .find(|p| p.kind == kind)
+        .map(|p| p.cost / 100)
+        .unwrap_or(1)
+}
+
+/// Spawn a single Chaff unit at the given position, applying the player's techs.
+/// Used by Chaff Scavenge to create new chaff when a chaff lands a killing blow.
+pub fn spawn_chaff_unit(
+    pos: Vec2,
+    player_id: u16,
+    techs: &TechState,
+    next_id: &mut u64,
+) -> Unit {
+    let mut unit = Unit::new(*next_id, UnitKind::Chaff, pos, player_id);
+    techs.apply_to_stats(UnitKind::Chaff, &mut unit.stats);
+    unit.hp = unit.stats.max_hp;
+    *next_id += 1;
+    unit
+}
+
 pub fn all_packs() -> &'static [PackDef] {
     &[
         // T1 - 100 gold
@@ -125,8 +150,8 @@ pub fn all_packs() -> &'static [PackDef] {
         },
         PackDef {
             kind: UnitKind::Skirmisher,
-            rows: 2,
-            cols: 6,
+            rows: 3,
+            cols: 4,
             cost: 100,
             name: "Skirmishers",
         },
@@ -136,6 +161,13 @@ pub fn all_packs() -> &'static [PackDef] {
             cols: 3,
             cost: 100,
             name: "Scouts",
+        },
+        PackDef {
+            kind: UnitKind::Sniper,
+            rows: 1,
+            cols: 1,
+            cost: 100,
+            name: "Sniper",
         },
         // T2 - 200 gold
         PackDef {
@@ -169,7 +201,7 @@ pub fn all_packs() -> &'static [PackDef] {
         PackDef {
             kind: UnitKind::Dragoon,
             rows: 1,
-            cols: 5,
+            cols: 4,
             cost: 200,
             name: "Dragoons",
         },
@@ -194,13 +226,6 @@ pub fn all_packs() -> &'static [PackDef] {
             cols: 2,
             cost: 300,
             name: "Artillery",
-        },
-        PackDef {
-            kind: UnitKind::Sniper,
-            rows: 1,
-            cols: 1,
-            cost: 300,
-            name: "Sniper",
         },
         PackDef {
             kind: UnitKind::Shield,

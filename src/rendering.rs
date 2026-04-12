@@ -7,9 +7,11 @@ use crate::pack::all_packs;
 use crate::projectile::{projectile_visual_radius, Projectile};
 use crate::team::{team_color, team_projectile_color};
 use crate::terrain;
+use crate::tech::TechId;
 use crate::unit::{draw_unit_shape, ProjectileType, Unit, UnitKind};
 
 /// Visual effect for AOE splash damage (expanding, fading circle).
+#[derive(Clone)]
 pub struct SplashEffect {
     pub pos: Vec2,
     pub radius: f32,
@@ -31,6 +33,7 @@ pub fn draw_world(
     obstacles: &[crate::terrain::Obstacle],
     splash_effects: &[SplashEffect],
     show_grid: bool,
+    players: &[crate::match_progress::PlayerState],
 ) {
     draw_rectangle_lines(0.0, 0.0, ARENA_W, ARENA_H, 2.0, GRAY);
     draw_center_divider();
@@ -41,7 +44,7 @@ pub fn draw_world(
     }
 
     draw_shields(units);
-    draw_units(units);
+    draw_units(units, players);
     draw_projectiles(projectiles);
     draw_splash_effects(splash_effects);
 }
@@ -85,7 +88,7 @@ fn draw_shields(units: &[Unit]) {
     }
 }
 
-fn draw_units(units: &[Unit]) {
+fn draw_units(units: &[Unit], players: &[crate::match_progress::PlayerState]) {
     for unit in units {
         if !unit.alive && unit.death_timer <= 0.0 {
             continue;
@@ -108,6 +111,23 @@ fn draw_units(units: &[Unit]) {
             let rage = 1.0 - hp_frac;
             color.r = (color.r + rage * 0.5).min(1.0);
             color.g = (color.g * (1.0 - rage * 0.5)).max(0.1);
+        }
+        // Entrench visual: yellow tint scaling with stack count (Skirmisher, Ranger only)
+        if unit.kind == UnitKind::Skirmisher || unit.kind == UnitKind::Ranger {
+            let has_entrench = players
+                .iter()
+                .find(|p| p.player_id == unit.player_id)
+                .is_some_and(|p| p.techs.has_tech(unit.kind, TechId::Entrench));
+            if has_entrench {
+                let stacks = (unit.stationary_timer.floor() as u32).min(4) as f32;
+                if stacks > 0.0 {
+                    // Shift toward yellow proportionally to stacks (max 4 → full yellow tint)
+                    let intensity = stacks / 4.0 * 0.6;
+                    color.r = (color.r + intensity).min(1.0);
+                    color.g = (color.g + intensity).min(1.0);
+                    color.b = (color.b * (1.0 - intensity * 0.5)).max(0.05);
+                }
+            }
         }
         // Slow visual indicator
         if unit.slow_timer > 0.0 {

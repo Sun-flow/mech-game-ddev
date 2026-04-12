@@ -14,7 +14,11 @@ pub enum NetMessage {
     SettingsSync(crate::settings::GameSettings),
     BuildComplete {
         player_id: u16,
-        new_packs: Vec<(usize, (f32, f32), bool)>,
+        /// Each entry: (pack_index, (center_x, center_y), rotated, unit_ids).
+        /// unit_ids are the IDs assigned by the spawning client — the receiver
+        /// MUST use these exact IDs rather than generating new ones, because
+        /// the sender's next_id may have gaps from sold/undone packs.
+        new_packs: Vec<(usize, (f32, f32), bool, Vec<u64>)>,
         tech_purchases: Vec<(UnitKind, TechId)>,
         gold_remaining: u32,
     },
@@ -30,11 +34,10 @@ pub enum NetMessage {
         loser: Option<u16>,
         per_player: Vec<RoundEndPlayerData>,
     },
-    /// Host sends state hash to guest every SYNC_INTERVAL frames
+    /// Both peers send their state hash every frame. Used for desync detection.
     StateHash { frame: u32, hash: u64 },
-    /// Guest requests full state from host when hash mismatch detected
-    StateRequest { frame: u32 },
-    /// Host sends full authoritative state to guest
+    /// Host proactively sends full authoritative state to guest on mismatch
+    /// (no request needed — host detects via guest's incoming hash).
     StateSync {
         frame: u32,
         units_data: Vec<u8>,
@@ -54,7 +57,7 @@ pub struct RoundEndPlayerData {
 #[derive(Clone, Debug)]
 pub struct PeerBuildData {
     pub player_id: u16,
-    pub new_packs: Vec<(usize, (f32, f32), bool)>,
+    pub new_packs: Vec<(usize, (f32, f32), bool, Vec<u64>)>,
     pub tech_purchases: Vec<(UnitKind, TechId)>,
 }
 
@@ -83,8 +86,7 @@ pub struct NetState {
     pub peer_name: Option<(u16, String)>, // (player_id, name)
     pub received_round_end: Option<RoundEndData>,
     // Desync detection & state sync
-    pub received_state_hash: Option<(u32, u64)>,
-    pub received_state_request: Option<u32>,
+    pub received_state_hashes: Vec<(u32, u64)>,
     pub received_state_sync: Option<StateSyncData>,
     pub local_player_id: u16,
 }
@@ -120,8 +122,7 @@ impl NetState {
             peer_color: None,
             peer_name: None,
             received_round_end: None,
-            received_state_hash: None,
-            received_state_request: None,
+            received_state_hashes: Vec::new(),
             received_state_sync: None,
             local_player_id: 0,
         }
@@ -192,10 +193,7 @@ impl NetState {
                             });
                         }
                         NetMessage::StateHash { frame, hash } => {
-                            self.received_state_hash = Some((frame, hash));
-                        }
-                        NetMessage::StateRequest { frame } => {
-                            self.received_state_request = Some(frame);
+                            self.received_state_hashes.push((frame, hash));
                         }
                         NetMessage::StateSync { frame, units_data, projectiles_data, obstacles_data } => {
                             self.received_state_sync = Some(StateSyncData {
@@ -252,11 +250,11 @@ pub fn send_build_complete(
     local_player_id: u16,
 ) {
     if let Some(ref mut n) = net {
-        let new_packs: Vec<(usize, (f32, f32), bool)> = build
+        let new_packs: Vec<(usize, (f32, f32), bool, Vec<u64>)> = build
             .placed_packs
             .iter()
             .filter(|p| !p.locked)
-            .map(|p| (p.pack_index, (p.center.x, p.center.y), p.rotated))
+            .map(|p| (p.pack_index, (p.center.x, p.center.y), p.rotated, p.unit_ids.clone()))
             .collect();
 
         let tech_purchases = build.round_tech_purchases.clone();
