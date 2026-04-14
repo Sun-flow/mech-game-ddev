@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-04-13 — 2026-04-14
+
+### Patch Notes
+
+- `[ui]` Tech panel reworked — moved from upper-right tall column to bottom-right wide-and-flat bar with stats sidebar, wrapping tech cards (3 per row), and combat stats in the header row
+- `[internal]` Added file-based logging via `log` + `simplelog` — debug builds log to `outputs/game-*.log`, release builds compile to no-ops via `release_max_level_off`
+- `[internal]` Replaced all 24 `eprintln!` calls with `log` macros (`debug!`, `info!`, `warn!`) across battle_phase, sync, net, waiting_phase
+- `[internal]` Log filenames include `MECH_LOG_NAME` env var for multi-instance disambiguation
+- `[net]` Added `ReadyForBattle` sync barrier — both clients exchange ready signals before starting battle simulation, eliminating frame offset at battle start
+- `[net]` Added `WaitingForBattleStart` game phase for the barrier handshake
+- `[net]` Added time dilation — clients track peer frame number and scale dt ±5% when frame advantage exceeds ±3 frames, preventing drift
+- `[net]` Added simulation step cap (`MAX_STEPS_PER_FRAME = 2`) — prevents burst stutter from frame bunching
+- `[net]` Added accumulator clamp on first battle frame to prevent burst from barrier handshake latency
+- `[net]` Increased `HASH_HISTORY_LEN` from 64 to 256 for better hash comparison coverage during drift
+
+### Session Handoff — Tech Panel Rework, Logging, Frame Sync
+
+**Git State:** branch `main`, 12 modified + 2 new files uncommitted
+**Tests:** 18 passed, 0 failed
+
+**Work Completed:**
+- Tech panel UI fully reworked with visual companion brainstorming (mockups in `.superpowers/brainstorm/`)
+- Design spec written at `docs/superpowers/specs/2026-04-13-tech-panel-rework-design.md`
+- File-based logging system implemented (`log` + `simplelog` crates)
+- Sync barrier (`ReadyForBattle` message + `WaitingForBattleStart` phase)
+- Time dilation (peer frame tracking, ±5% dt scaling beyond ±3 frame threshold)
+- Step cap (max 2 simulation ticks per render frame)
+- Hash window increased to 256 frames
+- Multiple multiplayer test sessions confirming zero desyncs
+
+**In Progress:**
+- Time dilation + step cap need multiplayer testing — code compiles and passes all 18 determinism tests, but stutter reduction not yet verified in-game
+
+**Decisions Made:**
+- Chose `log` + `simplelog` over custom logging module for ecosystem compatibility (matchbox_socket/rustls logs captured automatically) and future-proofing
+- Chose time dilation over precomputed frames for frame sync — directly addresses drift rather than masking it, and remains input-friendly for future player commands during battle
+- Chose sync barrier over input delay — zero latency cost, just 1 RTT at battle start hidden behind transition
+- Tech panel layout: stats sidebar + wrapping tech cards (3 per row), combat stats in header row, 44% screen width
+
+**Blockers:**
+- None
+
+**Next Steps:**
+1. Test time dilation + step cap in multiplayer — verify stutter is reduced and `<missing>` hash entries decrease
+2. Tune dilation parameters if needed (threshold, factor, step cap)
+3. Commit all session work (tech panel, logging, sync improvements)
+
+---
+
 ## 2026-04-09 — 2026-04-11 (multi-day session, continued)
 
 ### Patch Notes (2026-04-11 additions)

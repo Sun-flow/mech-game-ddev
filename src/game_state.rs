@@ -17,6 +17,7 @@ pub enum GamePhase {
     },
     Build,
     WaitingForOpponent,
+    WaitingForBattleStart,
     Battle,
     RoundResult {
         match_state: MatchState,

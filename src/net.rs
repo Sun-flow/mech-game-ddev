@@ -1,6 +1,7 @@
 use std::pin::Pin;
 use std::future::Future;
 
+use log::warn;
 use matchbox_socket::{PeerId, PeerState, WebRtcSocket};
 use serde::{Serialize, Deserialize};
 
@@ -34,6 +35,10 @@ pub enum NetMessage {
         loser: Option<u16>,
         per_player: Vec<RoundEndPlayerData>,
     },
+    /// Sent after a client has fully set up battle state (units spawned, terrain
+    /// generated, canonical ordering applied). Both clients wait until they have
+    /// sent AND received this message before starting simulation frame 0.
+    ReadyForBattle,
     /// Both peers send their state hash every frame. Used for desync detection.
     StateHash { frame: u32, hash: u64 },
     /// Host proactively sends full authoritative state to guest on mismatch
@@ -75,6 +80,7 @@ pub struct NetState {
     pub peer_id: Option<PeerId>,
     pub is_host: bool,
     pub peer_ready: bool,
+    pub peer_ready_for_battle: bool,
     pub peer_build: Option<PeerBuildData>,
     pub disconnected: bool,
     pub received_chats: Vec<(u16, String, String)>, // (player_id, sender_name, text)
@@ -112,6 +118,7 @@ impl NetState {
             peer_id: None,
             is_host: false,
             peer_ready: false,
+            peer_ready_for_battle: false,
             peer_build: None,
             disconnected: false,
             received_chats: Vec::new(),
@@ -159,6 +166,9 @@ impl NetState {
                         NetMessage::ReadyToStart => {
                             self.peer_ready = true;
                         }
+                        NetMessage::ReadyForBattle => {
+                            self.peer_ready_for_battle = true;
+                        }
                         NetMessage::BuildComplete { player_id, new_packs, tech_purchases, gold_remaining: _ } => {
                             self.peer_build = Some(PeerBuildData {
                                 player_id,
@@ -202,7 +212,7 @@ impl NetState {
                         }
                     },
                     Err(e) => {
-                        eprintln!("[NET] Failed to deserialize message ({} bytes): {}", data.len(), e);
+                        warn!("[NET] Failed to deserialize message ({} bytes): {}", data.len(), e);
                     }
                 }
             }
@@ -213,20 +223,20 @@ impl NetState {
         let peer = match self.peer_id {
             Some(p) => p,
             None => {
-                eprintln!("[NET] Cannot send: no peer connected");
+                warn!("[NET] Cannot send: no peer connected");
                 return;
             }
         };
         let data = match bincode::serialize(&msg) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("[NET] Failed to serialize message: {}", e);
+                warn!("[NET] Failed to serialize message: {}", e);
                 return;
             }
         };
         match self.socket.get_channel_mut(0) {
             Ok(channel) => channel.send(data.into_boxed_slice(), peer),
-            Err(e) => eprintln!("[NET] Failed to get channel: {}", e),
+            Err(e) => warn!("[NET] Failed to get channel: {}", e),
         }
     }
 

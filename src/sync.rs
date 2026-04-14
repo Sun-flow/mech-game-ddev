@@ -1,6 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use log::{info, warn};
 use serde::{Serialize, Deserialize};
 
 use crate::unit::{Unit, UnitKind, ProjectileType};
@@ -329,7 +330,7 @@ pub fn apply_and_fast_forward(
     for su in &sync_units {
         if let Some(u) = units.iter_mut().find(|u| u.id == su.id) {
             if u.kind != su.kind {
-                eprintln!(
+                warn!(
                     "[SYNC WARNING] Unit {} kind mismatch: local={:?} snapshot={:?} pid={}. \
                      Keeping local kind (owned by spawning client). \
                      This indicates a bug — unit IDs drifted between host and guest.",
@@ -348,7 +349,7 @@ pub fn apply_and_fast_forward(
                     || (u.stats.armor - expected.armor).abs() > 0.01
                     || (u.stats.attack_speed - expected.attack_speed).abs() > 0.01
                 {
-                    eprintln!(
+                    warn!(
                         "[SYNC WARNING] Unit {} ({:?}) stats drift: hp={}/{} dmg={}/{} arm={}/{} spd={}/{}",
                         u.id, u.kind,
                         u.stats.max_hp, expected.max_hp,
@@ -379,7 +380,7 @@ pub fn apply_and_fast_forward(
 
     // ---- Replace obstacles (in place; counts should match) ----
     if sync_obs.len() != obstacles.len() {
-        eprintln!(
+        warn!(
             "[SYNC] Obstacle count mismatch: snapshot {} vs local {}",
             sync_obs.len(),
             obstacles.len()
@@ -415,7 +416,7 @@ pub fn apply_and_fast_forward(
     // under normal lockstep), current_frame will be set to snapshot_frame and
     // no replay runs. Caller should see a jump in frame counter. Log it.
     if snapshot_frame > target_frame {
-        eprintln!(
+        info!(
             "[SYNC] Snapshot frame {} is ahead of local frame {}, jumped forward",
             snapshot_frame, target_frame
         );

@@ -151,15 +151,8 @@ pub fn update(
         let cs = tech_ui::PackCombatStats::from_units(&ctx.units, &placed.unit_ids);
 
         // Check if mouse is in the tech panel area (consume click to prevent drag)
-        // Compute actual panel height to avoid blocking clicks in the entire column
-        let available_count = ctx.progress.player(pid).techs.available_techs(kind).len();
-        let purchased_count = ctx.progress.player(pid).techs.tech_count(kind);
-        let has_combat = cs.damage_dealt_total > 0.0 || cs.damage_soaked_total > 0.0;
-        let combat_extra = if has_combat { 5.0 * 15.0 + 30.0 } else { 0.0 };
-        let panel_h = crate::ui::s(120.0) + (available_count + purchased_count) as f32 * crate::ui::s(35.0) + crate::ui::s(combat_extra) + crate::ui::s(20.0);
-        if screen_mouse.x >= crate::ui::s(490.0) && screen_mouse.x <= crate::ui::s(700.0)
-            && screen_mouse.y >= crate::ui::s(30.0) && screen_mouse.y <= crate::ui::s(30.0) + panel_h
-        {
+        let (rpx, rpy, rpw, rph) = tech_ui::panel_rect(kind, &ctx.progress.player(pid).techs);
+        if crate::ui::point_in_rect(screen_mouse, rpx, rpy, rpw, rph) {
             click_consumed = true;
         }
 

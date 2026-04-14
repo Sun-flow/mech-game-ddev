@@ -1,9 +1,11 @@
+use log::{debug, info};
 use macroquad::prelude::*;
 
 use crate::arena::{ARENA_H, ARENA_W};
 use crate::battle_phase::BattleState;
 use crate::context::GameContext;
 use crate::game_state::GamePhase;
+use crate::net;
 use crate::terrain;
 
 /// Returns true if the caller should `continue` (skip rendering this frame).
@@ -40,12 +42,12 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) -> bool {
             }
 
             // Debug dump of initial battle state
-            eprintln!("[BATTLE-START] round={} total_units={}",
+            debug!("[BATTLE-START] round={} total_units={}",
                 ctx.progress.round, ctx.units.len());
             for pl in &ctx.progress.players {
                 let count = ctx.units.iter().filter(|u| u.player_id == pl.player_id).count();
                 let pack_count = pl.packs.len();
-                eprintln!("  player {} ({}): {} units from {} packs",
+                debug!("  player {} ({}): {} units from {} packs",
                     pl.player_id, pl.name, count, pack_count);
             }
             // Per-unit dump, sorted by ID for direct host/guest comparison
@@ -55,10 +57,36 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) -> bool {
                 .collect();
             ids.sort_by_key(|(id, _, _, _, _, _)| *id);
             for (id, kind, pid, px, py, hp) in &ids {
-                eprintln!("  unit id={} kind={:?} pid={} pos=({:.1},{:.1}) hp={:.1}",
+                debug!("  unit id={} kind={:?} pid={} pos=({:.1},{:.1}) hp={:.1}",
                     id, kind, pid, px, py, hp);
             }
 
+            // Send ReadyForBattle and wait for peer's ready signal
+            n.send(net::NetMessage::ReadyForBattle);
+            info!("[SYNC] Sent ReadyForBattle, waiting for peer");
+
+            // If peer already sent their ready (they were faster), go straight to Battle
+            if n.peer_ready_for_battle {
+                info!("[SYNC] Peer already ready, starting battle");
+                n.peer_ready_for_battle = false;
+                ctx.phase = GamePhase::Battle;
+            } else {
+                ctx.phase = GamePhase::WaitingForBattleStart;
+            }
+            return true;
+        }
+    }
+    false
+}
+
+/// Poll for the peer's ReadyForBattle signal. Returns true if transitioning to Battle.
+pub fn update_waiting_for_battle_start(ctx: &mut GameContext) -> bool {
+    if let Some(ref mut n) = ctx.net {
+        n.poll();
+
+        if n.peer_ready_for_battle {
+            info!("[SYNC] Peer ready, starting battle");
+            n.peer_ready_for_battle = false;
             ctx.phase = GamePhase::Battle;
             return true;
         }

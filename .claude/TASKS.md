@@ -2,9 +2,10 @@
 
 ## Current Tasks
 
-- [ ] **Tech panel UI rework** — move stats/tech panel from world-space to screen-space, lower-right corner, flush with borders, wide-and-flat layout instead of tall-and-thin
-- [ ] **Verify multiplayer sync live** — both fixes applied (unit_ids in BuildComplete, canonical Vec ordering), needs a clean multiplayer test with sell/undo to confirm zero desyncs
+- [x] **Tech panel UI rework** — moved to bottom-right corner, wide-and-flat layout with stats sidebar + wrapping tech cards
+- [x] **Verify multiplayer sync live** — tested across multiple sessions, zero desyncs observed
 - [ ] **Commit balance + sync + determinism work** — 14 modified source files + new `src/determinism.rs` + `balance/` folder, all uncommitted
+- [ ] **Test time dilation + step cap + barrier** — all three implemented, needs multiplayer test to verify stutter reduction and hash alignment
 
 ## Backlog
 
@@ -16,6 +17,7 @@
 - [ ] **New-round false-positive guard** — ensure sync protocol doesn't trigger during the first few frames after Battle phase start when pack spawn state might briefly differ
 - [ ] **Centralize battle unit assembly** — extract a `prepare_battle_units()` helper called from both `waiting_phase.rs` and `round_result.rs` to reduce duplication and enforce canonical ordering in one place
 - [ ] **Remove DEBUG_DUMP_FRAMES** — set to 0 or remove entirely once sync is verified stable (currently 30, adds verbose logging to first 30 frames of each battle)
+- [ ] **Tune time dilation parameters** — DILATION_THRESHOLD (3 frames), DILATION_FACTOR (5%), MAX_STEPS_PER_FRAME (2) may need tuning after real-network testing
 
 ## Completed
 

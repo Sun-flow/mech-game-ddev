@@ -19,8 +19,8 @@
 
 ### Next Up
 
-- [ ] **Tech panel UI rework** — screen-space, lower-right, wide-and-flat layout
-- [ ] **Live verification of sync protocol** — test with sell/undo to confirm zero desyncs
+- [ ] **Test time dilation + step cap** — multiplayer test to verify stutter reduction
+- [ ] **Tune dilation parameters** — adjust threshold/factor based on real-network testing
 - [ ] More gameplay features (TBD)
 
 ## Roadmap
@@ -34,5 +34,6 @@
 7. ~~Escape menu, camera controls, codebase consolidation~~ (done)
 8. ~~Balance pass: units + techs~~ (done, `balance/` folder for specs)
 9. ~~Deterministic lockstep sync with rollback+replay recovery~~ (done, 18 tests in `src/determinism.rs`)
-10. **Live verification** (current) — two-instance testing of new sync protocol under real network conditions
-11. Multi-peer networking (future — canonical architecture ready)
+10. ~~Live verification~~ (done) — zero desyncs confirmed across multiple multiplayer sessions
+11. **Tech panel rework + logging + frame sync** (current) — tech panel moved to bottom-right wide-and-flat layout; file-based logging via `log`+`simplelog`; sync barrier, time dilation, step cap for smooth multiplayer
+12. Multi-peer networking (future — canonical architecture ready)

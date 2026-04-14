@@ -10,6 +10,7 @@ mod game_over;
 mod game_state;
 mod input;
 mod lobby;
+mod logging;
 pub mod ui;
 mod match_progress;
 mod net;
@@ -49,6 +50,7 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    logging::init();
     let mut ctx = context::GameContext::new();
     let mut battle = battle_phase::BattleState::new();
     let mut lobby = lobby::LobbyState::new();
@@ -158,7 +160,7 @@ async fn main() {
         }
 
         // Escape menu toggle (only during match phases)
-        let in_match = matches!(ctx.phase, GamePhase::Build | GamePhase::WaitingForOpponent | GamePhase::Battle | GamePhase::RoundResult { .. });
+        let in_match = matches!(ctx.phase, GamePhase::Build | GamePhase::WaitingForOpponent | GamePhase::WaitingForBattleStart | GamePhase::Battle | GamePhase::RoundResult { .. });
         if in_match && is_key_pressed(KeyCode::Escape) {
             if ctx.chat.open {
                 ctx.chat.open = false;
@@ -234,6 +236,12 @@ async fn main() {
                 }
             }
 
+            GamePhase::WaitingForBattleStart => {
+                if waiting_phase::update_waiting_for_battle_start(&mut ctx) {
+                    continue;
+                }
+            }
+
             GamePhase::Battle => {
                 battle_phase::update(&mut ctx, &mut battle, &mouse, dt);
             }
@@ -293,7 +301,7 @@ async fn main() {
                 phase_ui::draw_build_ui(&ctx.build, &ctx.progress, &ctx.units, mouse.screen_mouse, &arena_camera, ctx.local_player_id);
             }
 
-            GamePhase::WaitingForOpponent => {
+            GamePhase::WaitingForOpponent | GamePhase::WaitingForBattleStart => {
                 phase_ui::draw_waiting_ui(&ctx.progress, &ctx.build, ctx.local_player_id);
             }
 
