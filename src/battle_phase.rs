@@ -24,7 +24,9 @@ pub const MAX_STEPS_PER_FRAME: u32 = 2;
 
 /// Frame advantage threshold before time dilation kicks in. If one client
 /// is more than this many frames ahead/behind, it slows down/speeds up.
-pub const DILATION_THRESHOLD: i32 = 3;
+/// Set above typical RTT-induced jitter (observed ~14 frames in logs) so
+/// normal network latency doesn't trigger dilation flapping.
+pub const DILATION_THRESHOLD: i32 = 10;
 
 /// How much to scale dt when dilating. 0.05 = ±5% speed adjustment.
 /// At 60fps this means 57-63 effective simulation fps — imperceptible.
@@ -118,6 +120,10 @@ pub struct BattleState {
     pub round_end_timeout: f32,
     pub projectiles: Vec<Projectile>,
     pub splash_effects: Vec<SplashEffect>,
+    /// Render-frame counter (distinct from sim frame). Increments once per
+    /// update() call in the multiplayer branch. Used for per-render-frame
+    /// diagnostics (dt logging) to correlate render cadence vs sim stepping.
+    pub render_frames: u32,
 }
 
 impl BattleState {
@@ -133,6 +139,7 @@ impl BattleState {
             round_end_timeout: 0.0,
             projectiles: Vec::new(),
             splash_effects: Vec::new(),
+            render_frames: 0,
         }
     }
 
@@ -147,6 +154,7 @@ impl BattleState {
         self.round_end_timeout = 0.0;
         self.projectiles.clear();
         self.splash_effects.clear();
+        self.render_frames = 0;
     }
 }
 
@@ -179,6 +187,13 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, _ms: &crate::inpu
                 battle.frame, battle.peer_frame, frame_advantage, dilation);
         }
         battle.accumulator += dt * dilation;
+
+        // Per-render-frame timing diagnostic: log wall-clock dt, dilation,
+        // sim steps taken, and accumulator residual. Logs every render frame
+        // for the first ~10s at 120Hz (1200 frames) — enough to capture the
+        // initial movement phase and a bit of engagement for comparison.
+        battle.render_frames += 1;
+        let render_frame_idx = battle.render_frames;
 
         // Step cap: prevent burst stutter by limiting ticks per render frame.
         let mut steps = 0u32;
@@ -221,6 +236,20 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState, _ms: &crate::inpu
                     local_hash,
                 );
             }
+        }
+
+        // Per-render-frame timing log (first 1200 render frames ≈ 10s @120Hz)
+        if render_frame_idx <= 1200 {
+            debug!(
+                "[RFRAME r={} f={}] dt={:.4}ms dilation={:.2} steps={} acc={:.2}ms units={}",
+                render_frame_idx,
+                battle.frame,
+                dt * 1000.0,
+                dilation,
+                steps,
+                battle.accumulator * 1000.0,
+                ctx.units.len(),
+            );
         }
 
         // --- Process incoming sync messages (outside fixed-timestep loop) ---

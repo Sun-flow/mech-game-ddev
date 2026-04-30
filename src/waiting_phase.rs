@@ -35,6 +35,7 @@ pub fn update(ctx: &mut GameContext, battle: &mut BattleState) -> bool {
 
             macroquad::rand::srand(ctx.progress.round as u64);
             battle.reset();
+            n.clear_battle_sync_state();
 
             for unit in ctx.units.iter_mut() {
                 unit.damage_dealt_round = 0.0;

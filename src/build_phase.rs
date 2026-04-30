@@ -120,6 +120,7 @@ pub fn update(
                 ai_pid,
             );
             battle.reset();
+            if let Some(ref mut n) = ctx.net { n.clear_battle_sync_state(); }
         }
         return;
     }
@@ -438,6 +439,7 @@ pub fn update(
                 ai_pid,
             );
             battle.reset();
+            if let Some(ref mut n) = ctx.net { n.clear_battle_sync_state(); }
         }
     }
 }

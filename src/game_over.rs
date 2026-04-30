@@ -50,6 +50,7 @@ pub fn update(
         ctx.nav_grid = None;
         ctx.chat = chat::ChatState::new();
         battle.reset();
+        if let Some(ref mut n) = ctx.net { n.clear_battle_sync_state(); }
         ctx.phase = if ctx.game_settings.draft_ban_enabled {
             GamePhase::DraftBan { bans: Vec::new(), confirmed: false, peer_bans: None }
         } else {

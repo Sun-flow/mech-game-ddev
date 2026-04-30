@@ -135,6 +135,14 @@ impl NetState {
         }
     }
 
+    /// Clear battle-scoped sync buffers. Call at each `battle.reset()` site to
+    /// prevent stale StateHash messages from the previous round polluting
+    /// `peer_frame` / spurious mismatch detection on the next round's frame 0.
+    pub fn clear_battle_sync_state(&mut self) {
+        self.received_state_hashes.clear();
+        self.received_state_sync = None;
+    }
+
     /// Call every frame to drive the WebRTC connection.
     pub fn poll(&mut self) {
         // Drive the message loop future (non-blocking)
